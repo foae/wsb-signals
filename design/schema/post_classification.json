@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/post_classification.json",
+  "title": "post_classification",
+  "description": "Enrichment (Phase 4) — one content_item LLM classifier output. Per-item evidence only; no aggregation path to any per-ticker win rate (survivorship firewall). See data-dictionary.md §8.2 and data-model.md §5.4.",
+  "type": "object",
+  "x-grain": "one content_item — LLM classifier output",
+  "x-natural-key": ["platform", "thing_id"],
+  "x-lifecycle": "P4",
+  "x-derived-from": "content_item",
+  "x-constraint": "SURVIVORSHIP FIREWALL: reported_pnl/win_loss/yolo_usd are per-item evidence only — NO aggregation path to any per-ticker win rate.",
+  "additionalProperties": false,
+  "required": ["platform", "thing_id", "model", "classified_at"],
+  "properties": {
+    "platform": {
+      "$ref": "_common.json#/$defs/Platform",
+      "x-key": true, "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "description": "Community source of the classified content_item."
+    },
+    "thing_id": {
+      "$ref": "_common.json#/$defs/Id",
+      "x-key": true, "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "description": "The content_item id being classified."
+    },
+    "ticker": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Symbol" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "none",
+      "description": "The item's primary ticker (if any)."
+    },
+    "is_option_play": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Boolean" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "unknown",
+      "description": "Whether the post is an options trade vs shares."
+    },
+    "llm_stance": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Direction" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "unclassified",
+      "description": "LLM-assessed stance (stronger than keyword net_dir): bull / bear / neutral."
+    },
+    "yolo_usd": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Money" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "not disclosed",
+      "description": "Position size extracted from text or screenshots. Per-item evidence — never aggregated to a win rate."
+    },
+    "reported_pnl": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Money" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "not disclosed",
+      "description": "Self-reported profit/loss. Per-item evidence — never aggregated to a per-ticker rate."
+    },
+    "win_loss": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/WinLoss" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "unknown",
+      "description": "Outcome label: win / loss / breakeven. Per-item only — survivorship firewall prohibits aggregation."
+    },
+    "model": {
+      "$ref": "_common.json#/$defs/Text",
+      "x-lifecycle": "P4", "x-src": "meta",
+      "description": "Which LLM/version produced this classification (provenance)."
+    },
+    "classified_at": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "P4", "x-src": "meta", "x-time": "observation",
+      "description": "When this classification was derived."
+    }
+  }
+}

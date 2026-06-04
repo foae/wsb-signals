@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/market_bar.json",
+  "title": "market_bar",
+  "description": "Raw event stream — one OHLCV price bar for an instrument at a timestamp. Defined but not written in v0.0.1. See data-dictionary.md §7.1 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "ticker × bar_ts — OHLCV",
+  "x-natural-key": ["ticker", "bar_ts"],
+  "x-lifecycle": "def",
+  "additionalProperties": false,
+  "required": ["ticker", "bar_ts", "open", "high", "low", "close", "volume", "feed", "as_of"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "def", "x-src": "stock",
+      "description": "Instrument. Must exist in instrument."
+    },
+    "bar_ts": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "def", "x-src": "stock", "x-time": "event",
+      "description": "Bar start (event time)."
+    },
+    "open": {
+      "$ref": "_common.json#/$defs/Money",
+      "x-lifecycle": "def", "x-src": "stock",
+      "description": "Opening price. Decimal — never float."
+    },
+    "high": {
+      "$ref": "_common.json#/$defs/Money",
+      "x-lifecycle": "def", "x-src": "stock",
+      "description": "High price. Decimal — never float."
+    },
+    "low": {
+      "$ref": "_common.json#/$defs/Money",
+      "x-lifecycle": "def", "x-src": "stock",
+      "description": "Low price. Decimal — never float."
+    },
+    "close": {
+      "$ref": "_common.json#/$defs/Money",
+      "x-lifecycle": "def", "x-src": "stock",
+      "description": "Closing price. Decimal — never float."
+    },
+    "volume": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "def", "x-src": "stock",
+      "description": "Shares traded in the bar. Fidelity = feed (IEX thin → SIP/IBKR full)."
+    },
+    "vwap": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Money" }, { "type": "null" }],
+      "x-lifecycle": "def", "x-src": "stock",
+      "x-null": "unavailable",
+      "description": "Volume-weighted average price. Decimal — never float."
+    },
+    "feed": {
+      "$ref": "_common.json#/$defs/Feed",
+      "x-lifecycle": "def", "x-src": "meta",
+      "description": "Market-data provenance → confidence."
+    },
+    "as_of": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "def", "x-src": "meta", "x-time": "observation",
+      "description": "Observation time of this bar snapshot."
+    }
+  }
+}

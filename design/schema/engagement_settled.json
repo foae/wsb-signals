@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/engagement_settled.json",
+  "title": "engagement_settled",
+  "description": "Enrichment (Phase 4) — one settled-engagement reconciliation for a content_item. Reddit >36 h; Discord reactions are live. Never feeds the live H_e. See data-dictionary.md §8.1 and data-model.md §5.4.",
+  "type": "object",
+  "x-grain": "one settled-engagement reconciliation for a content_item",
+  "x-natural-key": ["platform", "thing_id"],
+  "x-lifecycle": "P4",
+  "x-derived-from": "content_item",
+  "additionalProperties": false,
+  "required": ["platform", "thing_id", "settled_at"],
+  "properties": {
+    "platform": {
+      "$ref": "_common.json#/$defs/Platform",
+      "x-key": true, "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "description": "Community source of the reconciled content_item."
+    },
+    "thing_id": {
+      "$ref": "_common.json#/$defs/Id",
+      "x-key": true, "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "description": "The content_item id being reconciled."
+    },
+    "thing_type": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/ContentKind" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "x-null": "not yet resolved",
+      "description": "Kind of the reconciled content_item."
+    },
+    "ticker": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Symbol" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "none",
+      "description": "Convenience denormalization — the primary ticker of the item, if any."
+    },
+    "upvotes": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit",
+      "x-null": "n/a on Discord",
+      "description": "Reddit settled upvotes (captured >36 h after creation when score stabilizes)."
+    },
+    "reaction_total": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "discord",
+      "x-null": "n/a on Reddit",
+      "description": "Discord total emoji reactions (live — no 36 h lag)."
+    },
+    "num_comments": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit",
+      "x-null": "unknown",
+      "description": "Settled Reddit reply count."
+    },
+    "num_replies": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "discord",
+      "x-null": "unknown",
+      "description": "Settled Discord reply count."
+    },
+    "awards": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit",
+      "x-null": "unknown",
+      "description": "Reddit awards count."
+    },
+    "eng_per_mention": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Ratio" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "calc",
+      "x-null": "upvotes unavailable",
+      "x-requires": ["upvotes"],
+      "description": "upvotes / mentions — separates endorsed chatter from noise. Only on settled data. Feeds a separate settled H_e for tuning/backtests — never the live H_e."
+    },
+    "settled_at": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "P4", "x-src": "meta", "x-time": "observation",
+      "description": "When this reconciliation snapshot was taken."
+    }
+  }
+}

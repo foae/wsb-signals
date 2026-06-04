@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/options_contract.json",
+  "title": "options_contract",
+  "description": "Contract-level RAW options chain — one (strike × expiry × right) observation per snapshot. The source from which breadth/uoa/iv_skew are re-derivable (a pre-aggregated chain snapshot can't be). options_snapshot is its per-(ticker, snap_ts) aggregate. See data-dictionary.md §7.2 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "one options contract (strike × expiry × right) observation at a snapshot",
+  "x-natural-key": ["ticker", "snap_ts", "expiry", "strike", "right"],
+  "x-lifecycle": "P2",
+  "additionalProperties": false,
+  "required": ["ticker", "snap_ts", "expiry", "strike", "right", "volume", "open_interest", "feed", "as_of"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "P2", "x-src": "options",
+      "description": "Underlying instrument. Must exist in instrument."
+    },
+    "snap_ts": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "P2", "x-src": "options", "x-time": "event",
+      "description": "Snapshot time (event). Options data is often 15-min delayed on free tiers."
+    },
+    "expiry": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "P2", "x-src": "options", "x-time": "event",
+      "description": "Contract expiration date."
+    },
+    "strike": {
+      "$ref": "_common.json#/$defs/Money",
+      "x-key": true, "x-lifecycle": "P2", "x-src": "options",
+      "description": "Strike price (decimal)."
+    },
+    "right": {
+      "$ref": "_common.json#/$defs/OptionRight",
+      "x-key": true, "x-lifecycle": "P2", "x-src": "options",
+      "description": "Contract type: call or put."
+    },
+    "volume": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "P2", "x-src": "options",
+      "description": "Contracts traded this snapshot."
+    },
+    "open_interest": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "P2", "x-src": "options",
+      "description": "Open interest; the basis for uoa = vol / OI."
+    },
+    "iv": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Per-contract implied volatility."
+    },
+    "delta": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "no Greeks tier",
+      "description": "Greek: delta (when the feed provides Greeks)."
+    },
+    "gamma": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "no Greeks tier",
+      "description": "Greek: gamma (when the feed provides Greeks)."
+    },
+    "vega": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "no Greeks tier",
+      "description": "Greek: vega (when the feed provides Greeks)."
+    },
+    "theta": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "no Greeks tier",
+      "description": "Greek: theta (when the feed provides Greeks)."
+    },
+    "feed": {
+      "$ref": "_common.json#/$defs/Feed",
+      "x-lifecycle": "P2", "x-src": "meta",
+      "description": "Market-data provenance → confidence."
+    },
+    "as_of": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "P2", "x-src": "meta", "x-time": "observation",
+      "description": "Observation time of the chain read (free tiers often 15-min delayed)."
+    }
+  }
+}

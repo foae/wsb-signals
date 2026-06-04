@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/empirical_feature.json",
+  "title": "empirical_feature",
+  "description": "Family A — the WSB-side (community) cell. What the crowd is doing. Community-sourced only (no market data). See data-dictionary.md §3 and signals-catalog.md §3.1.",
+  "type": "object",
+  "x-grain": "ticker × window_start × resolution (× platform when per-source)",
+  "x-natural-key": ["ticker", "window_start", "resolution"],
+  "x-lifecycle": "live",
+  "x-derived-from": "mention",
+  "additionalProperties": false,
+  "required": ["ticker", "window_start", "resolution", "mentions", "authors", "sov", "h_e", "total_window_mentions", "quiet"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "live", "x-src": "calc",
+      "description": "Whitelist-validated symbol; must exist in instrument."
+    },
+    "window_start": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "live", "x-src": "meta", "x-time": "event",
+      "description": "Inclusive lower bound of the half-open window [window_start, +len(resolution))."
+    },
+    "resolution": {
+      "$ref": "_common.json#/$defs/Resolution",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta",
+      "description": "Window length. 1h is the v0.0.1 primary (implicit today; explicit here)."
+    },
+    "platform": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Platform" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "meta",
+      "description": "Optional grain extension: null/absent = combined community view; a Platform value = a per-source cell. When present it extends the natural key (enables cross-platform signals)."
+    },
+    "mentions": {
+      "$ref": "_common.json#/$defs/Count",
+      "minimum": 1, "x-lifecycle": "live", "x-src": "reddit|discord",
+      "x-mode": "core", "x-sources": ["reddit", "discord"],
+      "description": "Distinct (thing × ticker) references this window. A raw count — never the ranker."
+    },
+    "authors": {
+      "$ref": "_common.json#/$defs/Count",
+      "minimum": 1, "x-lifecycle": "live", "x-src": "reddit|discord",
+      "x-mode": "core", "x-sources": ["reddit", "discord"],
+      "description": "Distinct accounts (bots filtered). Drives the H_e support shrink."
+    },
+    "sov": {
+      "$ref": "_common.json#/$defs/UnitInterval",
+      "x-lifecycle": "live", "x-src": "reddit|discord",
+      "x-mode": "core", "x-sources": ["reddit", "discord"], "x-requires": ["mentions"],
+      "description": "Share of voice — THE primary ranker. mentions(T) / Σ mentions(all T) this window."
+    },
+    "velocity": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "calc", "x-null": "no prior window exists (cold start or polling gap)",
+      "x-mode": "core", "x-requires": ["mentions"],
+      "description": "1st derivative: mentions(W) − mentions(W−1) same resolution. null (not 0) when no prior."
+    },
+    "accel": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "calc", "x-null": "velocity or its prior is undefined",
+      "x-mode": "core", "x-requires": ["velocity"],
+      "description": "2nd derivative: velocity(W) − velocity(W−1). Early-breakout signal; negatives floored to 0 in H_e."
+    },
+    "rank": {
+      "$ref": "_common.json#/$defs/Count",
+      "minimum": 1, "x-lifecycle": "txn", "x-src": "calc",
+      "description": "Position on the sov leaderboard (1 = top). Computed today; persist in the canonical model."
+    },
+    "rank_delta": {
+      "$ref": "_common.json#/$defs/Real",
+      "x-lifecycle": "txn", "x-src": "calc",
+      "description": "SoV places climbed vs the previous window: prior_rank − cur_rank. +ve = climbing; 0 when no prior rank."
+    },
+    "z": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "calc", "x-null": "baseline not ready or σ=0",
+      "x-mode": "enriched", "x-requires": ["mentions", "baseline_status"], "x-degrades-when": "baseline cold/warming (forward-only warmup); Reddit backfill improves it",
+      "description": "(mentions − μ_base)/σ_base vs same hour-of-week history. Weight 0 in H_e until ready."
+    },
+    "net_dir": {
+      "$ref": "_common.json#/$defs/SignedUnit",
+      "default": 0, "x-lifecycle": "live", "x-src": "calc",
+      "x-mode": "core", "x-degrades-when": "keyword-only without LLM stance (P4)",
+      "description": "(bull − bear)/(bull + bear) over direction tokens. Direction, not ironic sentiment. H_e uses |net_dir|."
+    },
+    "dd_count": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "reddit",
+      "x-mode": "gated", "x-sources": ["reddit"],
+      "x-null": "Reddit source absent (Discord-only cell); 0 = observed-zero DD posts. A null conviction term is EXCLUDED from H_e and weights renormalize, not zero-substituted.",
+      "description": "# DD-flaired posts (Reddit-unique). null = no Reddit data this cell."
+    },
+    "yolo_usd": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Money" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit|discord", "x-null": "no extractable position size",
+      "x-mode": "enriched",
+      "description": "Σ disclosed position $ this window (text now; OCR/vision later). Per-item evidence, never a win rate."
+    },
+    "flair_counts": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/MapStringCount" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "reddit",
+      "x-null": "Reddit source absent (Discord-only cell); empty {} = Reddit present, no flairs",
+      "description": "Mentions split by Reddit flair, e.g. {\"DD\":2,\"YOLO\":7}. Discord analog = channel breakdown."
+    },
+    "astroturf": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit|discord", "x-null": "not yet computed",
+      "x-mode": "enriched",
+      "description": "Share of mentions from new accounts / coordinated bursts. A warning, not a trade."
+    },
+    "baseline_status": {
+      "$ref": "_common.json#/$defs/BaselineStatus",
+      "default": "cold", "x-lifecycle": "live", "x-src": "meta",
+      "description": "Whether z is trustworthy: cold → warming → ready."
+    },
+    "h_e": {
+      "$ref": "_common.json#/$defs/UnitInterval",
+      "x-lifecycle": "live", "x-src": "calc",
+      "x-mode": "core", "x-sources": ["reddit", "discord"],
+      "x-requires": ["sov", "accel", "rank_delta", "authors", "dd_count", "net_dir"],
+      "description": "WSB Heat — composite 'how hot on WSB now' + the ranker. Weighted max-normed blend × support shrink. Community-only; needs no market data. See data-dictionary §10.2."
+    },
+    "total_window_mentions": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "live", "x-src": "calc",
+      "description": "Σ mentions across all tickers in this (window_start, resolution) — the sov denominator and the basis of quiet."
+    },
+    "quiet": {
+      "$ref": "_common.json#/$defs/Boolean",
+      "x-lifecycle": "live", "x-src": "calc",
+      "description": "total_window_mentions < min_window_mentions ⇒ low-confidence window. A window-trust flag on the cell, not just the snapshot."
+    },
+    "computed_at": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "meta", "x-time": "observation",
+      "description": "When this cell was derived (observation time)."
+    }
+  }
+}

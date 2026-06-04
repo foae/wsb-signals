@@ -1,0 +1,13 @@
+# WSB extractor — AMBIGUOUS tokens: real listed tickers that are ALSO common
+# English / tech words. Unlike the stoplist (tokens that are *never* a ticker),
+# these ARE valid symbols, so we keep them — but require TRADING CONTEXT (an
+# options/position word, or a $-cashtag, in the same post/comment) before
+# counting a mention. This kills the classic false positive where "DRAM" the
+# memory chip is read as the Roundhill Memory ETF. A $-cashtag always overrides.
+#
+# Keep this list SMALL and conservative: add a token only when its English-word
+# usage clearly dominates its ticker usage on r/wallstreetbets. The principled
+# fix (per-token trading-context *weighting*, alt ticker universe) is Phase 4.
+# One or more tokens per line; '#' starts a comment.
+
+DRAM

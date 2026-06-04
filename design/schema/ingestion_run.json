@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/ingestion_run.json",
+  "title": "ingestion_run",
+  "description": "Coverage / provenance of each raw pull — makes ingest completeness a queryable fact (sov denominator trust). The structured form of `wsb heartbeat` + the [CAP] pagination canary. Append-only metadata, not regenerable. See data-dictionary.md §7.5 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "one ingestion pass per (source, kind) at a poll time",
+  "x-natural-key": ["source", "kind", "poll_ts"],
+  "x-lifecycle": "new",
+  "additionalProperties": false,
+  "required": ["source", "kind", "poll_ts", "items_fetched", "pages", "capped"],
+  "properties": {
+    "source": {
+      "$ref": "_common.json#/$defs/Source",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta",
+      "description": "The tap pulled (arctic_shift is the sole live Reddit tap in v0.0.1)."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["post", "comment", "message", "market"],
+      "x-logical-type": "Enum",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta",
+      "description": "What was pulled. Superset of ContentKind (adds `market` for market-data pulls)."
+    },
+    "poll_ts": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta", "x-time": "observation",
+      "description": "When the pull ran (observation time)."
+    },
+    "cursor": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "new", "x-src": "meta",
+      "x-null": "first pull (no prior cursor)",
+      "description": "Pagination / since token carried forward to the next pull."
+    },
+    "oldest_item": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "new", "x-src": "meta", "x-time": "event",
+      "x-null": "nothing fetched",
+      "description": "Event time of the oldest item fetched this pull."
+    },
+    "newest_item": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "new", "x-src": "meta", "x-time": "event",
+      "x-null": "nothing fetched",
+      "description": "Event time of the newest item fetched this pull."
+    },
+    "items_fetched": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "new", "x-src": "meta",
+      "description": "Rows returned this pull."
+    },
+    "pages": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "new", "x-src": "meta",
+      "description": "Pages walked this pull."
+    },
+    "capped": {
+      "$ref": "_common.json#/$defs/Boolean",
+      "x-lifecycle": "new", "x-src": "meta",
+      "description": "Hit the pagination cap ⇒ the window may be incomplete ⇒ its sov denominator is untrustworthy (data-model invariant 14)."
+    },
+    "lag_seconds": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Duration" }, { "type": "null" }],
+      "x-unit": "seconds",
+      "x-lifecycle": "new", "x-src": "meta",
+      "x-null": "tap returned nothing",
+      "description": "Newest item vs wall clock — the freshness/staleness measure (alarms above heartbeat.max_staleness_seconds)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ok", "stale", "down"],
+      "x-logical-type": "Enum",
+      "x-lifecycle": "new", "x-src": "meta",
+      "description": "Heartbeat verdict (mirrors `wsb heartbeat` exit codes: ok / stale / tap down)."
+    }
+  }
+}

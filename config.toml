@@ -1,0 +1,70 @@
+# WSB Signals — tunable config. Secrets live in .env (gitignored), NOT here.
+# See design/architecture.md (§2–§4) and design/signal-framework.md (§4–§5).
+
+[ingest]
+subreddit       = "wallstreetbets"
+poll_seconds    = 300        # 5-min cadence (architecture §3)
+min_poll_gap_seconds = 60    # startup floor: after a restart, wait out this gap since the last poll
+window_seconds  = 3600       # 1h primary window (signal-framework §7)
+max_pages       = 60         # pagination safety cap (×page_limit items)
+page_limit      = 100
+request_timeout = 60
+user_agent      = "wsb-signals/0.0.1 (research; contributors@example.invalid)"
+
+[sources.arctic_shift]
+base_url = "https://arctic-shift.photon-reddit.com/api"
+
+[extract]
+# Candidate token: optional $-cashtag + 1–5 uppercase letters. A $-prefix overrides
+# the stoplist (high-confidence cashtag) AND admits single-letter symbols ($F, $T);
+# bare single letters are dropped as noise (architecture §2.2).
+candidate_regex = '(?<![A-Za-z0-9])(\$)?([A-Z]{1,5})(?![A-Za-z0-9])'
+stoplist_path   = "whitelist/stoplist.txt"
+whitelist_path  = "whitelist/symbols.txt"   # built by `wsb build-whitelist` (Alpaca universe)
+ambiguous_path  = "whitelist/ambiguous.txt" # real tickers that are also common words (DRAM…) → require trading context
+bots            = ["AutoModerator", "VisualMod", "wsbapp", "OPStockBot"]
+
+[heat]
+# Support gating — keep thin-evidence rows off the top of the board (signal-framework §4).
+# In a quiet (off-hours) window a single mention max-normalizes to 1.0 on every component, so
+# without these a lone comment can score ~0.75 H_e and rank #1.
+min_authors_full    = 3   # H_e support shrink: h_e *= min(1, distinct_authors / this). 1 author ⇒ ~⅓.
+min_window_mentions = 20  # below this many total mentions, the window is flagged `quiet` (low-confidence).
+
+# H_e component weights — sensible defaults; tune in Phase 4 (signal-framework §5).
+# sov carries primary weight; z enters only once its baseline is `ready` (§4).
+[heat.weights]
+sov        = 0.35
+accel      = 0.15
+rank_delta = 0.15
+authors    = 0.15
+conviction = 0.10
+net_dir    = 0.10
+z          = 0.00   # zeroed until baseline `ready`
+
+[baseline]
+hour_of_week_buckets = 168
+min_samples_ready    = 8     # per-(ticker, bucket) floor before z is trusted
+
+[market]
+# Phase 2 overlay (Alpaca free). Gated to the WSB-hot list. See sources/market-data-access.md.
+feed         = "iex"   # free stock feed — thin volume → rvol is low-confidence
+top_n        = 25      # fetch market data for the top-N WSB-hot tickers (by H_e)
+screener_top = 25      # most-actives / movers list size (captured for STEALTH, v0.0.2)
+
+[market.weights]       # H_m blend — stock-only for now; pcr/iv enter with the options increment
+ret  = 0.5
+rvol = 0.5
+pcr  = 0.0
+iv   = 0.0
+
+[heartbeat]
+max_staleness_seconds = 1800  # alarm if newest Arctic-Shift item older than this (Phase 0.5)
+
+[storage]
+db_path  = "data/wsb.duckdb"
+data_dir = "data"
+
+[dashboard]
+address = "0.0.0.0"   # bind all interfaces — reachable from the host (Incus container dev env)
+port    = 8501        # read-only board over public WSB data; no secrets exposed

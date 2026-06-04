@@ -1,0 +1,21 @@
+# Secrets / local env — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# Local data store (forward-collected; not for git)
+*.duckdb
+*.sqlite
+data/
+
+# Derived ticker whitelist — refreshable via `wsb build-whitelist` (stoplist.txt is curated, kept)
+whitelist/symbols.txt

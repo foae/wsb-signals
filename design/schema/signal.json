@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/signal.json",
+  "title": "signal",
+  "description": "Full outer join of Family A + Family B on the grain — a cell exists if EITHER heat does; STEALTH is the analytical-only/empirical-absent case. Schema defined in v0.0.1 but not populated (v0.0.2 product layer). See data-dictionary.md §5 and data-model.md §5.3.",
+  "type": "object",
+  "x-grain": "ticker × window_start × resolution — the Attention×Action product",
+  "x-natural-key": ["ticker", "window_start", "resolution"],
+  "x-lifecycle": "def",
+  "x-derived-from": "empirical_feature ⟗ analytical_feature (full outer join)",
+  "additionalProperties": false,
+  "required": ["ticker", "window_start", "resolution"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "def", "x-src": "calc",
+      "description": "Whitelist-validated symbol; must exist in instrument."
+    },
+    "window_start": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "def", "x-src": "meta", "x-time": "event",
+      "description": "Inclusive lower bound of the half-open window [window_start, +len(resolution))."
+    },
+    "resolution": {
+      "$ref": "_common.json#/$defs/Resolution",
+      "x-key": true, "x-lifecycle": "def", "x-src": "meta",
+      "description": "Window length. 1h is the v0.0.1 primary."
+    },
+    "h_e": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "no empirical row (a STEALTH cell — market moving, WSB silent); treated as WSB-quiet for the quadrant",
+      "description": "WSB Heat, carried onto the signal cell from empirical_feature."
+    },
+    "h_m": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "no market data",
+      "description": "Market Heat, carried onto the signal cell from analytical_feature."
+    },
+    "coverage_scope": {
+      "$ref": "_common.json#/$defs/CoverageScope",
+      "x-lifecycle": "P3", "x-src": "meta",
+      "description": "Why this ticker has a market row: wsb_hot (top-N by H_e) ∪ screener_mover (market-wide, no WSB heat → STEALTH candidate, no empirical row). Makes analytical_feature INDEPENDENT of empirical_feature, not a subset."
+    },
+    "divergence": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/SignedUnit" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "either heat missing — can't subtract an unknown",
+      "x-mode": "enriched", "x-requires": ["h_e", "h_m"],
+      "description": "h_e − h_m when both present, else null. Large +ve = hype ahead of market; large −ve = market ahead of WSB."
+    },
+    "quadrant": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Quadrant" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "undetermined",
+      "x-mode": "enriched", "x-requires": ["h_e", "h_m"],
+      "description": "Pure function of (h_e, h_m) vs each one's rolling median: confirmed (both hot), hype (WSB hot, market quiet), stealth (market hot, WSB quiet), quiet (both low). A missing heat is treated as 'quiet' on that axis, so a STEALTH cell (null h_e) still gets a badge."
+    },
+    "rank": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "minimum": 1,
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "not yet computed",
+      "description": "Board position on the combined product (1 = top)."
+    },
+    "rank_delta": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "no prior rank",
+      "description": "Rank change vs the previous window: prior_rank − cur_rank. +ve = climbing."
+    },
+    "lead_lag_hrs": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Duration" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "calc",
+      "x-null": "insufficient history",
+      "x-mode": "enriched", "x-requires": ["h_e", "h_m"],
+      "x-unit": "hours",
+      "description": "Per-ticker argmax of the cross-correlation between H_e(t) and H_m(t) over a trailing window. +ve = WSB attention leads market by ~x h. Reports association, not prediction."
+    },
+    "computed_at": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "P3", "x-src": "meta", "x-time": "observation",
+      "x-null": "not yet derived",
+      "description": "Observation time of the signal derivation."
+    }
+  }
+}

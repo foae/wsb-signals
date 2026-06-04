@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/mention.json",
+  "title": "mention",
+  "description": "Raw event stream — one (ticker × content_item) reference, the atomic empirical event and source of truth for all empirical features. See data-dictionary.md §2.2 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "one (ticker × content_item) reference — atomic empirical event",
+  "x-natural-key": ["platform", "thing_id", "ticker"],
+  "x-lifecycle": "live",
+  "x-derived-from": "content_item",
+  "additionalProperties": false,
+  "required": ["ticker", "platform", "thing_id", "thing_type", "created_utc"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "calc",
+      "description": "Extracted, whitelist-validated symbol. Precedence: stoplist → whitelist → ambiguous-context gate → $-cashtag override."
+    },
+    "platform": {
+      "$ref": "_common.json#/$defs/Platform",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "Denormalized from the item so SoV/momentum compute per-source and combined."
+    },
+    "thing_id": {
+      "$ref": "_common.json#/$defs/Id",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "The producing content_item id."
+    },
+    "thing_type": {
+      "$ref": "_common.json#/$defs/ContentKind",
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "Kind of the producing item."
+    },
+    "created_utc": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord", "x-time": "event",
+      "description": "Inherited event time of the item — the value that buckets the mention into a window."
+    },
+    "author": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Id" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "deleted/unknown",
+      "description": "Distinct-author counting basis."
+    },
+    "flair": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit",
+      "x-null": "none",
+      "description": "Item flair at mention time (Reddit); on Discord, carry container (channel) instead."
+    },
+    "container": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "discord",
+      "x-null": "Reddit n/a",
+      "description": "Discord channel at mention time (Discord); Reddit uses flair instead."
+    },
+    "direction": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Direction" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "calc",
+      "x-null": "unclassified",
+      "description": "Stance from options/position language (calls/long vs puts/short) — not ironic sentiment. null = couldn't classify."
+    },
+    "weight": {
+      "$ref": "_common.json#/$defs/Ratio",
+      "default": 1.0,
+      "x-lifecycle": "live-internal", "x-src": "calc",
+      "description": "Per-mention ticker weight. v0.0.1 = 1.0 (binary grain). Hook for 1/n multi-ticker or primary-ticker boost later; aggregations sum weight so mentions/sov become weighted when weight≠1."
+    }
+  }
+}

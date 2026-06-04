@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/market_mover.json",
+  "title": "market_mover",
+  "description": "Raw event stream — one screener row capturing the market-wide most-active/gainer/loser list. Powers STEALTH detection (Phase 3). See data-dictionary.md §7.3 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "one screener row — market-wide read",
+  "x-natural-key": ["ts", "kind", "rank"],
+  "x-lifecycle": "live",
+  "additionalProperties": false,
+  "required": ["ts", "kind", "rank", "symbol"],
+  "properties": {
+    "ts": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "stock", "x-time": "event",
+      "description": "Capture time of this screener snapshot."
+    },
+    "kind": {
+      "$ref": "_common.json#/$defs/MoverKind",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "stock",
+      "description": "Screener list type: active / gainer / loser."
+    },
+    "rank": {
+      "$ref": "_common.json#/$defs/Count",
+      "minimum": 1,
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "stock",
+      "description": "Position in the screener list (1 = top)."
+    },
+    "symbol": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-lifecycle": "live-internal", "x-src": "stock",
+      "description": "The moving instrument. May be outside the WSB-hot set — that is the point for STEALTH."
+    },
+    "price": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Money" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "stock",
+      "x-null": "unavailable",
+      "description": "Last price at capture time."
+    },
+    "percent_change": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "stock",
+      "x-null": "unavailable",
+      "description": "Day percent move."
+    },
+    "volume": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "stock",
+      "x-null": "unavailable",
+      "description": "Day volume."
+    }
+  }
+}

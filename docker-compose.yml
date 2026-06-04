@@ -1,0 +1,61 @@
+# WSB Signals — containerized radar. One image, two roles, one persisted volume.
+#
+#   docker compose up -d --build      # build + start radar + dashboard
+#   docker compose logs -f radar      # live cycle logs
+#   docker compose ps                 # health/status (radar has a heartbeat healthcheck)
+#   docker compose down               # stop (the named volume — and its data — survives)
+#
+# Creds come from ./.env via env_file (ALPACA_*); they are read from the process environment
+# (config.py overlays os.environ), so nothing secret is baked into the image.
+#
+# NETWORKING — this host is Docker-inside-Incus/LXC, where the default docker bridge has NO egress
+# (NAT through the nested netns doesn't work), so both services use `network_mode: host` and the
+# build uses `network: host`. The radar MUST have egress (Arctic-Shift + Alpaca + the heartbeat);
+# the dashboard then binds 0.0.0.0:8501 directly on the host. ON A NORMAL DOCKER HOST: drop the
+# `network_mode: host` lines + `build.network`, and uncomment the bridge `ports:` on the dashboard.
+name: wsb-signals
+
+services:
+  # The radar: the SINGLE DuckDB writer — polls Arctic-Shift, computes H_e, overlays Alpaca,
+  # writes the DB + JSON snapshot to the volume. Do not scale beyond 1 (DuckDB is single-writer).
+  radar:
+    build:
+      context: .
+      network: host          # build-time egress to PyPI (nested-bridge has none); harmless elsewhere
+    image: wsb-signals:latest
+    network_mode: host        # runtime egress to Arctic-Shift / Alpaca / heartbeat
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - wsb-data:/app/data
+    # Independent freshness watchdog (replaces the systemd timer): `wsb heartbeat` probes the sole
+    # live tap and exits non-zero when stale/down → container goes `unhealthy` in `docker compose ps`.
+    # heartbeat does not touch the DB, so it's safe to run alongside the writer.
+    healthcheck:
+      test: ["CMD", "wsb", "heartbeat"]
+      interval: 10m
+      timeout: 30s
+      retries: 2
+      start_period: 3m
+
+  # The dashboard: a READER only (Streamlit over the JSON snapshot — never opens DuckDB). Mounts the
+  # volume read-only and overrides the entrypoint so it skips the whitelist build / DB access.
+  # With host networking it binds 0.0.0.0:8501 on the host directly (no port mapping needed).
+  dashboard:
+    image: wsb-signals:latest
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - radar
+    env_file: .env
+    entrypoint: ["wsb"]
+    command: ["dashboard"]
+    volumes:
+      - wsb-data:/app/data:ro
+    # On a normal (bridge) host, replace `network_mode: host` above with:
+    #   ports:
+    #     - "8501:8501"
+
+volumes:
+  # Named volume → data (DB + leaderboard.json + .last_poll) persists across restarts / recreates.
+  wsb-data:

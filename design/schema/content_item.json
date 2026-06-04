@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/content_item.json",
+  "title": "content_item",
+  "description": "Raw event stream — one Reddit post/comment or Discord message (generalized community content). See data-dictionary.md §2.1 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "one Reddit post/comment or Discord message",
+  "x-natural-key": ["platform", "id"],
+  "x-lifecycle": "partial",
+  "additionalProperties": false,
+  "required": ["platform", "id", "kind", "created_utc", "retrieved_on", "source"],
+  "properties": {
+    "platform": {
+      "$ref": "_common.json#/$defs/Platform",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "Which community source produced the item. Reddit-only today. Drives field applicability + which signals are computable."
+    },
+    "kind": {
+      "$ref": "_common.json#/$defs/ContentKind",
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "post/comment = Reddit; message = Discord."
+    },
+    "id": {
+      "$ref": "_common.json#/$defs/Id",
+      "x-key": true, "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "Platform-native id, e.g. Reddit t3_… / t1_…. Natural key with platform."
+    },
+    "created_utc": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord", "x-time": "event",
+      "description": "Event time — when the item was authored. The clock all empirical windows align to."
+    },
+    "author": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Id" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "deleted/unknown",
+      "description": "Author handle (→ author dim). Bots filtered at ingestion."
+    },
+    "container": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "not applicable",
+      "description": "Topical bucket: subreddit (Reddit) or channel (Discord). On Discord this is a segmentation/conviction signal."
+    },
+    "root_id": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Id" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "item is a root",
+      "description": "Thread/submission root id."
+    },
+    "parent_id": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Id" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "item is a root",
+      "description": "Immediate parent id (for replies)."
+    },
+    "title": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit",
+      "x-null": "n/a for comments/messages",
+      "description": "Post title (Reddit posts only)."
+    },
+    "body": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "empty",
+      "description": "Main text: post selftext / comment body / Discord message text. The substrate the ticker extractor + direction classifier run over."
+    },
+    "flair": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit",
+      "x-null": "none; Discord has no flair",
+      "description": "Reddit-unique high-integrity label (DD/YOLO/Gain/Loss/News/Discussion/Meme). Drives dd_count + flair_counts. Discord → null."
+    },
+    "roles": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/StringList" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "discord",
+      "x-null": "Reddit n/a",
+      "description": "Discord-unique author server roles (verified/OG/mod) — the Discord credibility analog to Reddit karma."
+    },
+    "score": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit",
+      "x-null": "live-unsettled",
+      "description": "Reddit upvotes/score. Settles ~36 h (scrapers report it wrong before then) → not a live signal."
+    },
+    "reaction_counts": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/MapStringCount" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "discord",
+      "x-null": "Reddit n/a",
+      "description": "Discord-unique emoji reactions — a live endorsement signal (no 36 h lag, unlike Reddit upvotes)."
+    },
+    "num_comments": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "x-null": "unknown",
+      "description": "Reply count under the item (settles like score on Reddit; live on Discord)."
+    },
+    "num_replies": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "discord",
+      "x-null": "unknown",
+      "description": "Discord reply count (live). Reddit analog is num_comments."
+    },
+    "retrieved_on": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "live-internal", "x-src": "meta", "x-time": "observation",
+      "description": "Observation time — when we fetched this snapshot. Bitemporal pair to created_utc."
+    },
+    "source": {
+      "$ref": "_common.json#/$defs/Source",
+      "x-lifecycle": "live-internal", "x-src": "meta",
+      "description": "The specific ingestion tap. arctic_shift is the sole live Reddit tap in v0.0.1."
+    }
+  }
+}

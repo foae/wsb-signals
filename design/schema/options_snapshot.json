@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/options_snapshot.json",
+  "title": "options_snapshot",
+  "description": "Per-(ticker, snap_ts) chain aggregate DERIVED from options_contract (regenerable). May be ingested directly when a feed exposes only chain aggregates (degraded — then options_contract is empty and entropy breadth is unavailable). See data-dictionary.md §7.3 and data-model.md §5.2.",
+  "type": "object",
+  "x-grain": "ticker × snap_ts — options chain aggregate",
+  "x-natural-key": ["ticker", "snap_ts"],
+  "x-lifecycle": "def",
+  "x-derived-from": "options_contract",
+  "additionalProperties": false,
+  "required": ["ticker", "snap_ts", "feed", "as_of"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "def", "x-src": "options",
+      "description": "Underlying instrument. Must exist in instrument."
+    },
+    "snap_ts": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "def", "x-src": "options", "x-time": "event",
+      "description": "Snapshot time (event time). Options data is often 15-min delayed on free tiers."
+    },
+    "call_vol": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Call contract volume."
+    },
+    "put_vol": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Put contract volume."
+    },
+    "pcr": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Ratio" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Put/Call ratio: put_vol / call_vol."
+    },
+    "call_oi": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Call open interest. Its change = real positioning, not churn."
+    },
+    "put_oi": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Put open interest. Its change = real positioning, not churn."
+    },
+    "atm_iv": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "At-the-money implied volatility."
+    },
+    "iv_rank": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Percentile of atm_iv vs trailing ~1y. Level-independent 'is IV high?'."
+    },
+    "iv_skew": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "OTM-put minus OTM-call IV (e.g. 25-delta). Crash-fear vs call-chase."
+    },
+    "uoa": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Ratio" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Unusual options activity: vol / OI ratio. ≫1 → fresh speculative positioning."
+    },
+    "breadth_strikes": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Distinct active strikes (simple breadth numerator)."
+    },
+    "breadth_expiries": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "unavailable",
+      "description": "Distinct active expiries (simple breadth numerator)."
+    },
+    "breadth_entropy": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "not computed in simple mode",
+      "description": "Normalized entropy of volume over the (strike × expiry) grid (principled breadth, P4)."
+    },
+    "feed": {
+      "$ref": "_common.json#/$defs/Feed",
+      "x-lifecycle": "def", "x-src": "meta",
+      "description": "Market-data provenance → confidence."
+    },
+    "as_of": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-lifecycle": "def", "x-src": "meta", "x-time": "observation",
+      "description": "Observation time (options are often 15-min delayed on free tiers)."
+    }
+  }
+}

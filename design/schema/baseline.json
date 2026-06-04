@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/baseline.json",
+  "title": "baseline",
+  "description": "Seasonal reference stats for z — per-ticker per-resolution rolling means/stds keyed by bucket_scheme and seasonal_bucket. See data-dictionary.md §6 and data-model.md §5.4.",
+  "type": "object",
+  "x-grain": "ticker × resolution × bucket_scheme × seasonal_bucket",
+  "x-natural-key": ["ticker", "resolution", "bucket_scheme", "seasonal_bucket"],
+  "x-lifecycle": "def",
+  "x-derived-from": "empirical_feature",
+  "additionalProperties": false,
+  "required": ["ticker", "resolution", "bucket_scheme", "seasonal_bucket"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "def", "x-src": "calc",
+      "description": "The instrument. Every ticker must exist in instrument."
+    },
+    "resolution": {
+      "$ref": "_common.json#/$defs/Resolution",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta",
+      "description": "Which rollup resolution these baselines serve."
+    },
+    "bucket_scheme": {
+      "$ref": "_common.json#/$defs/BucketScheme",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta",
+      "description": "Seasonality scheme chosen per resolution for warmup speed: 1h→hour_of_week (168), 15m→time_of_day (96, drops day-of-week to warm in days), 1d→day_of_week (7)."
+    },
+    "seasonal_bucket": {
+      "$ref": "_common.json#/$defs/SeasonalBucket",
+      "x-key": true, "x-lifecycle": "def", "x-src": "meta",
+      "description": "The recurring calendar slot index within the bucket_scheme (e.g. Mon 00:00 UTC = 0 for hour_of_week)."
+    },
+    "mention_mean": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "def", "x-src": "calc",
+      "x-null": "insufficient samples",
+      "description": "Trailing mean of mentions for this slot — μ in z."
+    },
+    "mention_std": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "def", "x-src": "calc",
+      "x-null": "insufficient samples",
+      "description": "Trailing standard deviation of mentions for this slot — σ in z."
+    },
+    "sample_count": {
+      "$ref": "_common.json#/$defs/Count",
+      "x-lifecycle": "def", "x-src": "calc",
+      "description": "Number of observations in this slot — gates status (ready at ≥ min_samples_ready)."
+    },
+    "status": {
+      "$ref": "_common.json#/$defs/BaselineStatus",
+      "x-lifecycle": "def", "x-src": "meta",
+      "description": "Per-slot readiness: cold → warming → ready. Mirrors empirical_feature.baseline_status."
+    },
+    "vol_mean": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "def", "x-src": "stock",
+      "x-null": "no market data",
+      "description": "Market analog: average volume for this slot — basis for rvol's denominator."
+    },
+    "updated_at": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "def", "x-src": "meta", "x-time": "observation",
+      "x-null": "never updated",
+      "description": "When this row was last rolling-recomputed."
+    }
+  }
+}

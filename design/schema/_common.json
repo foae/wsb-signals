@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/_common.json",
+  "title": "WSB Signals — common logical types & enumerations",
+  "description": "Shared $defs referenced by every entity schema. These define the LOGICAL type vocabulary and the closed enumerations from data-model.md §3-§4. Physical storage types (int8 vs int4, timestamptz vs epoch-bigint, JSONB vs child table, numeric vs decimal) are DELIBERATELY DEFERRED to implementation time — each logical type carries an x-logical-type tag and the JSON-level domain constraint only. A field that may be undefined uses anyOf[type, null]; null means 'could not be computed', never zero.",
+  "$defs": {
+    "Symbol": {
+      "x-logical-type": "Symbol",
+      "type": "string",
+      "pattern": "^\\$?[A-Z]{1,5}$",
+      "description": "Instrument identifier (uppercase ticker). Natural key of instrument."
+    },
+    "Id": {
+      "x-logical-type": "Id",
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque external identifier (platform-native, e.g. Reddit 't3_abc')."
+    },
+    "Text": {
+      "x-logical-type": "Text",
+      "type": "string",
+      "description": "Free Unicode text, unbounded."
+    },
+    "Count": {
+      "x-logical-type": "Count",
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cardinal integer >= 0. Physical width deferred."
+    },
+    "Real": {
+      "x-logical-type": "Real",
+      "type": "number",
+      "description": "Signed real, unbounded (differences, derivatives, z-scores, returns)."
+    },
+    "UnitInterval": {
+      "x-logical-type": "UnitInterval",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Real in [0,1] (sov, h_e, h_m, normalized components, iv_rank, entropy breadth)."
+    },
+    "SignedUnit": {
+      "x-logical-type": "SignedUnit",
+      "type": "number",
+      "minimum": -1,
+      "maximum": 1,
+      "description": "Real in [-1,+1] (net_dir, divergence)."
+    },
+    "Ratio": {
+      "x-logical-type": "Ratio",
+      "type": "number",
+      "minimum": 0,
+      "description": "Multiplicative ratio >= 0; 1.0 = parity/normal (rvol, pcr, uoa, eng_per_mention)."
+    },
+    "Money": {
+      "x-logical-type": "Money",
+      "type": "string",
+      "pattern": "^-?\\d+(\\.\\d+)?$",
+      "description": "Decimal currency amount as a string for lossless interchange. MUST bind to a decimal/numeric physical type, NEVER binary float. USD unless a currency field says otherwise."
+    },
+    "Instant": {
+      "x-logical-type": "Instant",
+      "type": ["integer", "string"],
+      "description": "A point in time, UTC. Epoch-seconds integer OR ISO-8601 string; one binding chosen project-wide. Tagged event-time or observation-time per field."
+    },
+    "Duration": {
+      "x-logical-type": "Duration",
+      "type": "number",
+      "description": "Elapsed time; logical unit declared per field via x-unit (e.g. hours, seconds)."
+    },
+    "SeasonalBucket": {
+      "x-logical-type": "SeasonalBucket",
+      "type": "integer",
+      "minimum": 0,
+      "description": "Index of a recurring calendar slot within a bucket_scheme (e.g. hour-of-week 0..167)."
+    },
+    "Boolean": {
+      "x-logical-type": "Boolean",
+      "type": "boolean"
+    },
+    "MapSymbolCount": {
+      "x-logical-type": "Map<Symbol->Count>",
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "description": "Keyed multiset, e.g. flair_counts {\"DD\":2,\"YOLO\":7}. Normalizable to a child relation in an RDBMS."
+    },
+    "MapStringCount": {
+      "x-logical-type": "Map<String->Count>",
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 },
+      "description": "Keyed multiset over arbitrary string keys, e.g. Discord reaction_counts {\"rocket\":12}."
+    },
+    "StringList": {
+      "x-logical-type": "List<Text>",
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Ordered/unordered set of strings, e.g. Discord author roles."
+    },
+
+    "Platform": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["reddit", "discord"],
+      "description": "Community source. Extensible."
+    },
+    "ContentKind": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["post", "comment", "message"],
+      "description": "post/comment = Reddit; message = Discord."
+    },
+    "Direction": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["bull", "bear", "neutral"],
+      "description": "From options/position language, not ironic sentiment. null = unclassified."
+    },
+    "BaselineStatus": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["cold", "warming", "ready"],
+      "description": "Gates z trust."
+    },
+    "Resolution": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["15m", "1h", "1d"],
+      "description": "Rollup window length. Extensible. 1h is the v0.0.1 primary."
+    },
+    "Quadrant": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["confirmed", "hype", "stealth", "quiet"],
+      "description": "Divergence quadrant (signal-framework §6.1)."
+    },
+    "MoverKind": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["active", "gainer", "loser"],
+      "description": "Screener list type."
+    },
+    "Confidence": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Quality/confidence flag travelling with a value (e.g. rvol_conf, set by feed)."
+    },
+    "Feed": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["iex", "sip", "delayed", "eod"],
+      "description": "Market-data provenance -> confidence. Extensible."
+    },
+    "Source": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["arctic_shift", "pullpush", "discord"],
+      "description": "Ingestion tap. arctic_shift is the sole live Reddit tap in v0.0.1. Extensible."
+    },
+    "WinLoss": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["win", "loss", "breakeven"],
+      "description": "Per-item outcome label. NEVER aggregated to a per-ticker rate (survivorship)."
+    },
+    "AssetClass": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["equity", "etf", "adr", "other"],
+      "description": "Security class. Extensible."
+    },
+    "ListingStatus": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["active", "delisted", "suspended"],
+      "description": "Tradability state."
+    },
+    "SignalMode": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["core", "enriched", "gated"],
+      "description": "Degradation mode of a derived field (signals-catalog.md §1). Used in x-mode annotations: core = works on minimal data; enriched = quality rises with more sources; gated = impossible without a specific source."
+    },
+    "CoverageScope": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["wsb_hot", "screener_mover", "both"],
+      "description": "Why a ticker is in the market/signal layer: wsb_hot=pulled because WSB-hot; screener_mover=market-wide screener mover with no WSB heat (STEALTH candidate, no empirical row); both."
+    },
+    "BucketScheme": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["hour_of_week", "day_of_week", "time_of_day", "quarter_hour_of_week"],
+      "description": "Baseline seasonality scheme, chosen per resolution for warmup speed (1h:hour_of_week, 15m:time_of_day, 1d:day_of_week)."
+    },
+    "OptionRight": {
+      "x-logical-type": "Enum",
+      "type": "string",
+      "enum": ["call", "put"],
+      "description": "Options contract type."
+    }
+  }
+}

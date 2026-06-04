@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/analytical_feature.json",
+  "title": "analytical_feature",
+  "description": "Family B — the market-side cell. What the market is doing. Independent rollup keyed on the grain (WSB-hot ∪ screener movers); joined to empirical_feature via full outer join in `signal`. See data-dictionary.md §4 and data-model.md §5.3.",
+  "type": "object",
+  "x-grain": "ticker × window_start × resolution",
+  "x-natural-key": ["ticker", "window_start", "resolution"],
+  "x-lifecycle": "live",
+  "x-derived-from": "market_bar + options_snapshot",
+  "additionalProperties": false,
+  "required": ["ticker", "window_start", "resolution", "coverage_scope"],
+  "properties": {
+    "ticker": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "live", "x-src": "calc",
+      "description": "Whitelist-validated symbol; must exist in instrument."
+    },
+    "window_start": {
+      "$ref": "_common.json#/$defs/Instant",
+      "x-key": true, "x-lifecycle": "live", "x-src": "meta", "x-time": "event",
+      "description": "Inclusive lower bound of the half-open window [window_start, +len(resolution))."
+    },
+    "resolution": {
+      "$ref": "_common.json#/$defs/Resolution",
+      "x-key": true, "x-lifecycle": "new", "x-src": "meta",
+      "description": "Window length. 1h is the v0.0.1 primary."
+    },
+    "coverage_scope": {
+      "$ref": "_common.json#/$defs/CoverageScope",
+      "x-lifecycle": "live", "x-src": "meta",
+      "description": "Why this ticker has a market row: wsb_hot (top-N by H_e) ∪ screener_mover (market-wide, no WSB heat → STEALTH candidate, no empirical row). Makes analytical_feature INDEPENDENT of empirical_feature, not a subset."
+    },
+    "ret": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "stock",
+      "x-null": "no market data this cell",
+      "x-mode": "core", "x-sources": ["stock"],
+      "description": "Window-aligned return close(W)/close(W−1)−1 at this resolution. v0.0.1 approximates with a day-to-date return (latest−prev_close)/prev_close until intraday bars are stored — a daily value repeated across intraday cells. H_m uses |ret|."
+    },
+    "gap": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "stock",
+      "x-null": "no market data",
+      "description": "Overnight gap: (today_open − prev_close)/prev_close. Pre-market positioning."
+    },
+    "range": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "stock",
+      "x-null": "no market data",
+      "description": "Intraday range: (high − low)/prev_close. Volatility-of-the-day proxy."
+    },
+    "realized_vol": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "stock",
+      "x-null": "no market data",
+      "description": "Stdev of returns over trailing n. Used to express moves in vol-units (|ret|/realized_vol)."
+    },
+    "rvol": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Ratio" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "stock",
+      "x-null": "no market data",
+      "x-mode": "enriched", "x-sources": ["stock"],
+      "x-degrades-when": "feed=iex (thin ~2.5% volume)",
+      "description": "Relative Volume — the market twin of sov/z: vol(T,W) / avg_vol(T, trailing-N same session). 1 = normal. The key 'is the market reacting?' metric."
+    },
+    "rvol_conf": {
+      "$ref": "_common.json#/$defs/Confidence",
+      "default": "low", "x-lifecycle": "live", "x-src": "meta",
+      "description": "Confidence in rvol, set by feed: free IEX (~2.5% of volume) → low; paid SIP/IBKR full volume → high."
+    },
+    "pcr": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Ratio" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "no options data",
+      "x-mode": "gated", "x-sources": ["options"],
+      "description": "Put/Call ratio: put_vol / call_vol. <1 = call-heavy (typical WSB bullish lotto). A market cross-check on community net_dir."
+    },
+    "iv_rank": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "no options data",
+      "x-mode": "gated", "x-sources": ["options"],
+      "description": "Percentile of at-the-money IV vs trailing ~1y. Level-independent 'is IV high?'. Rising iv_rank + call-heavy = the WSB fingerprint."
+    },
+    "iv_skew": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Real" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "no options data",
+      "x-mode": "gated", "x-sources": ["options"],
+      "description": "IV(OTM puts) − IV(OTM calls) (e.g. 25-delta). Crash-fear vs call-chase."
+    },
+    "uoa": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Ratio" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "options",
+      "x-null": "no options data",
+      "x-mode": "gated", "x-sources": ["options"],
+      "description": "Unusual options activity: contract vol / OI ≫ 1 → fresh speculative positioning."
+    },
+    "breadth": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P2", "x-src": "options",
+      "x-null": "no options data",
+      "x-mode": "gated", "x-sources": ["options"],
+      "description": "Dispersion of volume across the (strike × expiry) grid. Simple (P2): breadth_strikes count. Principled (P4): normalized entropy ∈ [0,1]. Low = fragile concentrated lotto; high = broad positioning."
+    },
+    "h_m": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "calc",
+      "x-null": "no market data",
+      "x-mode": "enriched", "x-sources": ["stock", "options"], "x-requires": ["ret", "rvol"],
+      "description": "Market Heat — composite 'how hard the market is actually moving it'. v0.0.1: {|ret|, rvol}. Quality scales with feed (see rvol_conf) + options availability."
+    },
+    "feed": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Feed" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "meta",
+      "x-null": "no market data fetched",
+      "description": "Market-data provenance → confidence."
+    },
+    "as_of": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "live-internal", "x-src": "meta", "x-time": "observation",
+      "x-null": "no market data fetched",
+      "description": "Observation time of the market read — so a t=0 mention spike is never aligned to stale prices."
+    }
+  }
+}

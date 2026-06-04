@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/instrument.json",
+  "title": "instrument",
+  "description": "Reference dimension — one tradable symbol in the universe. See data-dictionary.md §1.1 and data-model.md §5.1.",
+  "type": "object",
+  "x-grain": "one tradable symbol",
+  "x-natural-key": ["symbol"],
+  "x-lifecycle": "partial",
+  "additionalProperties": false,
+  "required": ["symbol"],
+  "properties": {
+    "symbol": {
+      "$ref": "_common.json#/$defs/Symbol",
+      "x-key": true, "x-lifecycle": "live", "x-src": "ref",
+      "description": "The stock/ETF symbol. Natural key. Every mention.ticker must exist here (extractor validates against the whitelist)."
+    },
+    "name": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Text" }, { "type": "null" }],
+      "x-lifecycle": "live", "x-src": "ref",
+      "x-null": "unknown",
+      "description": "Raw vendor (UPPERCASE) company/fund name, e.g. BROADCOM INC. COMMON STOCK. The display layer prettifies it."
+    },
+    "asset_class": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/AssetClass" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "ref",
+      "x-null": "unknown",
+      "description": "Security class; lets ETFs/leveraged products be treated differently (e.g. liquidity filters for STEALTH)."
+    },
+    "is_etf": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Boolean" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "ref",
+      "x-null": "unknown",
+      "description": "True for funds; used to down-weight leveraged-ETF screener noise."
+    },
+    "is_ambiguous": {
+      "$ref": "_common.json#/$defs/Boolean",
+      "default": false, "x-lifecycle": "live-internal", "x-src": "ref",
+      "description": "A real ticker that is also a common English word (e.g. DRAM, IT, ON). When true, a bare mention is counted only with trading context."
+    },
+    "listing_status": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/ListingStatus" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "ref",
+      "x-null": "unknown",
+      "description": "Tradability state; refreshed weekly from the vendor asset list."
+    },
+    "first_seen": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "meta", "x-time": "event",
+      "x-null": "not yet recorded",
+      "description": "When the symbol first entered the universe (bookkeeping)."
+    },
+    "last_refreshed": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "meta", "x-time": "observation",
+      "x-null": "not yet reconciled",
+      "description": "When this row was last reconciled against the vendor asset list (bookkeeping)."
+    }
+  }
+}

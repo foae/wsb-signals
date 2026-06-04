@@ -1,0 +1,11 @@
+[Unit]
+Description=WSB Signals — Arctic-Shift freshness heartbeat (exits non-zero when the sole tap is stale/down)
+Documentation=file://__WSB_DIR__/README.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=__WSB_DIR__
+# Exit 1 = stale, 2 = no data (tap likely down). A non-zero exit marks this unit `failed`, visible
+# in `systemctl --user list-units --state=failed`. Hook alerting via a drop-in `OnFailure=` if wanted.
+ExecStart=__WSB_DIR__/.venv/bin/wsb heartbeat
+SyslogIdentifier=wsb-signals-heartbeat

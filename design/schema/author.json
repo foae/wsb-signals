@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wsb-signals/schema/author.json",
+  "title": "author",
+  "description": "Reference dimension — one community account (Phase 4 trust dimension). See data-dictionary.md §1.2 and data-model.md §5.1.",
+  "type": "object",
+  "x-grain": "one community account",
+  "x-natural-key": ["username"],
+  "x-lifecycle": "P4",
+  "additionalProperties": false,
+  "required": ["username"],
+  "properties": {
+    "username": {
+      "$ref": "_common.json#/$defs/Id",
+      "x-key": true, "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "description": "Account handle. Natural key. Today authors are bare strings on events."
+    },
+    "account_created": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit|discord", "x-time": "event",
+      "x-null": "unknown",
+      "description": "Account age basis for author_cred/astroturf. Reddit via Arctic-Shift user data; Discord via join date."
+    },
+    "karma": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Count" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit",
+      "x-null": "no Discord analog",
+      "description": "Reddit karma (Discord has no analog → null)."
+    },
+    "author_cred": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/UnitInterval" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "reddit|discord",
+      "x-null": "not yet computed",
+      "x-mode": "enriched",
+      "description": "Tenure/karma-derived credibility weight. Down-weights brand-new accounts. 0 = untrusted, 1 = established."
+    },
+    "is_bot": {
+      "$ref": "_common.json#/$defs/Boolean",
+      "default": false, "x-lifecycle": "live-internal", "x-src": "reddit|discord",
+      "description": "Known bot/automation (AutoModerator, VisualMod, wsbapp, …). Filtered at ingestion (config list today)."
+    },
+    "first_seen": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "meta",
+      "x-null": "not yet recorded",
+      "description": "When this account was first observed (bookkeeping)."
+    },
+    "last_seen": {
+      "anyOf": [{ "$ref": "_common.json#/$defs/Instant" }, { "type": "null" }],
+      "x-lifecycle": "P4", "x-src": "meta",
+      "x-null": "not yet recorded",
+      "description": "When this account was last observed (bookkeeping)."
+    }
+  }
+}
