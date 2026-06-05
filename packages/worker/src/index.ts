@@ -1,15 +1,15 @@
 /**
- * Worker entrypoint (skeleton — slice 0).
- *
- * The real 5-minute poll loop lands in slice 6 (v2-plan.md §4): poll → extract → classify → H_e →
- * H_m → analytics → atomic publish, behind an advisory lock with SIGTERM graceful shutdown
- * (v2-porting-spec.md §7). For now this just proves the package boots and logs — the pure-logic
- * slices (extract/classify, aggregate) are ported and tested before any loop wraps them.
+ * Worker entrypoint — the standalone TS radar (porting-spec §7). Boots config + Postgres, acquires the
+ * advisory lock, and runs the 5-minute poll loop until SIGTERM/SIGINT. Flags mirror `wsb run`:
+ *   --once       run a single cycle and exit
+ *   --no-market  skip the Alpaca overlay (empirical-only)
  */
 import { log } from './logger'
+import { startWorker } from './loop'
 
-function main(): void {
-  log.info({ slice: 0 }, 'wsb-worker skeleton — loop arrives in slice 6')
-}
+const argv = new Set(process.argv.slice(2))
 
-main()
+startWorker({ once: argv.has('--once'), noMarket: argv.has('--no-market') }).catch((e) => {
+  log.error({ err: String(e) }, 'worker failed to start')
+  process.exitCode = 1
+})

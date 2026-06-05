@@ -9,11 +9,11 @@
  *    transaction, so a reader sees a whole cycle or none (the shadow-diff / future web read the latest
  *    complete window). This replaces the v0.0.1 DuckDB-lock + JSON-snapshot workaround entirely.
  */
-import { desc, eq, getTableColumns, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, gte, lt, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import type { PgTable } from 'drizzle-orm/pg-core'
-import { Pool } from 'pg'
+import { Pool, type PoolClient } from 'pg'
 
 import {
   analyticalFeatures, cycleRuns, empiricalFeatures, marketMovers, mentions, rawComments, rawPosts,
@@ -23,7 +23,7 @@ import {
 } from '@wsb/shared'
 import { migrationsFolder } from '@wsb/shared/migrations'
 
-import type { EmpiricalFeature } from './aggregate'
+import type { EmpiricalFeature, HistoryRow, MentionRow, PriorFeatures } from './aggregate'
 
 export type Db = NodePgDatabase
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
@@ -192,4 +192,75 @@ export async function latestCompleteWindow(db: Db): Promise<number | null> {
     .where(eq(cycleRuns.status, 'complete'))
     .orderBy(desc(cycleRuns.windowStart)).limit(1)
   return rows[0]?.ws ?? null
+}
+
+// --- aggregator reads (port of db.py's read methods — the exact inputs aggregate_window consumes) ---
+//
+// These feed `AggregateInputs` (aggregate.ts). The ORDER BY clauses are part of the parity contract:
+//  - mentions by `thing_id` (Python `db.mentions_in_window`) — fidelity to the oracle's row stream
+//    (the v2 aggregate is order-independent + sorts flair_counts, so this no longer changes output, but
+//    we keep it deterministic);
+//  - sov ranks by `sov DESC, ticker ASC` (Python `db.sov_ranks_at`) — this DOES drive rank_delta, so the
+//    tie-break must match exactly.
+
+/** Mentions in `[start, end)` as the aggregate's `MentionRow` tuples, ordered by `thing_id`. */
+export async function readMentionsInWindow(db: Db, start: number, end: number): Promise<MentionRow[]> {
+  const rows = await db.select({
+    ticker: mentions.ticker, thingId: mentions.thingId, thingType: mentions.thingType,
+    author: mentions.author, flair: mentions.flair, direction: mentions.direction,
+  }).from(mentions)
+    .where(and(gte(mentions.createdUtc, start), lt(mentions.createdUtc, end)))
+    .orderBy(asc(mentions.thingId))
+  return rows.map((r) => [r.ticker, r.thingId, r.thingType, r.author, r.flair, r.direction] as const)
+}
+
+/** Prior-window features by ticker (`features_at`) — supplies mentions(W−1) + velocity(W−1). */
+export async function readFeaturesAt(db: Db, windowStart: number): Promise<PriorFeatures> {
+  const rows = await db.select({
+    ticker: empiricalFeatures.ticker, mentions: empiricalFeatures.mentions, velocity: empiricalFeatures.velocity,
+  }).from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, windowStart))
+  const out: PriorFeatures = {}
+  for (const r of rows) out[r.ticker] = { mentions: r.mentions, velocity: r.velocity }
+  return out
+}
+
+/** Every (ticker, window_start, mentions) with `window_start < before` (`feature_history`) — baselines.
+ *  Ordered for determinism; the baseline mean/variance are order-independent sums so it doesn't change z. */
+export async function readFeatureHistory(db: Db, before: number): Promise<HistoryRow[]> {
+  const rows = await db.select({
+    ticker: empiricalFeatures.ticker, windowStart: empiricalFeatures.windowStart, mentions: empiricalFeatures.mentions,
+  }).from(empiricalFeatures).where(lt(empiricalFeatures.windowStart, before))
+    .orderBy(asc(empiricalFeatures.windowStart), asc(empiricalFeatures.ticker))
+  return rows.map((r) => [r.ticker, r.windowStart, r.mentions ?? 0] as const)
+}
+
+/** Prior-window SoV rank by ticker, 1 = top (`sov_ranks_at`). Tie-break `sov DESC, ticker ASC` — drives
+ *  rank_delta, so it MUST match the in-memory `cur_rank` tie-break (ticker) exactly. */
+export async function readSovRanksAt(db: Db, windowStart: number): Promise<Record<string, number>> {
+  const rows = await db.select({ ticker: empiricalFeatures.ticker }).from(empiricalFeatures)
+    .where(eq(empiricalFeatures.windowStart, windowStart))
+    .orderBy(desc(empiricalFeatures.sov), asc(empiricalFeatures.ticker))
+  const out: Record<string, number> = {}
+  rows.forEach((r, i) => { out[r.ticker] = i + 1 })
+  return out
+}
+
+/**
+ * Session-level advisory lock — the double-run guard (porting-spec §7). A session lock lives on its
+ * CONNECTION, so we check out a DEDICATED client and keep it held for the worker's lifetime (returning it
+ * to the pool, or an idle-timeout close, would drop the lock). Returns the held client on success (call
+ * `.release()` at shutdown to drop the lock), or null if another worker already holds it. `key` is a
+ * stable 64-bit int.
+ */
+export async function acquireAdvisoryLock(pool: Pool, key: number): Promise<PoolClient | null> {
+  const client = await pool.connect()
+  try {
+    const res = await client.query<{ locked: boolean }>('SELECT pg_try_advisory_lock($1) AS locked', [key])
+    if (res.rows[0]?.locked === true) return client // keep it checked out → the lock stays held
+    client.release()
+    return null
+  } catch (e) {
+    client.release()
+    throw e
+  }
 }

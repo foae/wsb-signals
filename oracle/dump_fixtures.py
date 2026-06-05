@@ -36,6 +36,7 @@ sys.path.insert(0, str(REPO))  # import the frozen package in-place (no install 
 from wsb_signals.aggregate import aggregate_window, hour_of_week, write_snapshot  # noqa: E402
 from wsb_signals.analytical import compute_analytical  # noqa: E402
 from wsb_signals.classify import direction  # noqa: E402
+from wsb_signals.cli import _mentions_from_poll  # noqa: E402
 from wsb_signals.db import DB  # noqa: E402
 from wsb_signals.extract import DEFAULT_REGEX, TickerExtractor, _load_wordset  # noqa: E402
 from wsb_signals.market.alpaca import AlpacaMarketData  # noqa: E402
@@ -43,6 +44,7 @@ from wsb_signals.models import (  # noqa: E402
     EmpiricalFeature, Mention, RawComment, RawPost, StockSnapshot,
 )
 from wsb_signals.sources.arctic_shift import ArcticShiftSource  # noqa: E402
+from wsb_signals.sources.base import PollResult  # noqa: E402
 
 FIXTURES = REPO / "fixtures"
 
@@ -672,6 +674,57 @@ def dump_market_client() -> None:
                           "losers": [{"symbol": "F", "price": 11, "percent_change": -2.0}]}))
 
 
+# --------------------------------------------------------------------------------------------------
+# B3 — mention assembly (slice 6). PollResult → list[Mention] via the FROZEN `cli._mentions_from_poll`:
+# bot filtering, post text = title+selftext / comment text = body, direction-per-thing, per-thing symbol
+# dedup. Dumped SORTED by (thing_id, ticker) — the B3 parity boundary (production list order is irrelevant
+# downstream). The TS `mentionsFromPoll` must match.
+# --------------------------------------------------------------------------------------------------
+def dump_mentions_from_poll() -> None:
+    print("mention assembly (B3):")
+    stop = set(WORDSETS["stoplist"])
+    wl = set(WORDSETS["whitelist"])
+    amb = set(WORDSETS["ambiguous"])
+    extractor = TickerExtractor(stop, regex=DEFAULT_REGEX, whitelist=wl, ambiguous=amb)
+    bots = {"AutoModerator", "VisualMod"}
+    C = N_NOW - 120  # a created_utc shared by the things (value is irrelevant to assembly)
+
+    posts_raw = [
+        # bull (moon/calls/loading), flair carried, single ticker.
+        {"id": "p1", "created_utc": C, "author": "alice", "title": "NVDA to the moon",
+         "selftext": "loading calls", "link_flair_text": "DD"},
+        # BOT author → skipped entirely.
+        {"id": "p2", "created_utc": C, "author": "AutoModerator", "title": "GME $TSLA daily", "selftext": ""},
+        # two tickers, bear (puts/short); title+selftext concatenation.
+        {"id": "p3", "created_utc": C, "author": "bob", "title": "puts on TSLA, short AMD", "selftext": ""},
+        # null author (NOT a bot), $-cashtag repeated 3× across title+selftext → dedup to one GME; bull (squeeze).
+        {"id": "p4", "created_utc": C, "author": None, "title": "$GME $GME squeeze", "selftext": "DD on $GME"},
+    ]
+    comments_raw = [
+        {"id": "c1", "created_utc": C, "author": "carol", "body": "AMD calls printing"},  # bull
+        {"id": "c2", "created_utc": C, "author": "VisualMod", "body": "beep boop $NVDA"},  # BOT → skipped
+        {"id": "c3", "created_utc": C, "author": "dave", "body": "DRAM prices rising"},    # ambiguous, no ctx → none
+        {"id": "c4", "created_utc": C, "author": "erin", "body": "DRAM calls"},            # ambiguous + ctx → DRAM, bull
+        {"id": "c5", "created_utc": C, "author": None, "body": "ALL IN ON SOFI"},          # stop/not_listed/ambig → none
+    ]
+
+    res = PollResult(
+        posts=[RawPost.from_arctic(d, N_NOW) for d in posts_raw],
+        comments=[RawComment.from_arctic(d, N_NOW) for d in comments_raw],
+    )
+    mentions, _counts, _authors = _mentions_from_poll(res, extractor, bots)
+    mentions_sorted = sorted((m.model_dump() for m in mentions), key=lambda m: (m["thing_id"], m["ticker"]))
+
+    write_fixture("mentions/from_poll.json", {
+        "wordsets": WORDSETS,
+        "bots": sorted(bots),
+        "retrieved_on": N_NOW,
+        "posts": posts_raw,
+        "comments": comments_raw,
+        "mentions": mentions_sorted,  # sorted by (thing_id, ticker) — the B3 boundary
+    })
+
+
 def check_oracle_frozen() -> None:
     """Warn LOUDLY if wsb_signals/ has drifted from tag v0.0.1 — fixtures regenerated from drifted code
     would silently redefine the oracle (the parity target). Soft check: warn, don't abort."""
@@ -698,6 +751,7 @@ def main() -> None:
     dump_ingest_poll()
     dump_market_analytical()
     dump_market_client()
+    dump_mentions_from_poll()
     print("done.")
 
 
