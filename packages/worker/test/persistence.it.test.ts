@@ -1,5 +1,8 @@
 import { and, count, eq } from 'drizzle-orm'
-import { empiricalFeatures, mentions as mentionsTable, rawPosts } from '@wsb/shared'
+import {
+  analyticalFeatures, empiricalFeatures, mentions as mentionsTable, rawPosts,
+  type AnalyticalFeatureInsert,
+} from '@wsb/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { EmpiricalFeature } from '../src/aggregate'
@@ -82,6 +85,30 @@ describe('persistence on Postgres', () => {
     expect(await latestCompleteWindow(pg.db)).toBe(7200)
     const feats = await pg.db.select().from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, 7200))
     expect(feats).toHaveLength(2)
+  })
+
+  it('publishCycle replaces the window analytical set, but preserves it when no overlay is given', async () => {
+    const meta = { windowStart: 4000, generatedAt: 4100, totalMentions: 5, quiet: false, capped: false }
+    const an = (ticker: string, hM: number): AnalyticalFeatureInsert =>
+      ({ ticker, windowStart: 4000, hM, rvolConf: 'low' })
+    const analyticalAt = () => pg.db.select().from(analyticalFeatures)
+      .where(eq(analyticalFeatures.windowStart, 4000))
+
+    // publish A + B
+    await publishCycle(pg.db, {
+      meta, features: [feature('A', 4000), feature('B', 4000)], analytical: [an('A', 0.5), an('B', 0.3)],
+    })
+    expect((await analyticalAt()).map((r) => r.ticker).sort()).toEqual(['A', 'B'])
+
+    // re-publish with A only → stale B is removed (exact-cycle replacement)
+    await publishCycle(pg.db, { meta, features: [feature('A', 4000)], analytical: [an('A', 0.9)] })
+    const after = await analyticalAt()
+    expect(after.map((r) => r.ticker)).toEqual(['A'])
+    expect(after[0]!.hM).toBeCloseTo(0.9, 9)
+
+    // re-publish with NO overlay (undefined) → prior overlay preserved (best-effort never-kill)
+    await publishCycle(pg.db, { meta, features: [feature('A', 4000)] })
+    expect((await analyticalAt()).map((r) => r.ticker)).toEqual(['A'])
   })
 
   it('a failed publish transaction rolls back — no partial cycle is visible', async () => {

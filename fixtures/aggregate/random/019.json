@@ -1,0 +1,969 @@
+{
+  "features": [
+    {
+      "accel": null,
+      "authors": 6,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 2, \"Gain\": 1}",
+      "h_e": 0.75,
+      "mentions": 7,
+      "net_dir": -1.0,
+      "sov": 0.16666666666666666,
+      "ticker": "SPY",
+      "velocity": 7.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2, \"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.575,
+      "mentions": 6,
+      "net_dir": 1.0,
+      "sov": 0.14285714285714285,
+      "ticker": "GME",
+      "velocity": 6.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 2}",
+      "h_e": 0.5499999999999999,
+      "mentions": 5,
+      "net_dir": 1.0,
+      "sov": 0.11904761904761904,
+      "ticker": "NVDA",
+      "velocity": 4.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 2, \"Discussion\": 1, \"Gain\": 1}",
+      "h_e": 0.5,
+      "mentions": 6,
+      "net_dir": -1.0,
+      "sov": 0.14285714285714285,
+      "ticker": "QQQ",
+      "velocity": 6.0,
+      "window_start": 1705694400,
+      "z": 0.607373393411656
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 2, \"Gain\": 1}",
+      "h_e": 0.44999999999999996,
+      "mentions": 5,
+      "net_dir": -1.0,
+      "sov": 0.11904761904761904,
+      "ticker": "AMD",
+      "velocity": 5.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.375,
+      "mentions": 5,
+      "net_dir": 0.5,
+      "sov": 0.11904761904761904,
+      "ticker": "BBB",
+      "velocity": 5.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"YOLO\": 1}",
+      "h_e": 0.375,
+      "mentions": 4,
+      "net_dir": 1.0,
+      "sov": 0.09523809523809523,
+      "ticker": "EEE",
+      "velocity": -1.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": -5.0,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1}",
+      "h_e": 0.32499999999999996,
+      "mentions": 3,
+      "net_dir": -1.0,
+      "sov": 0.07142857142857142,
+      "ticker": "CCC",
+      "velocity": -4.0,
+      "window_start": 1705694400,
+      "z": null
+    },
+    {
+      "accel": -1.0,
+      "authors": 1,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.05833333333333333,
+      "mentions": 1,
+      "net_dir": 1.0,
+      "sov": 0.023809523809523808,
+      "ticker": "DDD",
+      "velocity": -1.0,
+      "window_start": 1705694400,
+      "z": -1.8646247335121875
+    }
+  ],
+  "generated_at": 1705694650,
+  "inputs": {
+    "feature_history": [
+      [
+        "SPY",
+        1705690800,
+        0
+      ],
+      [
+        "SPY",
+        1705089600,
+        8
+      ],
+      [
+        "SPY",
+        1704484800,
+        2
+      ],
+      [
+        "SPY",
+        1703880000,
+        7
+      ],
+      [
+        "SPY",
+        1703275200,
+        7
+      ],
+      [
+        "SPY",
+        1702670400,
+        4
+      ],
+      [
+        "SPY",
+        1702065600,
+        6
+      ],
+      [
+        "SPY",
+        1701460800,
+        8
+      ],
+      [
+        "CCC",
+        1705690800,
+        7
+      ],
+      [
+        "CCC",
+        1705089600,
+        3
+      ],
+      [
+        "CCC",
+        1704484800,
+        4
+      ],
+      [
+        "CCC",
+        1703880000,
+        4
+      ],
+      [
+        "AMD",
+        1705089600,
+        5
+      ],
+      [
+        "AMD",
+        1704484800,
+        7
+      ],
+      [
+        "AMD",
+        1703880000,
+        7
+      ],
+      [
+        "AMD",
+        1703275200,
+        1
+      ],
+      [
+        "AMD",
+        1702670400,
+        8
+      ],
+      [
+        "AMD",
+        1702065600,
+        9
+      ],
+      [
+        "AMD",
+        1701460800,
+        9
+      ],
+      [
+        "EEE",
+        1705690800,
+        5
+      ],
+      [
+        "EEE",
+        1705089600,
+        8
+      ],
+      [
+        "EEE",
+        1704484800,
+        7
+      ],
+      [
+        "EEE",
+        1703880000,
+        9
+      ],
+      [
+        "EEE",
+        1703275200,
+        1
+      ],
+      [
+        "EEE",
+        1702670400,
+        2
+      ],
+      [
+        "EEE",
+        1702065600,
+        3
+      ],
+      [
+        "BBB",
+        1705089600,
+        4
+      ],
+      [
+        "NVDA",
+        1705690800,
+        1
+      ],
+      [
+        "NVDA",
+        1705089600,
+        8
+      ],
+      [
+        "DDD",
+        1705690800,
+        2
+      ],
+      [
+        "DDD",
+        1705089600,
+        5
+      ],
+      [
+        "DDD",
+        1704484800,
+        1
+      ],
+      [
+        "DDD",
+        1703880000,
+        8
+      ],
+      [
+        "DDD",
+        1703275200,
+        7
+      ],
+      [
+        "DDD",
+        1702670400,
+        5
+      ],
+      [
+        "DDD",
+        1702065600,
+        4
+      ],
+      [
+        "DDD",
+        1701460800,
+        3
+      ],
+      [
+        "DDD",
+        1700856000,
+        6
+      ],
+      [
+        "DDD",
+        1700251200,
+        7
+      ],
+      [
+        "GME",
+        1705089600,
+        6
+      ],
+      [
+        "GME",
+        1704484800,
+        2
+      ],
+      [
+        "GME",
+        1703880000,
+        6
+      ],
+      [
+        "GME",
+        1703275200,
+        8
+      ],
+      [
+        "GME",
+        1702670400,
+        1
+      ],
+      [
+        "QQQ",
+        1705089600,
+        2
+      ],
+      [
+        "QQQ",
+        1704484800,
+        6
+      ],
+      [
+        "QQQ",
+        1703880000,
+        2
+      ],
+      [
+        "QQQ",
+        1703275200,
+        5
+      ],
+      [
+        "QQQ",
+        1702670400,
+        2
+      ],
+      [
+        "QQQ",
+        1702065600,
+        7
+      ],
+      [
+        "QQQ",
+        1701460800,
+        6
+      ],
+      [
+        "QQQ",
+        1700856000,
+        7
+      ]
+    ],
+    "hour_of_week": 116,
+    "mentions_in_window": [
+      [
+        "SPY",
+        "t1",
+        "post",
+        "u3",
+        null,
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t10",
+        "post",
+        "u0",
+        null,
+        "bear"
+      ],
+      [
+        "AMD",
+        "t11",
+        "comment",
+        "u2",
+        "DD",
+        "bear"
+      ],
+      [
+        "AMD",
+        "t12",
+        "post",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "AMD",
+        "t13",
+        "post",
+        "u0",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "AMD",
+        "t14",
+        "comment",
+        "u1",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "AMD",
+        "t15",
+        "comment",
+        "u6",
+        "Gain",
+        "bear"
+      ],
+      [
+        "EEE",
+        "t16",
+        "post",
+        "u6",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t17",
+        "post",
+        "u7",
+        null,
+        "bull"
+      ],
+      [
+        "EEE",
+        "t18",
+        "comment",
+        "u6",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "EEE",
+        "t19",
+        "comment",
+        "u2",
+        "DD",
+        "bull"
+      ],
+      [
+        "SPY",
+        "t2",
+        "comment",
+        "u4",
+        "Gain",
+        "bear"
+      ],
+      [
+        "BBB",
+        "t20",
+        "comment",
+        "u5",
+        null,
+        "neutral"
+      ],
+      [
+        "BBB",
+        "t21",
+        "comment",
+        "u2",
+        null,
+        "bull"
+      ],
+      [
+        "BBB",
+        "t22",
+        "comment",
+        "u0",
+        null,
+        "bear"
+      ],
+      [
+        "BBB",
+        "t23",
+        "post",
+        "u0",
+        null,
+        "bull"
+      ],
+      [
+        "BBB",
+        "t24",
+        "comment",
+        "u5",
+        "DD",
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t25",
+        "post",
+        "u3",
+        "DD",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t26",
+        "post",
+        "u0",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t27",
+        "comment",
+        "u4",
+        "Gain",
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t28",
+        "comment",
+        "u3",
+        null,
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t29",
+        "comment",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t3",
+        "comment",
+        "u2",
+        "DD",
+        "neutral"
+      ],
+      [
+        "DDD",
+        "t30",
+        "comment",
+        "u1",
+        "DD",
+        "bull"
+      ],
+      [
+        "GME",
+        "t31",
+        "comment",
+        "u3",
+        "Gain",
+        "bull"
+      ],
+      [
+        "GME",
+        "t32",
+        "post",
+        "u0",
+        "DD",
+        "neutral"
+      ],
+      [
+        "GME",
+        "t33",
+        "comment",
+        "u0",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "GME",
+        "t34",
+        "comment",
+        "u3",
+        "DD",
+        "neutral"
+      ],
+      [
+        "GME",
+        "t35",
+        "comment",
+        "u4",
+        null,
+        "neutral"
+      ],
+      [
+        "GME",
+        "t36",
+        "post",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t37",
+        "comment",
+        "u3",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t38",
+        "comment",
+        "u2",
+        "DD",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t39",
+        "comment",
+        "u7",
+        "DD",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t4",
+        "post",
+        "u7",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "QQQ",
+        "t40",
+        "comment",
+        "u7",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t41",
+        "post",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "QQQ",
+        "t42",
+        "comment",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t5",
+        "post",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t6",
+        "post",
+        "u5",
+        null,
+        "bear"
+      ],
+      [
+        "SPY",
+        "t7",
+        "post",
+        "u4",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t8",
+        "comment",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t9",
+        "comment",
+        "u4",
+        "Discussion",
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "CCC": {
+        "mentions": 7,
+        "velocity": 1.0
+      },
+      "DDD": {
+        "mentions": 2,
+        "velocity": 0.0
+      },
+      "EEE": {
+        "mentions": 5,
+        "velocity": null
+      },
+      "NVDA": {
+        "mentions": 1,
+        "velocity": null
+      },
+      "SPY": {
+        "mentions": 0,
+        "velocity": null
+      }
+    },
+    "prior_sov_ranks": {
+      "CCC": 5,
+      "DDD": 2,
+      "EEE": 1,
+      "NVDA": 3,
+      "SPY": 4
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1705694400
+  },
+  "name": "random/019",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1705694650,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": null,
+        "authors": 6,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.75,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1667,
+        "ticker": "SPY",
+        "velocity": 7.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.575,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1429,
+        "ticker": "GME",
+        "velocity": 6.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.55,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.119,
+        "ticker": "NVDA",
+        "velocity": 4.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.5,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1429,
+        "ticker": "QQQ",
+        "velocity": 6.0,
+        "z": 0.607
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.45,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.119,
+        "ticker": "AMD",
+        "velocity": 5.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.375,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": 0.5,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.119,
+        "ticker": "BBB",
+        "velocity": 5.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.375,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0952,
+        "ticker": "EEE",
+        "velocity": -1.0,
+        "z": null
+      },
+      {
+        "accel": -5.0,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 8,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0714,
+        "ticker": "CCC",
+        "velocity": -4.0,
+        "z": null
+      },
+      {
+        "accel": -1.0,
+        "authors": 1,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.0583,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 9,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0238,
+        "ticker": "DDD",
+        "velocity": -1.0,
+        "z": -1.865
+      }
+    ],
+    "total_mentions": 42,
+    "window_end": 1705698000,
+    "window_seconds": 3600,
+    "window_start": 1705694400
+  }
+}

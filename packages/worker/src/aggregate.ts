@@ -196,7 +196,9 @@ export function aggregateWindow(inp: AggregateInputs): EmpiricalFeature[] {
     if (samples.length >= Math.max(2, minSamplesReady)) {
       status = 'ready'
       const mean = samples.reduce((s, x) => s + x, 0) / samples.length
-      const variance = samples.reduce((s, x) => s + (x - mean) ** 2, 0) / (samples.length - 1)
+      // `(x-mean)*(x-mean)` not `**2`: explicit multiply is the correctly-rounded square in every engine,
+      // bit-matching Python's `(x-mean) ** 2`; `Math.pow(_, 2)` is not guaranteed identical across engines.
+      const variance = samples.reduce((s, x) => s + (x - mean) * (x - mean), 0) / (samples.length - 1)
       const sd = Math.sqrt(variance)
       z = sd > 0 ? (m - mean) / sd : null
     } else if (samples.length > 0) {
@@ -212,7 +214,9 @@ export function aggregateWindow(inp: AggregateInputs): EmpiricalFeature[] {
       accel,
       netDir,
       ddCount: d.dd.size,
-      flairCounts: Object.fromEntries(d.flairs),
+      // sorted keys — matches Python `json.dumps(..., sort_keys=True)`; harmless for JSONB equality but
+      // keeps a canonical key order if anything later stringifies it for hashing/diffing.
+      flairCounts: Object.fromEntries([...d.flairs].sort((a, b) => cmpStr(a[0], b[0]))),
       z,
       baselineStatus: status,
       rankDelta: 0,
@@ -269,6 +273,13 @@ export function aggregateWindow(inp: AggregateInputs): EmpiricalFeature[] {
 
   // Canonical board order: H_e-primary, explicit total-order tie-break down to `ticker` so equal-H_e
   // rows have ONE deterministic ordering (must not depend on iteration order). h_e→sov→authors→mentions→ticker.
+  //
+  // RAW float compare — NOT quantized. The port is bit-exact to the oracle (same IEEE ops, same order),
+  // so equal rows compare equal and genuinely-different rows compare like Python's raw sort — including
+  // when the oracle's order rests on a 1-ULP h_e difference (e.g. 0.4 vs 0.39999999999999997). Quantizing
+  // to 1e-9 (porting-spec §2.6, original) DISCARDS that real signal and inverts such pairs vs the oracle —
+  // the random/010 fixture proved it. Near-tie robustness belongs in the slice-9 shadow-diff tolerance,
+  // not in the production sort. (Spec §2.6 corrected to match.)
   out.sort(
     (a, b) =>
       b.hE - a.hE || b.sov - a.sov || b.authors - a.authors || b.mentions - a.mentions || cmpStr(a.ticker, b.ticker),

@@ -1,0 +1,1100 @@
+{
+  "features": [
+    {
+      "accel": 5.0,
+      "authors": 6,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 2, \"Discussion\": 2}",
+      "h_e": 0.9,
+      "mentions": 7,
+      "net_dir": 1.0,
+      "sov": 0.17073170731707318,
+      "ticker": "FFF",
+      "velocity": 3.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 6,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 2, \"Discussion\": 2, \"Gain\": 1}",
+      "h_e": 0.75,
+      "mentions": 7,
+      "net_dir": 1.0,
+      "sov": 0.17073170731707318,
+      "ticker": "BBB",
+      "velocity": 7.0,
+      "window_start": 1705543200,
+      "z": 1.6499717085465888
+    },
+    {
+      "accel": -6.0,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1, \"YOLO\": 2}",
+      "h_e": 0.32499999999999996,
+      "mentions": 4,
+      "net_dir": -0.5,
+      "sov": 0.0975609756097561,
+      "ticker": "EEE",
+      "velocity": -3.0,
+      "window_start": 1705543200,
+      "z": -0.5986843400892499
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"YOLO\": 1}",
+      "h_e": 0.32499999999999996,
+      "mentions": 3,
+      "net_dir": 1.0,
+      "sov": 0.07317073170731707,
+      "ticker": "DDD",
+      "velocity": 3.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": -3.0,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.32499999999999996,
+      "mentions": 3,
+      "net_dir": -1.0,
+      "sov": 0.07317073170731707,
+      "ticker": "GME",
+      "velocity": -4.0,
+      "window_start": 1705543200,
+      "z": -0.6567807448042018
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"YOLO\": 1}",
+      "h_e": 0.32499999999999996,
+      "mentions": 3,
+      "net_dir": -1.0,
+      "sov": 0.07317073170731707,
+      "ticker": "HHH",
+      "velocity": 3.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": -4.0,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.32499999999999996,
+      "mentions": 3,
+      "net_dir": 1.0,
+      "sov": 0.07317073170731707,
+      "ticker": "TSLA",
+      "velocity": -3.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 3}",
+      "h_e": 0.3083333333333333,
+      "mentions": 4,
+      "net_dir": 0.3333333333333333,
+      "sov": 0.0975609756097561,
+      "ticker": "PLTR",
+      "velocity": 4.0,
+      "window_start": 1705543200,
+      "z": -1.621846706791826
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1, \"YOLO\": 2}",
+      "h_e": 0.3083333333333333,
+      "mentions": 4,
+      "net_dir": 0.3333333333333333,
+      "sov": 0.0975609756097561,
+      "ticker": "SPY",
+      "velocity": 4.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2, \"YOLO\": 1}",
+      "h_e": 0.22222222222222215,
+      "mentions": 3,
+      "net_dir": -0.3333333333333333,
+      "sov": 0.07317073170731707,
+      "ticker": "NVDA",
+      "velocity": -2.0,
+      "window_start": 1705543200,
+      "z": null
+    }
+  ],
+  "generated_at": 1705543450,
+  "inputs": {
+    "feature_history": [
+      [
+        "SPY",
+        1704938400,
+        4
+      ],
+      [
+        "SPY",
+        1704333600,
+        4
+      ],
+      [
+        "SPY",
+        1703728800,
+        2
+      ],
+      [
+        "SPY",
+        1703124000,
+        1
+      ],
+      [
+        "HHH",
+        1704938400,
+        1
+      ],
+      [
+        "HHH",
+        1704333600,
+        3
+      ],
+      [
+        "HHH",
+        1703728800,
+        3
+      ],
+      [
+        "HHH",
+        1703124000,
+        1
+      ],
+      [
+        "HHH",
+        1702519200,
+        8
+      ],
+      [
+        "PLTR",
+        1704938400,
+        5
+      ],
+      [
+        "PLTR",
+        1704333600,
+        6
+      ],
+      [
+        "PLTR",
+        1703728800,
+        7
+      ],
+      [
+        "PLTR",
+        1703124000,
+        7
+      ],
+      [
+        "PLTR",
+        1702519200,
+        7
+      ],
+      [
+        "PLTR",
+        1701914400,
+        7
+      ],
+      [
+        "PLTR",
+        1701309600,
+        8
+      ],
+      [
+        "PLTR",
+        1700704800,
+        3
+      ],
+      [
+        "PLTR",
+        1700100000,
+        7
+      ],
+      [
+        "PLTR",
+        1699495200,
+        6
+      ],
+      [
+        "EEE",
+        1705539600,
+        7
+      ],
+      [
+        "EEE",
+        1704938400,
+        5
+      ],
+      [
+        "EEE",
+        1704333600,
+        3
+      ],
+      [
+        "EEE",
+        1703728800,
+        7
+      ],
+      [
+        "EEE",
+        1703124000,
+        4
+      ],
+      [
+        "EEE",
+        1702519200,
+        5
+      ],
+      [
+        "EEE",
+        1701914400,
+        1
+      ],
+      [
+        "EEE",
+        1701309600,
+        9
+      ],
+      [
+        "EEE",
+        1700704800,
+        8
+      ],
+      [
+        "EEE",
+        1700100000,
+        9
+      ],
+      [
+        "NVDA",
+        1705539600,
+        5
+      ],
+      [
+        "NVDA",
+        1704938400,
+        2
+      ],
+      [
+        "NVDA",
+        1704333600,
+        3
+      ],
+      [
+        "NVDA",
+        1703728800,
+        8
+      ],
+      [
+        "NVDA",
+        1703124000,
+        3
+      ],
+      [
+        "NVDA",
+        1702519200,
+        3
+      ],
+      [
+        "NVDA",
+        1701914400,
+        5
+      ],
+      [
+        "NVDA",
+        1701309600,
+        9
+      ],
+      [
+        "BBB",
+        1704938400,
+        5
+      ],
+      [
+        "BBB",
+        1704333600,
+        6
+      ],
+      [
+        "BBB",
+        1703728800,
+        6
+      ],
+      [
+        "BBB",
+        1703124000,
+        4
+      ],
+      [
+        "BBB",
+        1702519200,
+        6
+      ],
+      [
+        "BBB",
+        1701914400,
+        3
+      ],
+      [
+        "BBB",
+        1701309600,
+        5
+      ],
+      [
+        "BBB",
+        1700704800,
+        4
+      ],
+      [
+        "BBB",
+        1700100000,
+        1
+      ],
+      [
+        "BBB",
+        1699495200,
+        3
+      ],
+      [
+        "FFF",
+        1705539600,
+        4
+      ],
+      [
+        "FFF",
+        1704938400,
+        1
+      ],
+      [
+        "FFF",
+        1704333600,
+        4
+      ],
+      [
+        "FFF",
+        1703728800,
+        4
+      ],
+      [
+        "FFF",
+        1703124000,
+        9
+      ],
+      [
+        "DDD",
+        1704938400,
+        8
+      ],
+      [
+        "DDD",
+        1704333600,
+        1
+      ],
+      [
+        "GME",
+        1705539600,
+        7
+      ],
+      [
+        "GME",
+        1704938400,
+        6
+      ],
+      [
+        "GME",
+        1704333600,
+        5
+      ],
+      [
+        "GME",
+        1703728800,
+        2
+      ],
+      [
+        "GME",
+        1703124000,
+        6
+      ],
+      [
+        "GME",
+        1702519200,
+        9
+      ],
+      [
+        "GME",
+        1701914400,
+        7
+      ],
+      [
+        "GME",
+        1701309600,
+        1
+      ],
+      [
+        "GME",
+        1700704800,
+        1
+      ],
+      [
+        "GME",
+        1700100000,
+        7
+      ],
+      [
+        "GME",
+        1699495200,
+        4
+      ],
+      [
+        "TSLA",
+        1705539600,
+        6
+      ],
+      [
+        "TSLA",
+        1704938400,
+        3
+      ],
+      [
+        "TSLA",
+        1704333600,
+        1
+      ],
+      [
+        "TSLA",
+        1703728800,
+        5
+      ],
+      [
+        "TSLA",
+        1703124000,
+        1
+      ],
+      [
+        "TSLA",
+        1702519200,
+        5
+      ],
+      [
+        "TSLA",
+        1701914400,
+        6
+      ],
+      [
+        "TSLA",
+        1701309600,
+        9
+      ]
+    ],
+    "hour_of_week": 74,
+    "mentions_in_window": [
+      [
+        "SPY",
+        "t1",
+        "comment",
+        "u2",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "PLTR",
+        "t10",
+        "comment",
+        "u3",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "PLTR",
+        "t11",
+        "comment",
+        "u6",
+        null,
+        "bull"
+      ],
+      [
+        "EEE",
+        "t12",
+        "post",
+        "u1",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "EEE",
+        "t13",
+        "post",
+        "u7",
+        null,
+        "bear"
+      ],
+      [
+        "EEE",
+        "t14",
+        "post",
+        "u1",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "EEE",
+        "t15",
+        "comment",
+        "u4",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "NVDA",
+        "t16",
+        "comment",
+        "u4",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "NVDA",
+        "t17",
+        "comment",
+        "u3",
+        "DD",
+        "bear"
+      ],
+      [
+        "NVDA",
+        "t18",
+        "post",
+        "u4",
+        "DD",
+        "bull"
+      ],
+      [
+        "BBB",
+        "t19",
+        "post",
+        "u7",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t2",
+        "comment",
+        "u1",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "BBB",
+        "t20",
+        "post",
+        "u3",
+        null,
+        "neutral"
+      ],
+      [
+        "BBB",
+        "t21",
+        "comment",
+        "u7",
+        "DD",
+        "neutral"
+      ],
+      [
+        "BBB",
+        "t22",
+        "post",
+        "u2",
+        null,
+        "bull"
+      ],
+      [
+        "BBB",
+        "t23",
+        "comment",
+        "u5",
+        "DD",
+        "bull"
+      ],
+      [
+        "BBB",
+        "t24",
+        "comment",
+        "u1",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "BBB",
+        "t25",
+        "comment",
+        "u6",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t26",
+        "comment",
+        "u2",
+        "DD",
+        "bull"
+      ],
+      [
+        "FFF",
+        "t27",
+        "comment",
+        "u0",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "FFF",
+        "t28",
+        "post",
+        "u3",
+        null,
+        "bull"
+      ],
+      [
+        "FFF",
+        "t29",
+        "comment",
+        "u1",
+        null,
+        "bull"
+      ],
+      [
+        "SPY",
+        "t3",
+        "post",
+        "u2",
+        null,
+        "bull"
+      ],
+      [
+        "FFF",
+        "t30",
+        "comment",
+        "u1",
+        "DD",
+        "bull"
+      ],
+      [
+        "FFF",
+        "t31",
+        "post",
+        "u5",
+        null,
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t32",
+        "post",
+        "u6",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "DDD",
+        "t33",
+        "comment",
+        "u0",
+        null,
+        "bull"
+      ],
+      [
+        "DDD",
+        "t34",
+        "post",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "DDD",
+        "t35",
+        "comment",
+        "u4",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "GME",
+        "t36",
+        "post",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "GME",
+        "t37",
+        "comment",
+        "u7",
+        "DD",
+        "bear"
+      ],
+      [
+        "GME",
+        "t38",
+        "comment",
+        "u4",
+        null,
+        "bear"
+      ],
+      [
+        "TSLA",
+        "t39",
+        "post",
+        "u7",
+        null,
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t4",
+        "comment",
+        "u5",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "TSLA",
+        "t40",
+        "post",
+        "u4",
+        "Gain",
+        "bull"
+      ],
+      [
+        "TSLA",
+        "t41",
+        "comment",
+        "u2",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "HHH",
+        "t5",
+        "comment",
+        "u2",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "HHH",
+        "t6",
+        "comment",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t7",
+        "post",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "PLTR",
+        "t8",
+        "post",
+        "u6",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "PLTR",
+        "t9",
+        "comment",
+        "u0",
+        "Discussion",
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "EEE": {
+        "mentions": 7,
+        "velocity": 3.0
+      },
+      "FFF": {
+        "mentions": 4,
+        "velocity": -2.0
+      },
+      "GME": {
+        "mentions": 7,
+        "velocity": -1.0
+      },
+      "NVDA": {
+        "mentions": 5,
+        "velocity": null
+      },
+      "TSLA": {
+        "mentions": 6,
+        "velocity": 1.0
+      }
+    },
+    "prior_sov_ranks": {
+      "EEE": 3,
+      "FFF": 4,
+      "GME": 2,
+      "NVDA": 5,
+      "TSLA": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.15
+    },
+    "window_seconds": 3600,
+    "window_start": 1705543200
+  },
+  "name": "random/004",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1705543450,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": 5.0,
+        "authors": 6,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.9,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1707,
+        "ticker": "FFF",
+        "velocity": 3.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 6,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.75,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1707,
+        "ticker": "BBB",
+        "velocity": 7.0,
+        "z": 1.65
+      },
+      {
+        "accel": -6.0,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": -0.5,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0976,
+        "ticker": "EEE",
+        "velocity": -3.0,
+        "z": -0.599
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0732,
+        "ticker": "DDD",
+        "velocity": 3.0,
+        "z": null
+      },
+      {
+        "accel": -3.0,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0732,
+        "ticker": "GME",
+        "velocity": -4.0,
+        "z": -0.657
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0732,
+        "ticker": "HHH",
+        "velocity": 3.0,
+        "z": null
+      },
+      {
+        "accel": -4.0,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0732,
+        "ticker": "TSLA",
+        "velocity": -3.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.3083,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 0.333,
+        "rank": 8,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0976,
+        "ticker": "PLTR",
+        "velocity": 4.0,
+        "z": -1.622
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.3083,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 0.333,
+        "rank": 9,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0976,
+        "ticker": "SPY",
+        "velocity": 4.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.2222,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": -0.333,
+        "rank": 10,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0732,
+        "ticker": "NVDA",
+        "velocity": -2.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 41,
+    "window_end": 1705546800,
+    "window_seconds": 3600,
+    "window_start": 1705543200
+  }
+}

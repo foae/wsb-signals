@@ -9,7 +9,7 @@
  *    transaction, so a reader sees a whole cycle or none (the shadow-diff / future web read the latest
  *    complete window). This replaces the v0.0.1 DuckDB-lock + JSON-snapshot workaround entirely.
  */
-import { desc, getTableColumns, sql, type SQL } from 'drizzle-orm'
+import { desc, eq, getTableColumns, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import type { PgTable } from 'drizzle-orm/pg-core'
@@ -163,7 +163,13 @@ export async function publishCycle(db: Db, payload: CyclePayload): Promise<void>
   const { meta } = payload
   await db.transaction(async (tx) => {
     await upsertEmpiricalFeatures(tx, payload.features)
-    if (payload.analytical?.length) await upsertAnalyticalFeatures(tx, payload.analytical)
+    // Exact-cycle analytical set: when an overlay IS supplied, it REPLACES this window's analytical rows
+    // (delete-then-insert) so a shrunk top-N can't leave stale rows behind. When it's omitted (undefined —
+    // e.g. a best-effort market fetch failed), leave the prior overlay untouched (never-kill, architecture §5).
+    if (payload.analytical !== undefined) {
+      await tx.delete(analyticalFeatures).where(eq(analyticalFeatures.windowStart, meta.windowStart))
+      if (payload.analytical.length) await upsertAnalyticalFeatures(tx, payload.analytical)
+    }
     if (payload.movers?.length) await upsertMovers(tx, payload.movers)
     await tx.insert(cycleRuns).values({
       windowStart: meta.windowStart,
@@ -179,9 +185,11 @@ export async function publishCycle(db: Db, payload: CyclePayload): Promise<void>
   })
 }
 
-/** The read contract: the latest COMPLETE window (the shadow-diff now, the web later read only this). */
+/** The read contract: the latest COMPLETE window (the shadow-diff now, the web later read only this).
+ *  Filters on `status = 'complete'` so any future partial/failed marker can't surface as the latest. */
 export async function latestCompleteWindow(db: Db): Promise<number | null> {
   const rows = await db.select({ ws: cycleRuns.windowStart }).from(cycleRuns)
+    .where(eq(cycleRuns.status, 'complete'))
     .orderBy(desc(cycleRuns.windowStart)).limit(1)
   return rows[0]?.ws ?? null
 }

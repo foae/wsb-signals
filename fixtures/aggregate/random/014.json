@@ -1,0 +1,1021 @@
+{
+  "features": [
+    {
+      "accel": null,
+      "authors": 5,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1, \"Gain\": 1}",
+      "h_e": 0.6083333333333333,
+      "mentions": 6,
+      "net_dir": -0.3333333333333333,
+      "sov": 0.125,
+      "ticker": "EEE",
+      "velocity": 5.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 6,
+      "baseline_status": "warming",
+      "dd_count": 2,
+      "flair_counts": "{\"DD\": 2, \"YOLO\": 2}",
+      "h_e": 0.57,
+      "mentions": 6,
+      "net_dir": 0.2,
+      "sov": 0.125,
+      "ticker": "QQQ",
+      "velocity": 2.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"YOLO\": 1}",
+      "h_e": 0.5499999999999999,
+      "mentions": 6,
+      "net_dir": 0.0,
+      "sov": 0.125,
+      "ticker": "HHH",
+      "velocity": 6.0,
+      "window_start": 1704978000,
+      "z": 0.2439552623750631
+    },
+    {
+      "accel": null,
+      "authors": 5,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"Gain\": 2, \"YOLO\": 1}",
+      "h_e": 0.5349999999999999,
+      "mentions": 7,
+      "net_dir": -0.6,
+      "sov": 0.14583333333333334,
+      "ticker": "SPY",
+      "velocity": 7.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": -2.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2, \"Discussion\": 2}",
+      "h_e": 0.5,
+      "mentions": 5,
+      "net_dir": 1.0,
+      "sov": 0.10416666666666667,
+      "ticker": "NVDA",
+      "velocity": 1.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1, \"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.44999999999999996,
+      "mentions": 5,
+      "net_dir": -1.0,
+      "sov": 0.10416666666666667,
+      "ticker": "CCC",
+      "velocity": 5.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.42,
+      "mentions": 6,
+      "net_dir": -0.2,
+      "sov": 0.125,
+      "ticker": "FFF",
+      "velocity": 6.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Gain\": 1}",
+      "h_e": 0.32499999999999996,
+      "mentions": 3,
+      "net_dir": -1.0,
+      "sov": 0.0625,
+      "ticker": "BBB",
+      "velocity": 3.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.2333333333333333,
+      "mentions": 3,
+      "net_dir": 1.0,
+      "sov": 0.0625,
+      "ticker": "AMD",
+      "velocity": 0.0,
+      "window_start": 1704978000,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Gain\": 1}",
+      "h_e": 0.024999999999999998,
+      "mentions": 1,
+      "net_dir": 0.0,
+      "sov": 0.020833333333333332,
+      "ticker": "PLTR",
+      "velocity": 1.0,
+      "window_start": 1704978000,
+      "z": null
+    }
+  ],
+  "generated_at": 1704978250,
+  "inputs": {
+    "feature_history": [
+      [
+        "QQQ",
+        1704974400,
+        4
+      ],
+      [
+        "QQQ",
+        1704373200,
+        1
+      ],
+      [
+        "AMD",
+        1704974400,
+        3
+      ],
+      [
+        "AMD",
+        1704373200,
+        3
+      ],
+      [
+        "AMD",
+        1703768400,
+        6
+      ],
+      [
+        "AMD",
+        1703163600,
+        3
+      ],
+      [
+        "AMD",
+        1702558800,
+        2
+      ],
+      [
+        "AMD",
+        1701954000,
+        5
+      ],
+      [
+        "AMD",
+        1701349200,
+        6
+      ],
+      [
+        "AMD",
+        1700744400,
+        4
+      ],
+      [
+        "BBB",
+        1704373200,
+        5
+      ],
+      [
+        "SPY",
+        1704373200,
+        4
+      ],
+      [
+        "SPY",
+        1703768400,
+        2
+      ],
+      [
+        "SPY",
+        1703163600,
+        5
+      ],
+      [
+        "SPY",
+        1702558800,
+        9
+      ],
+      [
+        "NVDA",
+        1704974400,
+        4
+      ],
+      [
+        "NVDA",
+        1704373200,
+        6
+      ],
+      [
+        "NVDA",
+        1703768400,
+        3
+      ],
+      [
+        "NVDA",
+        1703163600,
+        1
+      ],
+      [
+        "NVDA",
+        1702558800,
+        8
+      ],
+      [
+        "HHH",
+        1704373200,
+        1
+      ],
+      [
+        "HHH",
+        1703768400,
+        5
+      ],
+      [
+        "HHH",
+        1703163600,
+        5
+      ],
+      [
+        "HHH",
+        1702558800,
+        4
+      ],
+      [
+        "HHH",
+        1701954000,
+        1
+      ],
+      [
+        "HHH",
+        1701349200,
+        9
+      ],
+      [
+        "HHH",
+        1700744400,
+        5
+      ],
+      [
+        "HHH",
+        1700139600,
+        9
+      ],
+      [
+        "HHH",
+        1699534800,
+        8
+      ],
+      [
+        "HHH",
+        1698930000,
+        6
+      ],
+      [
+        "EEE",
+        1704974400,
+        1
+      ],
+      [
+        "EEE",
+        1704373200,
+        6
+      ],
+      [
+        "EEE",
+        1703768400,
+        3
+      ],
+      [
+        "EEE",
+        1703163600,
+        5
+      ],
+      [
+        "EEE",
+        1702558800,
+        7
+      ],
+      [
+        "CCC",
+        1704373200,
+        5
+      ],
+      [
+        "FFF",
+        1704373200,
+        9
+      ],
+      [
+        "FFF",
+        1703768400,
+        7
+      ],
+      [
+        "FFF",
+        1703163600,
+        5
+      ],
+      [
+        "FFF",
+        1702558800,
+        1
+      ],
+      [
+        "PLTR",
+        1704373200,
+        7
+      ],
+      [
+        "PLTR",
+        1703768400,
+        5
+      ],
+      [
+        "PLTR",
+        1703163600,
+        3
+      ],
+      [
+        "PLTR",
+        1702558800,
+        8
+      ],
+      [
+        "PLTR",
+        1701954000,
+        3
+      ],
+      [
+        "PLTR",
+        1701349200,
+        4
+      ],
+      [
+        "PLTR",
+        1700744400,
+        2
+      ]
+    ],
+    "hour_of_week": 85,
+    "mentions_in_window": [
+      [
+        "QQQ",
+        "t1",
+        "post",
+        "u6",
+        null,
+        "bull"
+      ],
+      [
+        "BBB",
+        "t10",
+        "comment",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "BBB",
+        "t11",
+        "post",
+        "u6",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "BBB",
+        "t12",
+        "comment",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "SPY",
+        "t13",
+        "post",
+        "u7",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t14",
+        "post",
+        "u3",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "SPY",
+        "t15",
+        "comment",
+        "u7",
+        "Gain",
+        "bear"
+      ],
+      [
+        "SPY",
+        "t16",
+        "comment",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t17",
+        "post",
+        "u7",
+        null,
+        "bull"
+      ],
+      [
+        "SPY",
+        "t18",
+        "post",
+        "u6",
+        null,
+        "bear"
+      ],
+      [
+        "SPY",
+        "t19",
+        "post",
+        "u2",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "QQQ",
+        "t2",
+        "post",
+        "u1",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t20",
+        "comment",
+        "u1",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t21",
+        "post",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t22",
+        "comment",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t23",
+        "post",
+        "u3",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t24",
+        "post",
+        "u7",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t25",
+        "post",
+        "u6",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "HHH",
+        "t26",
+        "comment",
+        "u1",
+        "DD",
+        "bull"
+      ],
+      [
+        "HHH",
+        "t27",
+        "post",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t28",
+        "post",
+        "u2",
+        null,
+        "bear"
+      ],
+      [
+        "HHH",
+        "t29",
+        "post",
+        "u5",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "QQQ",
+        "t3",
+        "post",
+        "u3",
+        "DD",
+        "bull"
+      ],
+      [
+        "HHH",
+        "t30",
+        "comment",
+        "u2",
+        null,
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t31",
+        "post",
+        "u6",
+        null,
+        "bull"
+      ],
+      [
+        "EEE",
+        "t32",
+        "comment",
+        "u2",
+        null,
+        "bear"
+      ],
+      [
+        "EEE",
+        "t33",
+        "post",
+        "u2",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t34",
+        "post",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "EEE",
+        "t35",
+        "post",
+        "u4",
+        null,
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t36",
+        "post",
+        "u0",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t37",
+        "post",
+        "u6",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t38",
+        "comment",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "CCC",
+        "t39",
+        "post",
+        "u0",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t4",
+        "comment",
+        "u7",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "CCC",
+        "t40",
+        "post",
+        "u2",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t41",
+        "post",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t42",
+        "comment",
+        "u4",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t43",
+        "comment",
+        "u6",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "FFF",
+        "t44",
+        "comment",
+        "u3",
+        "DD",
+        "bear"
+      ],
+      [
+        "FFF",
+        "t45",
+        "post",
+        "u5",
+        null,
+        "bear"
+      ],
+      [
+        "FFF",
+        "t46",
+        "comment",
+        "u3",
+        "Gain",
+        "bear"
+      ],
+      [
+        "FFF",
+        "t47",
+        "post",
+        "u5",
+        null,
+        "bull"
+      ],
+      [
+        "PLTR",
+        "t48",
+        "comment",
+        "u1",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t5",
+        "comment",
+        "u5",
+        null,
+        "bear"
+      ],
+      [
+        "QQQ",
+        "t6",
+        "post",
+        "u2",
+        "DD",
+        "bear"
+      ],
+      [
+        "AMD",
+        "t7",
+        "post",
+        "u1",
+        null,
+        "bull"
+      ],
+      [
+        "AMD",
+        "t8",
+        "comment",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "AMD",
+        "t9",
+        "post",
+        "u1",
+        "DD",
+        "bull"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "AMD": {
+        "mentions": 3,
+        "velocity": null
+      },
+      "EEE": {
+        "mentions": 1,
+        "velocity": null
+      },
+      "NVDA": {
+        "mentions": 4,
+        "velocity": 3.0
+      },
+      "QQQ": {
+        "mentions": 4,
+        "velocity": null
+      }
+    },
+    "prior_sov_ranks": {
+      "AMD": 2,
+      "EEE": 4,
+      "NVDA": 3,
+      "QQQ": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.15
+    },
+    "window_seconds": 3600,
+    "window_start": 1704978000
+  },
+  "name": "random/014",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704978250,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": null,
+        "authors": 5,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.6083,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": -0.333,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.125,
+        "ticker": "EEE",
+        "velocity": 5.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 6,
+        "baseline_status": "warming",
+        "dd_count": 2,
+        "h_e": 0.57,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 0.2,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.125,
+        "ticker": "QQQ",
+        "velocity": 2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.55,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.125,
+        "ticker": "HHH",
+        "velocity": 6.0,
+        "z": 0.244
+      },
+      {
+        "accel": null,
+        "authors": 5,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.535,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": -0.6,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1458,
+        "ticker": "SPY",
+        "velocity": 7.0,
+        "z": null
+      },
+      {
+        "accel": -2.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.5,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1042,
+        "ticker": "NVDA",
+        "velocity": 1.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.45,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1042,
+        "ticker": "CCC",
+        "velocity": 5.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.42,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": -0.2,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.125,
+        "ticker": "FFF",
+        "velocity": 6.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.325,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 8,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0625,
+        "ticker": "BBB",
+        "velocity": 3.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.2333,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 9,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0625,
+        "ticker": "AMD",
+        "velocity": 0.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.025,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 10,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0208,
+        "ticker": "PLTR",
+        "velocity": 1.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 48,
+    "window_end": 1704981600,
+    "window_seconds": 3600,
+    "window_start": 1704978000
+  }
+}

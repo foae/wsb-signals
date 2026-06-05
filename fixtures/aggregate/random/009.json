@@ -1,0 +1,708 @@
+{
+  "features": [
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 2, \"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.635,
+      "mentions": 7,
+      "net_dir": 0.6,
+      "sov": 0.22580645161290322,
+      "ticker": "DDD",
+      "velocity": 7.0,
+      "window_start": 1704880800,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 5,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 1, \"YOLO\": 2}",
+      "h_e": 0.5583333333333333,
+      "mentions": 6,
+      "net_dir": 0.3333333333333333,
+      "sov": 0.1935483870967742,
+      "ticker": "CCC",
+      "velocity": 6.0,
+      "window_start": 1704880800,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 6,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"YOLO\": 2}",
+      "h_e": 0.5333333333333333,
+      "mentions": 7,
+      "net_dir": -0.3333333333333333,
+      "sov": 0.22580645161290322,
+      "ticker": "AAA",
+      "velocity": 7.0,
+      "window_start": 1704880800,
+      "z": null
+    },
+    {
+      "accel": -3.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.49999999999999994,
+      "mentions": 5,
+      "net_dir": 0.5,
+      "sov": 0.16129032258064516,
+      "ticker": "GME",
+      "velocity": -1.0,
+      "window_start": 1704880800,
+      "z": null
+    },
+    {
+      "accel": -8.0,
+      "authors": 2,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1}",
+      "h_e": 0.2333333333333333,
+      "mentions": 2,
+      "net_dir": -1.0,
+      "sov": 0.06451612903225806,
+      "ticker": "QQQ",
+      "velocity": -5.0,
+      "window_start": 1704880800,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.1333333333333333,
+      "mentions": 3,
+      "net_dir": 0.0,
+      "sov": 0.0967741935483871,
+      "ticker": "TSLA",
+      "velocity": 3.0,
+      "window_start": 1704880800,
+      "z": -0.5503495392790071
+    },
+    {
+      "accel": -7.0,
+      "authors": 1,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{\"YOLO\": 1}",
+      "h_e": 0.024999999999999998,
+      "mentions": 1,
+      "net_dir": 0.0,
+      "sov": 0.03225806451612903,
+      "ticker": "FFF",
+      "velocity": -6.0,
+      "window_start": 1704880800,
+      "z": null
+    }
+  ],
+  "generated_at": 1704881050,
+  "inputs": {
+    "feature_history": [
+      [
+        "TSLA",
+        1704276000,
+        1
+      ],
+      [
+        "TSLA",
+        1703671200,
+        2
+      ],
+      [
+        "TSLA",
+        1703066400,
+        7
+      ],
+      [
+        "TSLA",
+        1702461600,
+        3
+      ],
+      [
+        "TSLA",
+        1701856800,
+        3
+      ],
+      [
+        "TSLA",
+        1701252000,
+        5
+      ],
+      [
+        "TSLA",
+        1700647200,
+        9
+      ],
+      [
+        "TSLA",
+        1700042400,
+        6
+      ],
+      [
+        "QQQ",
+        1704877200,
+        7
+      ],
+      [
+        "QQQ",
+        1704276000,
+        5
+      ],
+      [
+        "QQQ",
+        1703671200,
+        3
+      ],
+      [
+        "QQQ",
+        1703066400,
+        2
+      ],
+      [
+        "QQQ",
+        1702461600,
+        4
+      ],
+      [
+        "QQQ",
+        1701856800,
+        4
+      ],
+      [
+        "QQQ",
+        1701252000,
+        7
+      ],
+      [
+        "AAA",
+        1704276000,
+        8
+      ],
+      [
+        "AAA",
+        1703671200,
+        7
+      ],
+      [
+        "FFF",
+        1704877200,
+        7
+      ],
+      [
+        "DDD",
+        1704877200,
+        0
+      ],
+      [
+        "DDD",
+        1704276000,
+        7
+      ],
+      [
+        "DDD",
+        1703671200,
+        1
+      ],
+      [
+        "DDD",
+        1703066400,
+        9
+      ],
+      [
+        "GME",
+        1704877200,
+        6
+      ],
+      [
+        "GME",
+        1704276000,
+        3
+      ],
+      [
+        "GME",
+        1703671200,
+        3
+      ],
+      [
+        "GME",
+        1703066400,
+        5
+      ],
+      [
+        "GME",
+        1702461600,
+        6
+      ],
+      [
+        "GME",
+        1701856800,
+        6
+      ],
+      [
+        "CCC",
+        1704276000,
+        7
+      ],
+      [
+        "CCC",
+        1703671200,
+        9
+      ],
+      [
+        "CCC",
+        1703066400,
+        5
+      ],
+      [
+        "CCC",
+        1702461600,
+        7
+      ]
+    ],
+    "hour_of_week": 58,
+    "mentions_in_window": [
+      [
+        "TSLA",
+        "t1",
+        "post",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "AAA",
+        "t10",
+        "post",
+        "u3",
+        null,
+        "bull"
+      ],
+      [
+        "AAA",
+        "t11",
+        "comment",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "AAA",
+        "t12",
+        "comment",
+        "u0",
+        "DD",
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t13",
+        "comment",
+        "u2",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "DDD",
+        "t14",
+        "post",
+        "u7",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "DDD",
+        "t15",
+        "comment",
+        "u6",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "DDD",
+        "t16",
+        "comment",
+        "u7",
+        null,
+        "bull"
+      ],
+      [
+        "DDD",
+        "t17",
+        "post",
+        "u7",
+        "Gain",
+        "bull"
+      ],
+      [
+        "DDD",
+        "t18",
+        "comment",
+        "u6",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "DDD",
+        "t19",
+        "post",
+        "u7",
+        null,
+        "bear"
+      ],
+      [
+        "TSLA",
+        "t2",
+        "comment",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "DDD",
+        "t20",
+        "post",
+        "u4",
+        null,
+        "neutral"
+      ],
+      [
+        "GME",
+        "t21",
+        "post",
+        "u7",
+        "DD",
+        "bull"
+      ],
+      [
+        "GME",
+        "t22",
+        "comment",
+        "u0",
+        null,
+        "bull"
+      ],
+      [
+        "GME",
+        "t23",
+        "comment",
+        "u6",
+        null,
+        "bull"
+      ],
+      [
+        "GME",
+        "t24",
+        "post",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "GME",
+        "t25",
+        "post",
+        "u1",
+        null,
+        "bear"
+      ],
+      [
+        "CCC",
+        "t26",
+        "post",
+        "u1",
+        null,
+        "bull"
+      ],
+      [
+        "CCC",
+        "t27",
+        "comment",
+        "u0",
+        "Gain",
+        "bull"
+      ],
+      [
+        "CCC",
+        "t28",
+        "comment",
+        "u6",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t29",
+        "post",
+        "u2",
+        null,
+        "bear"
+      ],
+      [
+        "TSLA",
+        "t3",
+        "comment",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t30",
+        "post",
+        "u6",
+        "DD",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t31",
+        "comment",
+        "u4",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t4",
+        "comment",
+        "u5",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t5",
+        "post",
+        "u6",
+        "DD",
+        "bear"
+      ],
+      [
+        "AAA",
+        "t6",
+        "post",
+        "u2",
+        null,
+        "neutral"
+      ],
+      [
+        "AAA",
+        "t7",
+        "post",
+        "u4",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "AAA",
+        "t8",
+        "comment",
+        "u5",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "AAA",
+        "t9",
+        "comment",
+        "u5",
+        "YOLO",
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "DDD": {
+        "mentions": 0,
+        "velocity": null
+      },
+      "FFF": {
+        "mentions": 7,
+        "velocity": 1.0
+      },
+      "GME": {
+        "mentions": 6,
+        "velocity": 2.0
+      },
+      "QQQ": {
+        "mentions": 7,
+        "velocity": 3.0
+      }
+    },
+    "prior_sov_ranks": {
+      "DDD": 3,
+      "FFF": 4,
+      "GME": 1,
+      "QQQ": 2
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1704880800
+  },
+  "name": "random/009",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704881050,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.635,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": 0.6,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.2258,
+        "ticker": "DDD",
+        "velocity": 7.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 5,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.5583,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 0.333,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1935,
+        "ticker": "CCC",
+        "velocity": 6.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 6,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.5333,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": -0.333,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.2258,
+        "ticker": "AAA",
+        "velocity": 7.0,
+        "z": null
+      },
+      {
+        "accel": -3.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.5,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": 0.5,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1613,
+        "ticker": "GME",
+        "velocity": -1.0,
+        "z": null
+      },
+      {
+        "accel": -8.0,
+        "authors": 2,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.2333,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0645,
+        "ticker": "QQQ",
+        "velocity": -5.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.1333,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0968,
+        "ticker": "TSLA",
+        "velocity": 3.0,
+        "z": -0.55
+      },
+      {
+        "accel": -7.0,
+        "authors": 1,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.025,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0323,
+        "ticker": "FFF",
+        "velocity": -6.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 31,
+    "window_end": 1704884400,
+    "window_seconds": 3600,
+    "window_start": 1704880800
+  }
+}

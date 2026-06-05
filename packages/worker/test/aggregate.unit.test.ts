@@ -61,8 +61,59 @@ describe('window helpers', () => {
     expect(h).toBeGreaterThanOrEqual(0)
     expect(h).toBeLessThan(168)
   })
-  it('hour_of_week uses Monday=0 (Mon 2024-01-01 00:00 UTC → 0)', () => {
-    expect(hourOfWeek(1_704_067_200)).toBe(0) // the weekday-remap landmine
+  // The weekday remap (Python tm_wday Mon=0 vs JS getUTCDay Sun=0) is only load-bearing off Monday —
+  // table-drive it across the week, especially Sunday (getUTCDay()=0 must map to bucket 144+).
+  it.each([
+    ['Mon 2024-01-01 00:00', 1_704_067_200, 0],
+    ['Mon 2024-01-01 13:00', 1_704_067_200 + 13 * 3600, 13],
+    ['Tue 2024-01-02 00:00', 1_704_153_600, 24],
+    ['Sat 2024-01-06 00:00', 1_704_499_200, 120],
+    ['Sun 2024-01-07 00:00', 1_704_585_600, 144], // getUTCDay()=0 → must remap to 6
+    ['Sun 2024-01-07 23:00', 1_704_585_600 + 23 * 3600, 167],
+  ])('hour_of_week(%s) = %i', (_label, epoch, expected) => {
+    expect(hourOfWeek(epoch)).toBe(expected)
+  })
+})
+
+describe('baseline status branches', () => {
+  // History entries in the SAME hour-of-week bucket as W (168h apart) feed the z baseline.
+  function sameBucketHistory(ticker: string, mentionsList: number[]) {
+    return mentionsList.map((m, k): [string, number, number] => [ticker, WS - 168 * 3600 * (k + 1), m])
+  }
+
+  it('warming when 0 < samples < threshold (no z yet)', () => {
+    const rows = agg({
+      minSamplesReady: 8,
+      mentionsInWindow: [mention('NVDA', 'c1', 'a'), mention('NVDA', 'c2', 'b')],
+      featureHistory: sameBucketHistory('NVDA', [3, 5, 2]), // 3 samples < 8
+    })
+    expect(rows[0]!.baselineStatus).toBe('warming')
+    expect(rows[0]!.z).toBeNull()
+  })
+
+  it('the max(2, minSamplesReady) guard never lets a single sample be ready', () => {
+    const warming = agg({
+      minSamplesReady: 1, // misconfigured low — guard raises the floor to 2
+      mentionsInWindow: [mention('NVDA', 'c1', 'a')],
+      featureHistory: sameBucketHistory('NVDA', [4]), // 1 sample
+    })
+    expect(warming[0]!.baselineStatus).toBe('warming') // not ready (would divide by n-1=0)
+    const ready = agg({
+      minSamplesReady: 1,
+      mentionsInWindow: [mention('NVDA', 'c1', 'a')],
+      featureHistory: sameBucketHistory('NVDA', [4, 6]), // 2 samples ≥ max(2,1)
+    })
+    expect(ready[0]!.baselineStatus).toBe('ready')
+  })
+
+  it('ready but zero-variance baseline → z null (sd == 0)', () => {
+    const rows = agg({
+      minSamplesReady: 8,
+      mentionsInWindow: [mention('NVDA', 'c1', 'a')],
+      featureHistory: sameBucketHistory('NVDA', [5, 5, 5, 5, 5, 5, 5, 5]), // all identical → sd 0
+    })
+    expect(rows[0]!.baselineStatus).toBe('ready')
+    expect(rows[0]!.z).toBeNull()
   })
 })
 

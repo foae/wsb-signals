@@ -27,7 +27,7 @@ export async function startPg(): Promise<PgHarness> {
   return {
     ...handle,
     container,
-    reset: async () => { await handle.pool.query(`TRUNCATE ${TABLES.join(', ')}`) },
+    reset: async () => { await handle.pool.query(`TRUNCATE ${TABLES.join(', ')} CASCADE`) },
     stop: async () => { await handle.close(); await container.stop() },
   }
 }

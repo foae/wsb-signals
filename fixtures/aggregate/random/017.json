@@ -1,0 +1,264 @@
+{
+  "features": [
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "ready",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2, \"Discussion\": 1}",
+      "h_e": 0.7,
+      "mentions": 4,
+      "net_dir": -1.0,
+      "sov": 0.5,
+      "ticker": "HHH",
+      "velocity": 4.0,
+      "window_start": 1705784400,
+      "z": 0.14648469431164107
+    },
+    {
+      "accel": 0.0,
+      "authors": 4,
+      "baseline_status": "ready",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2}",
+      "h_e": 0.6,
+      "mentions": 4,
+      "net_dir": 0.0,
+      "sov": 0.5,
+      "ticker": "EEE",
+      "velocity": -1.0,
+      "window_start": 1705784400,
+      "z": -1.3653316208096145
+    }
+  ],
+  "generated_at": 1705784650,
+  "inputs": {
+    "feature_history": [
+      [
+        "HHH",
+        1705179600,
+        8
+      ],
+      [
+        "HHH",
+        1704574800,
+        4
+      ],
+      [
+        "HHH",
+        1703970000,
+        1
+      ],
+      [
+        "HHH",
+        1703365200,
+        4
+      ],
+      [
+        "HHH",
+        1702760400,
+        1
+      ],
+      [
+        "HHH",
+        1702155600,
+        4
+      ],
+      [
+        "HHH",
+        1701550800,
+        1
+      ],
+      [
+        "HHH",
+        1700946000,
+        6
+      ],
+      [
+        "EEE",
+        1705780800,
+        5
+      ],
+      [
+        "EEE",
+        1705179600,
+        6
+      ],
+      [
+        "EEE",
+        1704574800,
+        5
+      ],
+      [
+        "EEE",
+        1703970000,
+        9
+      ],
+      [
+        "EEE",
+        1703365200,
+        4
+      ],
+      [
+        "EEE",
+        1702760400,
+        8
+      ],
+      [
+        "EEE",
+        1702155600,
+        5
+      ],
+      [
+        "EEE",
+        1701550800,
+        7
+      ],
+      [
+        "EEE",
+        1700946000,
+        9
+      ]
+    ],
+    "hour_of_week": 141,
+    "mentions_in_window": [
+      [
+        "HHH",
+        "t1",
+        "comment",
+        "u2",
+        "DD",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t2",
+        "comment",
+        "u7",
+        null,
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t3",
+        "post",
+        "u5",
+        "DD",
+        "bear"
+      ],
+      [
+        "HHH",
+        "t4",
+        "post",
+        "u3",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "EEE",
+        "t5",
+        "comment",
+        "u2",
+        "DD",
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t6",
+        "post",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t7",
+        "post",
+        "u5",
+        null,
+        "bull"
+      ],
+      [
+        "EEE",
+        "t8",
+        "comment",
+        "u1",
+        null,
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "EEE": {
+        "mentions": 5,
+        "velocity": -1.0
+      }
+    },
+    "prior_sov_ranks": {
+      "EEE": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1705784400
+  },
+  "name": "random/017",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1705784650,
+    "quiet": true,
+    "rows": [
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "ready",
+        "dd_count": 1,
+        "h_e": 0.7,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.5,
+        "ticker": "HHH",
+        "velocity": 4.0,
+        "z": 0.146
+      },
+      {
+        "accel": 0.0,
+        "authors": 4,
+        "baseline_status": "ready",
+        "dd_count": 1,
+        "h_e": 0.6,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.5,
+        "ticker": "EEE",
+        "velocity": -1.0,
+        "z": -1.365
+      }
+    ],
+    "total_mentions": 8,
+    "window_end": 1705788000,
+    "window_seconds": 3600,
+    "window_start": 1705784400
+  }
+}

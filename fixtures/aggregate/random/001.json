@@ -1,0 +1,239 @@
+{
+  "features": [
+    {
+      "accel": -1.0,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1}",
+      "h_e": 0.6100000000000001,
+      "mentions": 5,
+      "net_dir": -0.6,
+      "sov": 0.625,
+      "ticker": "FFF",
+      "velocity": -2.0,
+      "window_start": 1706050800,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 2,
+      "flair_counts": "{\"DD\": 3}",
+      "h_e": 0.4933333333333333,
+      "mentions": 3,
+      "net_dir": 0.3333333333333333,
+      "sov": 0.375,
+      "ticker": "GGG",
+      "velocity": 3.0,
+      "window_start": 1706050800,
+      "z": -1.2841489249843498
+    }
+  ],
+  "generated_at": 1706051050,
+  "inputs": {
+    "feature_history": [
+      [
+        "FFF",
+        1706047200,
+        7
+      ],
+      [
+        "FFF",
+        1705446000,
+        8
+      ],
+      [
+        "FFF",
+        1704841200,
+        8
+      ],
+      [
+        "FFF",
+        1704236400,
+        9
+      ],
+      [
+        "GGG",
+        1705446000,
+        8
+      ],
+      [
+        "GGG",
+        1704841200,
+        5
+      ],
+      [
+        "GGG",
+        1704236400,
+        9
+      ],
+      [
+        "GGG",
+        1703631600,
+        5
+      ],
+      [
+        "GGG",
+        1703026800,
+        8
+      ],
+      [
+        "GGG",
+        1702422000,
+        1
+      ],
+      [
+        "GGG",
+        1701817200,
+        7
+      ],
+      [
+        "GGG",
+        1701212400,
+        9
+      ]
+    ],
+    "hour_of_week": 47,
+    "mentions_in_window": [
+      [
+        "FFF",
+        "t1",
+        "comment",
+        "u0",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "FFF",
+        "t2",
+        "comment",
+        "u5",
+        null,
+        "bear"
+      ],
+      [
+        "FFF",
+        "t3",
+        "post",
+        "u4",
+        "DD",
+        "bear"
+      ],
+      [
+        "FFF",
+        "t4",
+        "post",
+        "u5",
+        null,
+        "bear"
+      ],
+      [
+        "FFF",
+        "t5",
+        "post",
+        "u4",
+        null,
+        "bull"
+      ],
+      [
+        "GGG",
+        "t6",
+        "comment",
+        "u1",
+        "DD",
+        "bear"
+      ],
+      [
+        "GGG",
+        "t7",
+        "post",
+        "u3",
+        "DD",
+        "bull"
+      ],
+      [
+        "GGG",
+        "t8",
+        "post",
+        "u5",
+        "DD",
+        "bull"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "FFF": {
+        "mentions": 7,
+        "velocity": -1.0
+      }
+    },
+    "prior_sov_ranks": {
+      "FFF": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1706050800
+  },
+  "name": "random/001",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1706051050,
+    "quiet": true,
+    "rows": [
+      {
+        "accel": -1.0,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.61,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": -0.6,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.625,
+        "ticker": "FFF",
+        "velocity": -2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 2,
+        "h_e": 0.4933,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 0.333,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.375,
+        "ticker": "GGG",
+        "velocity": 3.0,
+        "z": -1.284
+      }
+    ],
+    "total_mentions": 8,
+    "window_end": 1706054400,
+    "window_seconds": 3600,
+    "window_start": 1706050800
+  }
+}

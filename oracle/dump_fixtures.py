@@ -20,6 +20,8 @@ Regenerate whenever the frozen oracle is re-pinned; the emitted fixtures/ are CO
 from __future__ import annotations
 
 import json
+import random
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -151,9 +153,10 @@ def _m(ticker, thing_id, thing_type, author, flair, dirn, created) -> Mention:
 
 
 def run_scenario(name: str, *, seed_features: list[EmpiricalFeature], mentions: list[Mention],
-                 names: dict, cfg: dict) -> None:
+                 names: dict, cfg: dict, window_start: int = W, weights: dict | None = None) -> None:
     ws = cfg["window_seconds"]
-    gen_at = W + 250
+    ww = weights if weights is not None else cfg["weights"]
+    gen_at = window_start + 250
     with tempfile.TemporaryDirectory() as td:
         db = DB(Path(td) / "oracle.duckdb")
         db.init_schema()
@@ -162,25 +165,25 @@ def run_scenario(name: str, *, seed_features: list[EmpiricalFeature], mentions: 
 
         # Capture the EXACT inputs aggregate_window reads (so the TS port runs DB-free).
         inputs = {
-            "window_start": W,
+            "window_start": window_start,
             "window_seconds": ws,
-            "hour_of_week": hour_of_week(W),
-            "weights": cfg["weights"],
+            "hour_of_week": hour_of_week(window_start),
+            "weights": ww,
             "min_samples_ready": cfg["min_samples_ready"],
             "min_authors_full": cfg["min_authors_full"],
-            "mentions_in_window": [list(r) for r in db.mentions_in_window(W, W + ws)],
-            "prior_features": db.features_at(W - ws),
-            "prior_sov_ranks": db.sov_ranks_at(W - ws),
-            "feature_history": [list(r) for r in db.feature_history(W)],
+            "mentions_in_window": [list(r) for r in db.mentions_in_window(window_start, window_start + ws)],
+            "prior_features": db.features_at(window_start - ws),
+            "prior_sov_ranks": db.sov_ranks_at(window_start - ws),
+            "feature_history": [list(r) for r in db.feature_history(window_start)],
         }
 
-        rows = aggregate_window(db, W, ws, weights=cfg["weights"],
+        rows = aggregate_window(db, window_start, ws, weights=ww,
                                 min_samples_ready=cfg["min_samples_ready"],
                                 min_authors_full=cfg["min_authors_full"])
         features_out = [r.model_dump() for r in rows]  # in returned (canonical board) order
 
         snap_path = Path(td) / "leaderboard.json"
-        write_snapshot(rows, W, ws, snap_path, gen_at, names=names,
+        write_snapshot(rows, window_start, ws, snap_path, gen_at, names=names,
                        min_window_mentions=cfg["min_window_mentions"], capped=False)
         snapshot_out = json.loads(snap_path.read_text())
         db.close()
@@ -258,12 +261,66 @@ def dump_aggregate(cfg: dict) -> None:
     )
 
 
+def dump_random_scenarios(cfg: dict, *, seed: int = 1729, count: int = 30) -> None:
+    """Seeded RANDOM aggregate scenarios — the adversarial property-parity the 3 hand fixtures miss
+    (porting-spec §9). Deterministic (fixed seed, run once, committed). Spans varied weekdays/hours
+    (hour_of_week off Monday), tie-dense boards (integer counts → SoV ties + near-tie H_e for the
+    quantized sort), cold/warming/ready baselines, and HALF use a non-zero `z` weight to exercise the
+    z-blend path (config has z=0). The oracle computes the truth; the TS port must match value AND order.
+    """
+    rng = random.Random(seed)
+    print(f"randomized aggregate scenarios (seed={seed}, count={count}):")
+    ws = cfg["window_seconds"]
+    tickers_pool = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH",
+                    "NVDA", "TSLA", "AMD", "GME", "PLTR", "SPY", "QQQ"]
+    authors_pool = [f"u{i}" for i in range(8)]
+    flairs = [None, None, None, "DD", "Discussion", "YOLO", "Gain"]
+    dirs = ["bull", "bear", "neutral"]
+    z_weights = {**cfg["weights"], "z": 0.15}  # exercise the z contribution to H_e
+
+    for i in range(count):
+        window_start = W + rng.randint(0, 600) * 3600  # varied weekday + hour-of-week
+        chosen = rng.sample(tickers_pool, rng.randint(2, 10))
+        mentions: list[Mention] = []
+        seed_features: list[EmpiricalFeature] = []
+        tid = 0
+        for tk in chosen:
+            for _ in range(rng.randint(1, 7)):
+                tid += 1
+                mentions.append(_m(tk, f"t{tid}", rng.choice(["post", "comment"]),
+                                   rng.choice(authors_pool), rng.choice(flairs), rng.choice(dirs),
+                                   window_start + rng.randint(0, ws - 1)))
+            if rng.random() < 0.6:  # a prior window (velocity/accel/rank_delta), sometimes null velocity
+                pv = rng.choice([None, float(rng.randint(-2, 4))])
+                seed_features.append(_feat(tk, window_start - ws, rng.randint(0, 8), velocity=pv, sov=rng.random()))
+            for k in range(1, rng.randint(0, 10) + 1):  # same-bucket history → cold/warming/ready
+                seed_features.append(_feat(tk, window_start - 168 * 3600 * k, rng.randint(1, 9), sov=0.3))
+        run_scenario(f"random/{i:03d}", seed_features=seed_features, mentions=mentions, names={},
+                     cfg=cfg, window_start=window_start, weights=(z_weights if i % 2 == 0 else cfg["weights"]))
+
+
+def check_oracle_frozen() -> None:
+    """Warn LOUDLY if wsb_signals/ has drifted from tag v0.0.1 — fixtures regenerated from drifted code
+    would silently redefine the oracle (the parity target). Soft check: warn, don't abort."""
+    try:
+        r = subprocess.run(["git", "-C", str(REPO), "diff", "--quiet", "v0.0.1", "--", "wsb_signals"],
+                           capture_output=True)
+        if r.returncode == 1:
+            print("  ⚠ WARNING: wsb_signals/ DIFFERS from tag v0.0.1 — fixtures may not reflect the frozen oracle!")
+        elif r.returncode != 0:
+            print(f"  (could not verify v0.0.1 freeze: {r.stderr.decode().strip()[:80]})")
+    except Exception as e:  # noqa: BLE001
+        print(f"  (oracle-freeze check skipped: {e})")
+
+
 def main() -> None:
     cfg = load_config()
     print(f"Dumping golden parity fixtures → {FIXTURES.relative_to(REPO)}/  (config: {cfg['weights']})")
+    check_oracle_frozen()
     dump_extract_classify()
     dump_wordset_loader()
     dump_aggregate(cfg)
+    dump_random_scenarios(cfg)
     print("done.")
 
 

@@ -17,9 +17,11 @@
 - The numeric core is **deterministic by construction** in v0.0.1 (the determinism stabilization:
   canonical tie-breakers + `ORDER BY`-stable reads + `sort_keys` JSON). So parity here means **exact
   value + exact ordering**, not "within epsilon and roughly the same order."
-- Where exactness is genuinely impossible (float LSBs), the rule is: **quantize before compare** (§2.6)
-  so ordering is still exact. Never accept "Spearman ≈ 1" as a pass for the scoring slice — a single
-  rank inversion is a real bug.
+- Float math is **bit-exact** between a faithful port and the oracle (same IEEE-754 ops in the same
+  order — incl. `(x-mean)*(x-mean)` not `**2`), so ordering is reproduced exactly on **raw** floats. Do
+  **NOT** quantize before compare (§2.6 — the original quantize guidance was wrong; the randomized
+  fixtures disproved it). Never accept "Spearman ≈ 1" as a pass for the scoring slice — a single rank
+  inversion is a real bug.
 
 ## 1. Parity comparison boundary & the oracle harness
 
@@ -93,10 +95,15 @@ Reproduce `aggregate_window` exactly. Reference: `wsb_signals/aggregate.py` @ `v
 
 ### 2.6 Canonical ordering (frozen in v0.0.1 — reproduce exactly)
 - Final board: sort by `(-h_e, -sov, -authors, -mentions, ticker)` (total order; deterministic).
-- `flair_counts` stored as `JSON.stringify` with **sorted keys** (canonical string).
-- For cross-language float safety, **quantize `h_e` and `sov` to a fixed precision (e.g. round to 1e-9)
-  before the comparison key** in the TS port so LSB drift can't invert a near-tie. (The oracle is
-  self-consistent without this; the port needs it to match the oracle's ordering under any float noise.)
+- `flair_counts` is a canonical **sorted-key** object (a JSONB object in v2; parity is on the counts).
+- **Sort on RAW floats — do NOT quantize.** The port is bit-exact to the oracle (same IEEE-754 ops in the
+  same order; use `(x-mean)*(x-mean)`, not `**2`/`pow`, for the variance), so equal rows compare equal and
+  genuinely-different rows compare exactly as Python's raw sort does — *including* when the oracle's order
+  rests on a **1-ULP `h_e` difference** (e.g. `0.4` vs `0.39999999999999997`). Quantizing `h_e`/`sov` to
+  1e-9 (this section's ORIGINAL guidance) DISCARDS that real signal and inverts such pairs vs the oracle —
+  the `fixtures/aggregate/random/010` scenario proved it empirically. If the live shadow (§9) ever shows a
+  1-ULP order flip, put the tolerance in the **shadow-diff comparison** (treat sub-ε `h_e` rows as
+  tie-equivalent), never in the production sort.
 
 ## 3. Extraction & classification
 
@@ -216,7 +223,7 @@ Gate the relevant slice on each:
 - [ ] `velocity`/`accel` **null** (not 0) when no prior window.
 - [ ] `_max_norm`: `vmax<=0 → zeros`; negatives floored to 0; `default 0` on empty.
 - [ ] z enters the blend only when `ready && z!=null`; `net_dir` uses `|net_dir|`, un-normed.
-- [ ] Canonical sort `(-h_e,-sov,-authors,-mentions,ticker)`; quantize h_e/sov before compare.
+- [ ] Canonical sort `(-h_e,-sov,-authors,-mentions,ticker)` on **RAW** floats — bit-exact port, NO quantize (§2.6).
 - [ ] `flair_counts` canonical sorted-key JSON.
 - [ ] Extractor precedence incl. `whitelist null vs empty` (cashtag-only fail-closed); `_load_wordset` format.
 - [ ] HTTP client does **not** throw on 4xx/5xx; `capped` vs `ok` have **opposite** persistence.
