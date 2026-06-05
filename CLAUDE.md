@@ -74,6 +74,39 @@ uv run wsb dashboard                 # Streamlit board on :8501 (reads the JSON/
 There is **no lint config** in-repo (no ruff/flake8), despite `# noqa` comments in the source.
 Run-for-real is Docker Compose (`docker compose up -d --build`); see `deploy/README.md`.
 
+## Commands — v2 (ACTIVE; pnpm monorepo on `feat/v2-fullstack-nuxt`)
+
+**Node 24 LTS + pnpm** (pinned via `.nvmrc` + `packageManager`). Packages live in
+`packages/{shared,worker,web}`; **each slice of the TS port gates against the golden fixtures in
+`fixtures/`** — the frozen v0.0.1 radar is the parity oracle (`design/v2-porting-spec.md`).
+
+```bash
+pnpm install                          # build the workspace (native builds pre-approved in pnpm-workspace.yaml)
+pnpm -r --if-present run typecheck    # typecheck all (shared/worker → tsc, web → nuxt typecheck)
+pnpm -r --if-present run test         # all unit tests
+
+# worker (@wsb/worker) — the TS radar (ingest → extract → classify → H_e → H_m → publish)
+pnpm -C packages/worker test          # unit + PARITY tests (vs fixtures/), Docker-free
+pnpm -C packages/worker test:it       # testcontainers Postgres integration — NEEDS Docker
+pnpm -C packages/worker typecheck
+pnpm -C packages/worker dev           # run the worker entry (tsx; the 5-min loop lands in slice 6)
+
+# web (@wsb/web) — Nuxt 4 SSR (read-only)
+pnpm -C packages/web dev              # dev server
+pnpm -C packages/web build            # full SSR build → .output/
+pnpm -C packages/web typecheck        # nuxt typecheck (vue-tsc)
+
+# shared (@wsb/shared) — Drizzle schema + inferred types
+pnpm -C packages/shared db:generate   # regenerate the Postgres migration from src/schema.ts
+
+# parity oracle — regenerate golden fixtures from the FROZEN v0.0.1 code (run in the uv env)
+uv run python oracle/dump_fixtures.py # → fixtures/*.json (the COMMITTED parity contract)
+```
+
+The v2 worker writes Postgres directly (no DuckDB lock / no JSON-snapshot workaround); the web reads it
+read-only. **No lint config yet** — `@nuxt/eslint` lands with the web slice (slice 8). Build order and
+slice status live in `design/v2-plan.md` §4.
+
 ## Pipeline (data flow)
 
 `Reddit tap → extract tickers → classify direction → window-aggregate (H_e) → gate market data to

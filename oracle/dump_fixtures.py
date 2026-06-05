@@ -31,7 +31,7 @@ sys.path.insert(0, str(REPO))  # import the frozen package in-place (no install 
 from wsb_signals.aggregate import aggregate_window, hour_of_week, write_snapshot  # noqa: E402
 from wsb_signals.classify import direction  # noqa: E402
 from wsb_signals.db import DB  # noqa: E402
-from wsb_signals.extract import DEFAULT_REGEX, TickerExtractor  # noqa: E402
+from wsb_signals.extract import DEFAULT_REGEX, TickerExtractor, _load_wordset  # noqa: E402
 from wsb_signals.models import EmpiricalFeature, Mention  # noqa: E402
 
 FIXTURES = REPO / "fixtures"
@@ -116,6 +116,18 @@ def dump_extract_classify() -> None:
         "wordsets": WORDSETS,
         "cases": cases,
     })
+
+
+def dump_wordset_loader() -> None:
+    """Loader parity on the REAL committed wordlists — `_load_wordset` strips `#`-comments, splits on
+    any whitespace, dedups. The TS loader must parse these identical files to the identical set
+    (symbols.txt is derived/gitignored, so it's out of scope here)."""
+    print("wordset loader (B3 — real committed files):")
+    out = {}
+    for key, rel in (("stoplist", "whitelist/stoplist.txt"), ("ambiguous", "whitelist/ambiguous.txt")):
+        toks = sorted(_load_wordset(REPO / rel))
+        out[key] = {"path": rel, "count": len(toks), "tokens": toks}
+    write_fixture("wordset_loader.json", out)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -250,6 +262,7 @@ def main() -> None:
     cfg = load_config()
     print(f"Dumping golden parity fixtures → {FIXTURES.relative_to(REPO)}/  (config: {cfg['weights']})")
     dump_extract_classify()
+    dump_wordset_loader()
     dump_aggregate(cfg)
     print("done.")
 
