@@ -34,10 +34,14 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))  # import the frozen package in-place (no install needed)
 
 from wsb_signals.aggregate import aggregate_window, hour_of_week, write_snapshot  # noqa: E402
+from wsb_signals.analytical import compute_analytical  # noqa: E402
 from wsb_signals.classify import direction  # noqa: E402
 from wsb_signals.db import DB  # noqa: E402
 from wsb_signals.extract import DEFAULT_REGEX, TickerExtractor, _load_wordset  # noqa: E402
-from wsb_signals.models import EmpiricalFeature, Mention, RawComment, RawPost  # noqa: E402
+from wsb_signals.market.alpaca import AlpacaMarketData  # noqa: E402
+from wsb_signals.models import (  # noqa: E402
+    EmpiricalFeature, Mention, RawComment, RawPost, StockSnapshot,
+)
 from wsb_signals.sources.arctic_shift import ArcticShiftSource  # noqa: E402
 
 FIXTURES = REPO / "fixtures"
@@ -513,6 +517,161 @@ def dump_ingest_poll() -> None:
     })
 
 
+# --------------------------------------------------------------------------------------------------
+# B4/I/O — Alpaca market overlay (slice 5). Two boundaries:
+#   * analytical : StockSnapshot[] → AnalyticalFeature[] + H_m (compute_analytical) — the pure scoring,
+#                  incl. the ret/rvol div-by-zero guards, abs-ret max-norm, and the blend.
+#   * client     : a CASSETTE driven through the FROZEN AlpacaMarketData (fake httpx client + patched
+#                  time), dumping the snapshots dict / movers list the oracle produces — chunking,
+#                  non-200 best-effort skip, and the 1-based-per-kind rank (with symbol-less gaps).
+# --------------------------------------------------------------------------------------------------
+def dump_market_analytical() -> None:
+    print("market analytical H_m (B4):")
+    mkt_w = tomllib.loads((REPO / "config.toml").read_text())["market"]["weights"]
+
+    def _snap(ticker, **kw) -> StockSnapshot:
+        return StockSnapshot(ticker=ticker, price=kw.get("price"), day_open=kw.get("day_open"),
+                             day_close=kw.get("day_close"), day_volume=kw.get("day_volume"),
+                             prev_close=kw.get("prev_close"), prev_volume=kw.get("prev_volume"),
+                             feed="iex", as_of=N_NOW)
+
+    def run(name, snaps, weights):
+        sd = {s.ticker: s for s in snaps}  # dict preserves insertion order → compute_analytical .values()
+        out = compute_analytical(sd, W, weights)
+        write_fixture(f"market/analytical/{name}.json", {
+            "name": name, "window_start": W, "weights": weights,
+            "snapshots": [s.model_dump() for s in snaps],
+            "features": [a.model_dump() for a in out],
+        })
+
+    # mixed: +ret, −ret (abs in norm), null price→ret null, prev_close=0→ret null (guard),
+    #        null day_volume→rvol null, prev_volume=0→rvol null (guard). max|ret|=0.2, max rvol=3.0.
+    mixed = [
+        _snap("AAA", price=110, prev_close=100, day_volume=200, prev_volume=100),  # ret .1  rvol 2.0
+        _snap("BBB", price=90, prev_close=100, day_volume=50, prev_volume=100),     # ret -.1 rvol 0.5
+        _snap("CCC", price=None, prev_close=100, day_volume=300, prev_volume=100),  # ret None rvol 3.0
+        _snap("DDD", price=105, prev_close=0, day_volume=None, prev_volume=100),     # ret None rvol None
+        _snap("EEE", price=120, prev_close=100, day_volume=10, prev_volume=0),       # ret .2  rvol None
+    ]
+    run("mixed", mixed, mkt_w)
+    run("weights_variant", mixed, {"ret": 0.8, "rvol": 0.2, "pcr": 0.0, "iv": 0.0})
+    run("all_null", [_snap("AAA"), _snap("BBB")], mkt_w)  # everything None → max_norm zeros → h_m 0
+
+
+class _MktResp:
+    """httpx.Response surface the Alpaca client touches: status_code, headers, json() (raw body), text."""
+    def __init__(self, page: dict):
+        self.status_code = page.get("status", 200)
+        self.headers = page.get("headers", {})
+        self.text = page.get("body", "")
+        self._json = page.get("json", {})
+
+    def json(self):
+        return self._json
+
+
+class _MktClient:
+    """Dispatches by path: snapshot chunks served in order; the two screener endpoints fixed."""
+    def __init__(self, cassette: dict):
+        self._snap_pages = cassette.get("snapshots", [])
+        self._most_actives = cassette.get("most_actives")
+        self._movers = cassette.get("movers")
+        self.snap_idx = 0
+
+    def get(self, path: str, params=None) -> _MktResp:
+        if "snapshots" in path:
+            page = self._snap_pages[self.snap_idx]
+            self.snap_idx += 1
+        elif "most-actives" in path:
+            page = self._most_actives
+        elif "movers" in path:
+            page = self._movers
+        else:
+            page = None
+        if page is None:
+            page = {"status": 404}
+        if page.get("error") == "network":
+            raise httpx.ConnectError("simulated connection reset")
+        return _MktResp(page)
+
+    def close(self) -> None:
+        pass
+
+
+def dump_market_client() -> None:
+    print("market client (cassette dual-run):")
+
+    def snap_run(name, *, tickers, pages):
+        mkt = AlpacaMarketData("KEY", "SECRET")
+        mkt.client = _MktClient({"snapshots": pages})
+        with mock.patch("time.time", return_value=N_NOW):
+            snaps = mkt.snapshots(tickers)
+        write_fixture(f"market/snapshots/{name}.json", {
+            "name": name, "now": N_NOW, "tickers": tickers,
+            "cassette": {"snapshots": pages},
+            "request_count": mkt.client.snap_idx,
+            "expected": {sym: s.model_dump() for sym, s in snaps.items()},
+        })
+
+    def screen_run(name, *, top, most_actives, movers):
+        mkt = AlpacaMarketData("KEY", "SECRET")
+        mkt.client = _MktClient({"most_actives": most_actives, "movers": movers})
+        with mock.patch("time.time", return_value=N_NOW):
+            result = mkt.screeners(top)
+        write_fixture(f"market/screeners/{name}.json", {
+            "name": name, "now": N_NOW, "top": top,
+            "cassette": {"most_actives": most_actives, "movers": movers},
+            "expected": [m.model_dump() for m in result],
+        })
+
+    def ok(body):
+        return {"status": 200, "json": body}
+
+    # snapshots: parse latestTrade/dailyBar/prevDailyBar; missing field/sub-object → null; preserve order.
+    snap_run("single_chunk", tickers=["AAA", "BBB", "CCC"], pages=[ok({
+        "AAA": {"latestTrade": {"p": 110.5}, "dailyBar": {"o": 100, "c": 108, "v": 200},
+                "prevDailyBar": {"c": 100, "v": 100}},
+        "BBB": {"latestTrade": {"p": 90}, "dailyBar": {"o": 95, "c": 92, "v": 50},
+                "prevDailyBar": {"c": 100, "v": 80}},
+        "CCC": {"dailyBar": {"c": 50}},  # no latestTrade (price null) / no prevDailyBar (prev null)
+    })])
+
+    # >100 symbols → 2 chunked requests; merged dict keeps response (insertion) order across chunks.
+    big = [f"S{i}" for i in range(150)]
+    snap_run("two_chunks", tickers=big, pages=[
+        ok({"S0": {"latestTrade": {"p": 10}, "prevDailyBar": {"c": 9}},
+            "S1": {"latestTrade": {"p": 20}, "prevDailyBar": {"c": 21}}}),
+        ok({"S100": {"latestTrade": {"p": 30}, "prevDailyBar": {"c": 25}}}),
+    ])
+
+    # a non-200 chunk is skipped (best-effort); the OTHER chunk still lands.
+    snap_run("chunk_non200_skipped", tickers=big, pages=[
+        {"status": 500, "body": "rate limited"},
+        ok({"S100": {"latestTrade": {"p": 30}, "prevDailyBar": {"c": 25}}}),
+    ])
+
+    # screeners: active (volume) ranks 1..; gainers + losers each rank 1.. (price + percent_change).
+    screen_run("happy", top=25,
+               most_actives=ok({"most_actives": [
+                   {"symbol": "SPY", "volume": 1000}, {"symbol": "QQQ", "volume": 800},
+                   {"symbol": "AAPL", "volume": 600}]}),
+               movers=ok({"gainers": [{"symbol": "NVDA", "price": 120, "percent_change": 5.2},
+                                      {"symbol": "AMD", "price": 90, "percent_change": 3.1}],
+                          "losers": [{"symbol": "GME", "price": 20, "percent_change": -8.0}]}))
+
+    # a symbol-less entry CONSUMES its rank (enumerate-from-1 + if symbol) → rank gap (1, 3).
+    screen_run("symbolless_gap", top=10,
+               most_actives=ok({"most_actives": [
+                   {"symbol": "SPY", "volume": 1}, {"volume": 2}, {"symbol": "QQQ", "volume": 3}]}),
+               movers=ok({"gainers": [], "losers": []}))
+
+    # per-call best-effort: most-actives fails (warn, none) but movers still land.
+    screen_run("actives_fail_movers_ok", top=25,
+               most_actives={"status": 500, "body": "boom"},
+               movers=ok({"gainers": [{"symbol": "TSLA", "price": 250, "percent_change": 4.0}],
+                          "losers": [{"symbol": "F", "price": 11, "percent_change": -2.0}]}))
+
+
 def check_oracle_frozen() -> None:
     """Warn LOUDLY if wsb_signals/ has drifted from tag v0.0.1 — fixtures regenerated from drifted code
     would silently redefine the oracle (the parity target). Soft check: warn, don't abort."""
@@ -537,6 +696,8 @@ def main() -> None:
     dump_random_scenarios(cfg)
     dump_ingest_normalize()
     dump_ingest_poll()
+    dump_market_analytical()
+    dump_market_client()
     print("done.")
 
 

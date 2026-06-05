@@ -1,0 +1,87 @@
+{
+  "cassette": {
+    "snapshots": [
+      {
+        "json": {
+          "AAA": {
+            "dailyBar": {
+              "c": 108,
+              "o": 100,
+              "v": 200
+            },
+            "latestTrade": {
+              "p": 110.5
+            },
+            "prevDailyBar": {
+              "c": 100,
+              "v": 100
+            }
+          },
+          "BBB": {
+            "dailyBar": {
+              "c": 92,
+              "o": 95,
+              "v": 50
+            },
+            "latestTrade": {
+              "p": 90
+            },
+            "prevDailyBar": {
+              "c": 100,
+              "v": 80
+            }
+          },
+          "CCC": {
+            "dailyBar": {
+              "c": 50
+            }
+          }
+        },
+        "status": 200
+      }
+    ]
+  },
+  "expected": {
+    "AAA": {
+      "as_of": 1704070800,
+      "day_close": 108.0,
+      "day_open": 100.0,
+      "day_volume": 200,
+      "feed": "iex",
+      "prev_close": 100.0,
+      "prev_volume": 100,
+      "price": 110.5,
+      "ticker": "AAA"
+    },
+    "BBB": {
+      "as_of": 1704070800,
+      "day_close": 92.0,
+      "day_open": 95.0,
+      "day_volume": 50,
+      "feed": "iex",
+      "prev_close": 100.0,
+      "prev_volume": 80,
+      "price": 90.0,
+      "ticker": "BBB"
+    },
+    "CCC": {
+      "as_of": 1704070800,
+      "day_close": 50.0,
+      "day_open": null,
+      "day_volume": null,
+      "feed": "iex",
+      "prev_close": null,
+      "prev_volume": null,
+      "price": null,
+      "ticker": "CCC"
+    }
+  },
+  "name": "single_chunk",
+  "now": 1704070800,
+  "request_count": 1,
+  "tickers": [
+    "AAA",
+    "BBB",
+    "CCC"
+  ]
+}

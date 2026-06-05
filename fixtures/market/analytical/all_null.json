@@ -1,0 +1,58 @@
+{
+  "features": [
+    {
+      "breadth": null,
+      "h_m": 0.0,
+      "iv_rank": null,
+      "pcr": null,
+      "ret": null,
+      "rvol": null,
+      "rvol_conf": "low",
+      "ticker": "AAA",
+      "window_start": 1704067200
+    },
+    {
+      "breadth": null,
+      "h_m": 0.0,
+      "iv_rank": null,
+      "pcr": null,
+      "ret": null,
+      "rvol": null,
+      "rvol_conf": "low",
+      "ticker": "BBB",
+      "window_start": 1704067200
+    }
+  ],
+  "name": "all_null",
+  "snapshots": [
+    {
+      "as_of": 1704070800,
+      "day_close": null,
+      "day_open": null,
+      "day_volume": null,
+      "feed": "iex",
+      "prev_close": null,
+      "prev_volume": null,
+      "price": null,
+      "ticker": "AAA"
+    },
+    {
+      "as_of": 1704070800,
+      "day_close": null,
+      "day_open": null,
+      "day_volume": null,
+      "feed": "iex",
+      "prev_close": null,
+      "prev_volume": null,
+      "price": null,
+      "ticker": "BBB"
+    }
+  ],
+  "weights": {
+    "iv": 0.0,
+    "pcr": 0.0,
+    "ret": 0.5,
+    "rvol": 0.5
+  },
+  "window_start": 1704067200
+}
