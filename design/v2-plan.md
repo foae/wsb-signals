@@ -76,9 +76,11 @@ and types are defined; worker and web both import it (the single-language payoff
 | Logging | **consola** (web) / **pino** (worker) | structured, fields matching the Python logger for shadow diffing. |
 | Read/write roles | worker = writer role; web = **read-only** role | separate connection factories. |
 
-> **Verify-on-implement (medium confidence):** Nuxt 4 + Nuxt UI v3 + `@nuxtjs/html-validator`
-> compatibility; pnpm settings Nuxt 4 needs; Drizzle's batch-insert param handling (porting-spec §6).
-> Resolve these in slice 0/3 with actual installs, not assumptions.
+> **Verify-on-implement:** ~~Nuxt 4 + Nuxt UI + pnpm settings~~ **VERIFIED in slice 0** — Nuxt 4.4.7 +
+> Nuxt UI 4.8.2 (note: **v4**, not the v3 the earlier draft assumed) install, `nuxt prepare`, typecheck,
+> and a full SSR build are green under pnpm 11 (the native builds it needs are approved in
+> `pnpm-workspace.yaml`). Still open: `@nuxtjs/html-validator` compatibility (slice 8) and Drizzle's
+> batch-insert param handling under the 65535 cap (slice 3, porting-spec §6).
 
 ## 4. Build order (pure-logic-first, each slice gated on the oracle)
 
@@ -138,7 +140,8 @@ Carry over the Incus host-networking note (worker needs egress to Arctic-Shift/A
 
 ## 8. Open items (verify on implement)
 
-- Nuxt 4 / Nuxt UI v3 / `@nuxtjs/html-validator` compatibility + pnpm settings (slice 8).
+- ~~Nuxt 4 / Nuxt UI / pnpm settings~~ — **resolved in slice 0** (Nuxt 4.4.7 + Nuxt UI **4.8.2**, SSR
+  build green). `@nuxtjs/html-validator` compatibility still open (slice 8).
 - Drizzle batch-upsert parameter behavior under the 65535 cap (slice 3).
 - The exact `run_status`/publish-marker shape (slice 3).
 - ROADMAP 0.6 (peak-hour DDT pagination/throughput) is still open and **transfers** to the TS ingest —

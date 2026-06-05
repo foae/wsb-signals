@@ -1,4 +1,14 @@
 packages:
   - packages/*
 allowBuilds:
+  # Build: Nuxt's native file-watcher, the Vue-version shim @vueuse needs, and the JS bundler.
+  '@parcel/watcher': true
+  vue-demi: true
   esbuild: true
+  # Don't build: testcontainers/dockerode transitive deps — ssh2 runs pure-JS for local Docker,
+  # cpu-features is just an ssh2 crypto accel, protobufjs's postinstall is only its CLI. None needed.
+  ssh2: false
+  cpu-features: false
+  protobufjs: false
+minimumReleaseAgeExclude:
+  - '@nuxt/ui@4.8.2'

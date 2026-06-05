@@ -28,4 +28,8 @@ packages/*/dist/
 packages/*/.nuxt/
 packages/*/.output/
 packages/*/.nitro/
-fixtures/*.json
+
+# Golden parity fixtures (fixtures/) ARE committed — they are the v0.0.1→v2 parity contract
+# (v2-plan.md §2, v2-porting-spec.md §1). Only scratch/regenerated scratch is ignored.
+fixtures/tmp/
+*.tmp.json
