@@ -3,6 +3,12 @@
 > Phased build plan. **v0.0.1 (code) = Phase 0 → Phase 2** (SoV trending radar + market overlay,
 > minimal Streamlit). **v0.0.2 = Phase 3** (Attention×Action: divergence quadrants, lead-lag,
 > alerts). Phases gate on exit criteria; don't skip Phase 0.
+>
+> **Version state (2026-06-05):** **v0.0.1 is FROZEN** (tagged; Python + DuckDB + Streamlit) — the
+> parity **oracle**, not active code. **Active development is v2 — a full-stack TypeScript rewrite** of
+> the whole stack; the v0.0.2 product (divergence/quadrants/STEALTH/lead-lag) is built **within v2**.
+> Authoritative: [`design/v2-plan.md`](./design/v2-plan.md) + [`design/v2-porting-spec.md`](./design/v2-porting-spec.md).
+> The phase descriptions below are **build history** for the frozen radar.
 
 ## Phase 0 — Feasibility & scaffolding ⛔ (gating)
 

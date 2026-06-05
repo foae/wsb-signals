@@ -7,24 +7,53 @@ WSB Signals is a near-live r/wallstreetbets "trending radar": poll Reddit, rank 
 (eventually) badge the divergence between chatter and market action. It is observational research,
 **not** a trading signal — keep that framing in any user-facing copy.
 
+## ⚠ Version state — READ THIS FIRST
+
+**Two versions exist. Know which you're working on.**
+
+- **v0.0.1 — FROZEN (everything the rest of this file describes).** The Python + DuckDB + Streamlit
+  radar below is tagged `v0.0.1`, stable, deterministic, and **feature-frozen.** It is now the **parity
+  oracle** for v2 — read it to understand the behavior the rewrite must reproduce, but **do NOT add
+  features to it.**
+- **v2 — ACTIVE development (full-stack TypeScript).** The **entire worker** is being re-implemented in
+  **TypeScript** as a standalone Node process (+ a Nuxt 4 SSR frontend, Postgres, a pnpm monorepo with a
+  shared Drizzle schema). **All new work happens here**, on branch **`feat/v2-fullstack-nuxt`**.
+
+**Building v2? Read these two FIRST** — they are authoritative and override the v0.0.1 descriptions
+below wherever they conflict:
+- [`design/v2-plan.md`](./design/v2-plan.md) — topology, monorepo layout, stack, build order, deploy.
+- [`design/v2-porting-spec.md`](./design/v2-porting-spec.md) — the Python→TS **parity contract** (scoring
+  invariants, I/O contracts, cross-language landmines, test strategy). Every port slice gates on it.
+
+The **concept and math** (`signal-framework.md`, the §5 non-negotiables below) carry forward to v2
+unchanged; the **implementation** (uv / Python / DuckDB / Streamlit) is being replaced — don't treat it
+as the current build target. The frozen radar stays as the oracle; diff the TS port against it.
+
 ## Source of truth
 
 The `design/` docs are authoritative; code references them by section number (e.g. "signal-framework §4").
-When you change behavior, **keep the doc and the code in sync** — drift here is a real bug (the regex
-comment in `extract.py` and `architecture.md` §2.2 calls this out explicitly).
+When you change behavior, **keep the doc and the code in sync** — drift here is a real bug.
 
-- `design/signal-framework.md` — the concept: two signal families, normalization, `H_e`/`H_m`,
-  divergence quadrants, lead-lag. **Read this first to understand *why*.**
+**v2 — active (full-stack TypeScript):**
+- `design/v2-plan.md` — the v2 blueprint: topology, pnpm-monorepo layout, stack, build order, deploy.
+- `design/v2-porting-spec.md` — the Python→TS **parity contract**; every port slice gates on it.
+
+**Concept & math (version-agnostic — carry forward to v2):**
+- `design/signal-framework.md` — two signal families, normalization, `H_e`/`H_m`, divergence quadrants,
+  lead-lag. **Read this first to understand *why*.**
 - `design/architecture.md` — pipeline, components (§2), schema (§2.7), cadence (§3), the
-  **non-negotiables** (§5). Maps almost 1:1 onto `wsb_signals/` modules.
-- `ROADMAP.md` — phase plan & locked decisions. **v0.0.1 = Phase 0→2** (SoV radar + stock overlay +
-  screeners — DONE; options enrichment of `H_m` is the remaining v0.0.1 increment). **v0.0.2 = Phase 3**
-  (divergence quadrants, STEALTH detection, lead-lag — not built yet).
-- `sources/` — per-provider API references and the data-access strategy.
+  **non-negotiables** (§5). Describes the v0.0.1 implementation, but the §5 invariants hold for v2 too.
 
-## Commands
+**v0.0.1 (frozen) & history:**
+- `ROADMAP.md` — phased build history. v0.0.1 (Phase 0→2) is **frozen**; v2 is the active direction
+  (see `design/v2-plan.md`). `design/nuxt-migration.md` is a tombstone (an abandoned hybrid plan).
+- `sources/` — per-provider API references and the data-access strategy (carry forward to v2).
 
-Tooling is **uv** (no manual venv / pip). Console entrypoint is `wsb` (`pyproject` → `wsb_signals.cli:main`).
+## Commands — v0.0.1 frozen radar (the oracle)
+
+These drive the **frozen Python radar** (the parity oracle); v2 tooling will be **pnpm**-based (see
+`design/v2-plan.md`). Tooling is **uv** (no manual venv / pip). Console entrypoint is `wsb`
+(`pyproject` → `wsb_signals.cli:main`).
 
 ```bash
 uv sync                              # build env from pyproject + uv.lock
@@ -73,6 +102,11 @@ top-N hot → overlay (H_m) → JSON snapshot + Parquet → dashboard`. Module m
   market-wide read (captured now for STEALTH in v0.0.2).
 
 ## Concurrency & output model (critical — touches multiple files)
+
+> **v2 replaces this model.** Postgres (concurrent reads, no exclusive lock) removes the
+> DuckDB-single-writer + JSON-snapshot/Parquet workaround entirely; the web reads the DB directly behind
+> an **atomic per-cycle publish** (`design/v2-porting-spec.md` §6). What follows is the **frozen v0.0.1**
+> design — accurate for the oracle, not the v2 target.
 
 - **The `run` daemon is the SINGLE DuckDB writer.** DuckDB takes an exclusive lock. The **dashboard
   never opens DuckDB** — it reads `data/leaderboard.json` (current board) and `data/history.parquet`
