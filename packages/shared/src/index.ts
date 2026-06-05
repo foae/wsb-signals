@@ -2,7 +2,7 @@ export * from './schema'
 
 import {
   rawPosts, rawComments, mentions, empiricalFeatures, analyticalFeatures,
-  marketMovers, tickerNames,
+  marketMovers, tickerNames, cycleRuns,
 } from './schema'
 
 // Inferred row/insert types — the single-source-of-truth payoff (worker writes, web reads, same types).
@@ -20,3 +20,5 @@ export type MarketMoverRow = typeof marketMovers.$inferSelect
 export type MarketMoverInsert = typeof marketMovers.$inferInsert
 export type TickerNameRow = typeof tickerNames.$inferSelect
 export type TickerNameInsert = typeof tickerNames.$inferInsert
+export type CycleRunRow = typeof cycleRuns.$inferSelect
+export type CycleRunInsert = typeof cycleRuns.$inferInsert

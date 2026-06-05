@@ -10,7 +10,7 @@
  *  - Plain B-tree indexes on the window/time read paths (sufficient at this volume).
  */
 import {
-  pgTable, text, integer, bigint, doublePrecision, jsonb, primaryKey, index,
+  pgTable, text, integer, bigint, boolean, doublePrecision, jsonb, primaryKey, index,
 } from 'drizzle-orm/pg-core'
 
 /** BIGINT carried as a JS number (all values < 2^53). Epochs in seconds, and large counts (volume). */
@@ -152,6 +152,18 @@ export const tickerNames = pgTable('ticker_names', {
   name: text('name'),
 })
 
-// NOTE (slice 3): the atomic-publish marker table (`run_status` / `cycle_runs`, v2-porting-spec.md §6)
-// is intentionally NOT here yet — its shape is a verify-on-implement item (v2-plan.md §8) and lands
-// with the persistence slice. Slice 0's schema is exactly the v0.0.1 parity tables (the oracle contract).
+/**
+ * Per-cycle publish marker (slice 3) — the v2 atomic-publish freshness record (v2-plan.md §5,
+ * porting-spec §6). Beyond the v0.0.1 parity tables: the worker writes ONE row per published window
+ * inside the SAME transaction as that window's features, so a row's existence == the cycle is complete
+ * and durable. Readers take the latest complete window via `max(window_start)`; `quiet`/`capped` carry
+ * the degraded-state flags the v0.0.1 snapshot used to expose.
+ */
+export const cycleRuns = pgTable('cycle_runs', {
+  windowStart: int8('window_start').primaryKey(),
+  generatedAt: int8('generated_at'),
+  totalMentions: integer('total_mentions'),
+  quiet: boolean('quiet'),
+  capped: boolean('capped'),
+  status: text('status'), // 'complete' (forward-compat; a row already implies complete)
+})
