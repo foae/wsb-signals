@@ -19,3 +19,13 @@ data/
 
 # Derived ticker whitelist — refreshable via `wsb build-whitelist` (stoplist.txt is curated, kept)
 whitelist/symbols.txt
+
+# Node / TypeScript (v2 monorepo)
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+packages/*/dist/
+packages/*/.nuxt/
+packages/*/.output/
+packages/*/.nitro/
+fixtures/*.json
