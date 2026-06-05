@@ -16,8 +16,8 @@ import { windowStartFor } from './aggregate'
 import type { WorkerConfig } from './config'
 import { buildExtractor, buildMarket, buildSource, loadConfig } from './config'
 import {
-  acquireAdvisoryLock, createDb, migrateToLatest, publishCycle, upsertComments, upsertMentions,
-  upsertPosts, type Db,
+  acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, upsertComments,
+  upsertMentions, upsertPosts, type Db,
 } from './db'
 import type { TickerExtractor } from './extract'
 import type { Source } from './ingest'
@@ -38,6 +38,8 @@ export interface CycleDeps {
   config: WorkerConfig
   /** Persist the poll time (the startup throttle reads it); injected so tests don't touch fs. */
   markPoll: (now: number) => void | Promise<void>
+  /** Shutdown signal threaded into the poll so SIGTERM cuts an in-flight fetch short. */
+  signal?: AbortSignal
 }
 
 export interface CycleResult {
@@ -55,17 +57,22 @@ export interface CycleResult {
 export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResult> {
   const { db, source, market, extractor, bots, config } = deps
 
-  const poll = await source.poll(config.windowSeconds, { now })
+  const poll = await source.poll(config.windowSeconds, { now, signal: deps.signal })
   if (!poll.ok) {
     log.error('poll incomplete (Arctic-Shift error mid-fetch) — skipping this cycle, will retry')
     return { skipped: true }
   }
-  await deps.markPoll(now)
 
+  // Ingest atomically (raw + mentions in ONE tx) so a crash can't leave the window partially persisted —
+  // a partial mention set would bias the SoV denominator. Mark the poll only AFTER it durably commits
+  // (a crash before this leaves no marker → a restart retries promptly rather than throttling on nothing).
   const mentions = mentionsFromPoll(poll, extractor, bots)
-  await upsertPosts(db, poll.posts)
-  await upsertComments(db, poll.comments)
-  await upsertMentions(db, mentions)
+  await db.transaction(async (tx) => {
+    await upsertPosts(tx, poll.posts)
+    await upsertComments(tx, poll.comments)
+    await upsertMentions(tx, mentions)
+  })
+  await deps.markPoll(now)
 
   const ws = windowStartFor(now, config.windowSeconds)
   // Finalize the just-closed prior window first (persist-only): this poll covers the full trailing
@@ -79,7 +86,12 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
   if (market && rows.length) {
     try {
       const o = await overlayMarket(market, ws, rows, config.market, now)
-      analytical = o.analytical
+      // EMPTY analytical means every snapshot chunk failed (snapshots() swallows non-200s) — treat it as
+      // a total market failure and PRESERVE the prior overlay (leave `analytical` undefined), exactly as a
+      // thrown error would. Only a non-empty overlay replaces the window's analytical rows; a genuinely
+      // shrunk top-N (fewer but ≥1 rows) still replaces and clears the stale tickers.
+      if (o.analytical.length) analytical = o.analytical
+      else log.warn('market overlay returned no priced tickers — preserving prior overlay')
       movers = o.movers
     } catch (e) {
       // best-effort: a market failure must NEVER kill the cycle. Leaving `analytical` undefined makes
@@ -96,6 +108,7 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
       totalMentions,
       quiet: totalMentions < config.minWindowMentions,
       capped: poll.capped,
+      newestUtc: poll.newestUtc,
     },
     features: rows,
     analytical,
@@ -167,6 +180,9 @@ export interface LoopOptions {
   installHandlers?: boolean
   /** Optional external stop trigger — aborting it requests the SAME graceful shutdown as SIGTERM. */
   stopSignal?: AbortSignal
+  /** Per-cycle advisory-lock liveness probe. Returning false (lock lost) stops the loop so the caller
+   *  can exit non-zero and let the orchestrator restart a clean singleton (the double-run guard). */
+  lockAlive?: () => Promise<boolean>
 }
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000)
@@ -187,10 +203,15 @@ export async function runLoop(deps: CycleDeps, opts: LoopOptions): Promise<void>
     stopping = true
     ac.abort()
   }
+  // A stray unhandled rejection (outside the per-cycle try/catch) shouldn't kill the daemon — log it.
   const onRejection = (r: unknown): void =>
     log.error({ err: String(r) }, 'unhandledRejection — guarded; the daemon keeps running')
-  const onException = (e: unknown): void =>
-    log.error({ err: String(e) }, 'uncaughtException — guarded; the daemon keeps running')
+  // An uncaughtException means undefined process state — log and EXIT non-zero so the orchestrator
+  // restarts a clean process (continuing risks publishing corrupt/stale cycles).
+  const onException = (e: unknown): void => {
+    log.error({ err: String(e) }, 'uncaughtException — exiting for a clean restart')
+    process.exit(1)
+  }
 
   if (install) {
     process.on('SIGTERM', stop)
@@ -216,9 +237,16 @@ export async function runLoop(deps: CycleDeps, opts: LoopOptions): Promise<void>
     }
 
     while (!stopping) {
+      // Verify we still hold the advisory lock before doing any work. A session lock drops silently when
+      // its connection dies (failover / idle timeout); if it's gone, stop so the caller can exit and let
+      // the orchestrator restart a single clean writer.
+      if (opts.lockAlive && !(await opts.lockAlive())) {
+        log.error('advisory lock lost (connection dropped) — stopping so a clean singleton can restart')
+        break
+      }
       const t0 = clock()
       try {
-        await runCycle(deps, t0)
+        await runCycle({ ...deps, signal: ac.signal }, t0)
       } catch (e) {
         log.error({ err: String(e) }, 'cycle failed — recovering, will retry next interval')
       }
@@ -273,16 +301,28 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
   log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market) },
     'run loop starting (forward-only; SIGTERM/Ctrl-C to stop)')
 
+  let lockLost = false
   try {
     await runLoop(
       {
         db: handle.db, source, market, extractor, bots: worker.bots, config: worker,
         markPoll: (ts) => markPoll(worker.dataDir, ts),
       },
-      { once: opts.once, intervalSeconds: worker.pollSeconds, minPollGapSeconds: worker.minPollGapSeconds, dataDir: worker.dataDir },
+      {
+        once: opts.once,
+        intervalSeconds: worker.pollSeconds,
+        minPollGapSeconds: worker.minPollGapSeconds,
+        dataDir: worker.dataDir,
+        lockAlive: async () => {
+          const ok = await advisoryLockAlive(lockClient)
+          if (!ok) lockLost = true
+          return ok
+        },
+      },
     )
   } finally {
-    lockClient.release()
+    if (!lockLost) lockClient.release() // a dead connection can't be released back to the pool
     await handle.close()
   }
+  if (lockLost) process.exitCode = 1 // signal the orchestrator to restart a clean singleton
 }

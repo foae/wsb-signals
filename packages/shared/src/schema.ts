@@ -165,5 +165,9 @@ export const cycleRuns = pgTable('cycle_runs', {
   totalMentions: integer('total_mentions'),
   quiet: boolean('quiet'),
   capped: boolean('capped'),
+  // `newest_utc` = the freshest source item seen this cycle. Persisted (not just logged) so a reader can
+  // banner DATA staleness (now − newest_utc) distinctly from WORKER liveness (now − generated_at) — the
+  // never-serve-stale requirement (v2-porting-spec.md §7). Null when the poll returned nothing.
+  newestUtc: int8('newest_utc'),
   status: text('status'), // 'complete' (forward-compat; a row already implies complete)
 })

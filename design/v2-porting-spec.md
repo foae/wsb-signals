@@ -192,7 +192,17 @@ Reproduce `_fetch` + `poll` exactly:
   movers) in **one transaction**, and/or write a `run_status`/`cycle_runs` publish marker. The web must
   read only **publish-complete** cycles — never a window where empirical rows exist but analytical rows
   are still in-flight (that renders market columns blank for in-scope tickers, indistinguishable from
-  "not top-N"). Reads select the latest **complete** `window_start`.
+  "not top-N"). Reads select the latest **complete** `window_start`. The `cycle_runs` marker also carries
+  **`newest_utc`** so a reader can banner DATA staleness (`now − newest_utc`) distinctly from WORKER
+  liveness (`now − generated_at`) — the never-serve-stale requirement (§7).
+- **Overlay replacement vs. preservation (v2):** publishing a window's analytical set is **delete-then-
+  insert** so a shrunk top-N can't leave stale rows. But an **empty** overlay must **preserve** the prior
+  (it means every snapshot chunk failed — `snapshots()` swallows non-200s — not "no hot tickers"); only a
+  **non-empty** overlay replaces. The oracle's `upsert_analytical_features([])` is a no-op (never deletes),
+  so this keeps v2 from wiping good prices on a total market outage.
+- **W−1 finalize is transactional (v2):** the persist-only re-aggregation of W−1 wraps its (chunked)
+  `empirical_features` upsert in **one transaction** — a crash mid-chunk must not half-write the prior
+  baseline. (This does not defeat self-heal: a rolled-back W−1 is simply re-aggregated next cycle.)
 
 ## 7. Worker loop & lifecycle (`cli.cmd_run`)
 
@@ -205,6 +215,17 @@ Reproduce `_fetch` + `poll` exactly:
   `process.on('unhandledRejection')` and `uncaughtException` guards — an unhandled rejection otherwise
   kills the daemon (Python's cycle-level `except` has no Node equivalent by default).
 - **Double-run guards:** a **Postgres advisory lock** (and/or PID file) so two instances can't both poll.
+  A session advisory lock lives on its **connection** — hold it on a dedicated checked-out client, enable
+  `keepAlive`, and **probe it every cycle** (a trivial query; if it throws, the connection — and the lock
+  — is gone: a failover / `idle_session_timeout` can drop it silently). On loss, **exit non-zero** so the
+  orchestrator restarts a clean singleton.
+- **Mark-poll ordering (v2 divergence):** persist `.last_poll` **AFTER** the (transactional) ingest upsert
+  commits, not before (the oracle marks first). A crash between poll and persist then leaves no marker → a
+  restart retries promptly instead of throttling on a window it never stored. `.last_poll` is a lifecycle
+  marker, not a scoring input, so this departs from the oracle without affecting parity.
+- **Shutdown aborts the in-flight poll:** thread the stop `AbortSignal` into the poll's `fetch` so SIGTERM
+  cuts a long network wait short (before any writes), rather than blocking shutdown for the request timeout.
+- **`uncaughtException` exits** (non-zero) for a clean restart — only `unhandledRejection` is log-and-continue.
 - Startup throttle: persist `.last_poll`; on boot, if `elapsed < min_poll_gap_seconds`, wait the
   remainder (ignore a future-dated/corrupt marker).
 - **Cycle order (preserve exactly):** poll → if `!ok` skip whole cycle → mark poll → extract+upsert →

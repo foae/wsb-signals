@@ -3,8 +3,8 @@ import type { EmpiricalFeatureInsert } from '@wsb/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import {
-  acquireAdvisoryLock, createDb, readFeatureHistory, readFeaturesAt, readMentionsInWindow, readSovRanksAt,
-  upsertMentions,
+  acquireAdvisoryLock, advisoryLockAlive, createDb, readFeatureHistory, readFeaturesAt,
+  readMentionsInWindow, readSovRanksAt, upsertMentions,
 } from '../src/db'
 import { startPg, type PgHarness } from './helpers/pg'
 
@@ -79,5 +79,15 @@ describe('aggregator reads on Postgres', () => {
     } finally {
       await b.close()
     }
+  })
+
+  it('advisoryLockAlive reports liveness and detects a dead connection (lock-loss guard)', async () => {
+    const a = createDb(pg.container.getConnectionUri())
+    const lock = await acquireAdvisoryLock(a.pool, 990022)
+    expect(lock).not.toBeNull()
+    expect(await advisoryLockAlive(lock!)).toBe(true) // held + connection healthy
+    lock!.release()
+    await a.close() // pool ended → the underlying connection is gone
+    expect(await advisoryLockAlive(lock!)).toBe(false) // a query now throws → the lock is considered lost
   })
 })

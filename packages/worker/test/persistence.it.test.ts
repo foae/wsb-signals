@@ -79,7 +79,7 @@ describe('persistence on Postgres', () => {
   it('publishCycle is atomic and records the latest complete window', async () => {
     expect(await latestCompleteWindow(pg.db)).toBeNull()
     await publishCycle(pg.db, {
-      meta: { windowStart: 7200, generatedAt: 7300, totalMentions: 12, quiet: false, capped: false },
+      meta: { windowStart: 7200, generatedAt: 7300, totalMentions: 12, quiet: false, capped: false, newestUtc: 7250 },
       features: [feature('NVDA', 7200, { hE: 0.95 }), feature('AMD', 7200, { hE: 0.3 })],
     })
     expect(await latestCompleteWindow(pg.db)).toBe(7200)
@@ -88,7 +88,7 @@ describe('persistence on Postgres', () => {
   })
 
   it('publishCycle replaces the window analytical set, but preserves it when no overlay is given', async () => {
-    const meta = { windowStart: 4000, generatedAt: 4100, totalMentions: 5, quiet: false, capped: false }
+    const meta = { windowStart: 4000, generatedAt: 4100, totalMentions: 5, quiet: false, capped: false, newestUtc: null }
     const an = (ticker: string, hM: number): AnalyticalFeatureInsert =>
       ({ ticker, windowStart: 4000, hM, rvolConf: 'low' })
     const analyticalAt = () => pg.db.select().from(analyticalFeatures)

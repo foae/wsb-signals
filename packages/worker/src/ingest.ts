@@ -44,6 +44,8 @@ export interface PollOptions {
   now?: number
   /** Override the inter-page / rate-limit backoff (tests pass a recording no-op to avoid real waits). */
   sleep?: Sleeper
+  /** External abort (e.g. SIGTERM) — cuts an in-flight fetch short so shutdown doesn't wait out a poll. */
+  signal?: AbortSignal
 }
 
 export interface Source {
@@ -142,7 +144,7 @@ export class ArcticShiftSource implements Source {
   /** undici `fetch` holds no per-client connection to release (global dispatcher) — a no-op for symmetry. */
   async close(): Promise<void> {}
 
-  private async get(kind: string, cutoff: number, before: number): Promise<Response> {
+  private async get(kind: string, cutoff: number, before: number, external?: AbortSignal): Promise<Response> {
     // Param order mirrors the Python dict (subreddit, limit, sort, after, before) — cosmetic, but tidy.
     const params = new URLSearchParams({
       subreddit: this.subreddit,
@@ -152,14 +154,16 @@ export class ArcticShiftSource implements Source {
       before: String(before),
     })
     // Manual timeout so we never leave a dangling timer: unref'd (won't pin the loop) and always cleared.
+    // Combined with the external (shutdown) signal so SIGTERM aborts an in-flight fetch.
     const ac = new AbortController()
     const timer = setTimeout(() => ac.abort(new Error(`timeout after ${this.timeoutMs}ms`)), this.timeoutMs)
     timer.unref?.()
+    const signal = external ? AbortSignal.any([ac.signal, external]) : ac.signal
     try {
       return await fetch(`${this.baseUrl}/${kind}/search?${params.toString()}`, {
         method: 'GET',
         headers: { 'User-Agent': this.userAgent },
-        signal: ac.signal,
+        signal,
       })
     } finally {
       clearTimeout(timer)
@@ -189,6 +193,7 @@ export class ArcticShiftSource implements Source {
     cutoff: number,
     now: number,
     sleep: Sleeper,
+    signal?: AbortSignal,
   ): Promise<{ items: RawThing[]; capped: boolean; ok: boolean }> {
     const items: RawThing[] = []
     let before = now + 5 // +5s skew buffer (porting-spec §4)
@@ -197,7 +202,7 @@ export class ArcticShiftSource implements Source {
     for (; page < this.maxPages; page++) {
       let res: Response
       try {
-        res = await this.get(kind, cutoff, before)
+        res = await this.get(kind, cutoff, before, signal)
       } catch (e) {
         log.warn({ kind, err: String(e) }, 'page request failed — poll is partial this cycle')
         ok = false
@@ -237,8 +242,8 @@ export class ArcticShiftSource implements Source {
     const sleep = opts.sleep ?? this.sleep
     const cutoff = now - windowSeconds
 
-    const p = await this.fetchKind('posts', cutoff, now, sleep)
-    const c = await this.fetchKind('comments', cutoff, now, sleep)
+    const p = await this.fetchKind('posts', cutoff, now, sleep, opts.signal)
+    const c = await this.fetchKind('comments', cutoff, now, sleep, opts.signal)
     const posts = p.items.map((d) => normalizePost(d, now))
     const comments = c.items.map((d) => normalizeComment(d, now))
 

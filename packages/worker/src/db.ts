@@ -35,9 +35,10 @@ export interface DbHandle {
   close: () => Promise<void>
 }
 
-/** Open a writer connection (the worker is the single writer; the web gets a read-only role). */
+/** Open a writer connection (the worker is the single writer; the web gets a read-only role).
+ *  `keepAlive` keeps the long-lived advisory-lock connection from being reaped by an idle TCP timeout. */
 export function createDb(connectionString: string): DbHandle {
-  const pool = new Pool({ connectionString })
+  const pool = new Pool({ connectionString, keepAlive: true })
   const db = drizzle(pool)
   return { db, pool, close: () => pool.end() }
 }
@@ -145,6 +146,7 @@ export interface CycleMeta {
   totalMentions: number
   quiet: boolean
   capped: boolean
+  newestUtc: number | null // freshest source item this cycle — persisted for the staleness banner (§7)
 }
 
 export interface CyclePayload {
@@ -177,10 +179,11 @@ export async function publishCycle(db: Db, payload: CyclePayload): Promise<void>
       totalMentions: meta.totalMentions,
       quiet: meta.quiet,
       capped: meta.capped,
+      newestUtc: meta.newestUtc,
       status: 'complete',
     }).onConflictDoUpdate({
       target: cycleRuns.windowStart,
-      set: excludedSet(cycleRuns, ['generatedAt', 'totalMentions', 'quiet', 'capped', 'status']),
+      set: excludedSet(cycleRuns, ['generatedAt', 'totalMentions', 'quiet', 'capped', 'newestUtc', 'status']),
     })
   })
 }
@@ -210,7 +213,7 @@ export async function readMentionsInWindow(db: Db, start: number, end: number): 
     author: mentions.author, flair: mentions.flair, direction: mentions.direction,
   }).from(mentions)
     .where(and(gte(mentions.createdUtc, start), lt(mentions.createdUtc, end)))
-    .orderBy(asc(mentions.thingId))
+    .orderBy(sql`${mentions.thingId} collate "C"`) // byte order (matches the oracle's DuckDB VARCHAR sort)
   return rows.map((r) => [r.ticker, r.thingId, r.thingType, r.author, r.flair, r.direction] as const)
 }
 
@@ -230,7 +233,7 @@ export async function readFeatureHistory(db: Db, before: number): Promise<Histor
   const rows = await db.select({
     ticker: empiricalFeatures.ticker, windowStart: empiricalFeatures.windowStart, mentions: empiricalFeatures.mentions,
   }).from(empiricalFeatures).where(lt(empiricalFeatures.windowStart, before))
-    .orderBy(asc(empiricalFeatures.windowStart), asc(empiricalFeatures.ticker))
+    .orderBy(asc(empiricalFeatures.windowStart), sql`${empiricalFeatures.ticker} collate "C"`)
   return rows.map((r) => [r.ticker, r.windowStart, r.mentions ?? 0] as const)
 }
 
@@ -239,7 +242,9 @@ export async function readFeatureHistory(db: Db, before: number): Promise<Histor
 export async function readSovRanksAt(db: Db, windowStart: number): Promise<Record<string, number>> {
   const rows = await db.select({ ticker: empiricalFeatures.ticker }).from(empiricalFeatures)
     .where(eq(empiricalFeatures.windowStart, windowStart))
-    .orderBy(desc(empiricalFeatures.sov), asc(empiricalFeatures.ticker))
+    // COLLATE "C" → byte order, matching the in-memory cur_rank tie-break (`(-sov, ticker)`); avoids a
+    // locale-collation mismatch silently inverting rank_delta vs the oracle.
+    .orderBy(desc(empiricalFeatures.sov), sql`${empiricalFeatures.ticker} collate "C"`)
   const out: Record<string, number> = {}
   rows.forEach((r, i) => { out[r.ticker] = i + 1 })
   return out
@@ -262,5 +267,22 @@ export async function acquireAdvisoryLock(pool: Pool, key: number): Promise<Pool
   } catch (e) {
     client.release()
     throw e
+  }
+}
+
+/**
+ * Liveness probe for the held advisory-lock connection. A session advisory lock is released the instant
+ * its connection dies (managed-PG failover, `idle_session_timeout`, network drop) — silently. So a
+ * trivial query is the guard: if it succeeds the session (and thus the lock) is alive; if it throws the
+ * connection is gone and we've LOST the lock. (Re-running `pg_try_advisory_lock` on the same session is
+ * NOT a valid check — session locks stack and it would always return true.) The worker probes each cycle
+ * and exits on loss so the orchestrator restarts a clean singleton.
+ */
+export async function advisoryLockAlive(client: PoolClient): Promise<boolean> {
+  try {
+    await client.query('SELECT 1')
+    return true
+  } catch {
+    return false
   }
 }

@@ -118,7 +118,7 @@ describe('runCycle', () => {
     expect(await latestCompleteWindow(pg.db)).toBeNull()
   })
 
-  it('survives a market failure — publishes empirical-only (never-kill)', async () => {
+  it('survives a market failure (thrown) — publishes empirical-only (never-kill)', async () => {
     const market = new FakeMarket(new Map(), [], true) // snapshots throws
     const res = await runCycle(deps({ market }), NOW)
 
@@ -127,6 +127,17 @@ describe('runCycle', () => {
     expect(feats).toHaveLength(2) // features still published
     expect(await latestCompleteWindow(pg.db)).toBe(WS) // marker present
     expect(await pg.db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, WS))).toHaveLength(0)
+  })
+
+  it('PRESERVES the prior overlay when the market returns no snapshots (total failure, not a throw)', async () => {
+    const ana = () => pg.db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, WS))
+    // cycle 1: a real overlay prices NVDA
+    await runCycle(deps({ market: new FakeMarket(new Map([['NVDA', snap('NVDA', 110, 100)]])) }), NOW)
+    expect((await ana()).map((a) => a.ticker)).toEqual(['NVDA'])
+    // cycle 2 (same window): every snapshot chunk failed → snapshots() returns empty (swallowed, no throw).
+    // The prior overlay must be PRESERVED, not wiped by a delete-then-insert-nothing.
+    await runCycle(deps({ market: new FakeMarket(new Map()) }), NOW + 30)
+    expect((await ana()).map((a) => a.ticker)).toEqual(['NVDA'])
   })
 })
 
@@ -166,5 +177,13 @@ describe('runLoop lifecycle', () => {
     await runLoop(deps({ source, market }), loopOpts())
     expect(source.closed).toBe(true)
     expect(market.closed).toBe(true)
+  })
+
+  it('stops when the advisory-lock liveness probe reports loss (double-run guard)', async () => {
+    const source = new FakeSource(emptyPoll)
+    let checks = 0
+    // alive on the first cycle's pre-check, lost on the second → the loop breaks before a 2nd cycle.
+    await runLoop(deps({ source }), loopOpts({ once: false, lockAlive: async () => { checks++; return checks < 2 } }))
+    expect(source.pollCount).toBe(1)
   })
 })
