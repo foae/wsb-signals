@@ -125,11 +125,15 @@ def aggregate_window(
         feats.append({
             "ticker": t, "mentions": m, "authors": len(d["authors"]), "sov": m / total,
             "velocity": velocity, "accel": accel, "net_dir": net_dir, "dd_count": len(d["dd"]),
-            "flair_counts": json.dumps(dict(d["flairs"])), "z": z, "baseline_status": status,
+            # sort_keys → canonical JSON: the stored string can't depend on flair-encounter order
+            # (which would otherwise vary with DB row order). Determinism, not cosmetics.
+            "flair_counts": json.dumps(dict(d["flairs"]), sort_keys=True), "z": z, "baseline_status": status,
         })
 
-    # rank_delta: prior rank − current rank (+ve = climbing the SoV board)
-    cur_rank = {f["ticker"]: r for r, f in enumerate(sorted(feats, key=lambda f: -f["sov"]), 1)}
+    # rank_delta: prior rank − current rank (+ve = climbing the SoV board). Tie-break equal-SoV
+    # tickers by `ticker` so the rank (and thus rank_delta) is deterministic, not dependent on
+    # mention/row iteration order.
+    cur_rank = {f["ticker"]: r for r, f in enumerate(sorted(feats, key=lambda f: (-f["sov"], f["ticker"])), 1)}
     for f in feats:
         pr = prior_ranks.get(f["ticker"])
         f["rank_delta"] = float(pr - cur_rank[f["ticker"]]) if pr else 0.0
@@ -168,7 +172,11 @@ def aggregate_window(
             z=f["z"], net_dir=f["net_dir"], dd_count=f["dd_count"],
             flair_counts=f["flair_counts"], baseline_status=f["baseline_status"], h_e=h_e,
         ))
-    out.sort(key=lambda r: -r.h_e)
+    # Canonical board order: H_e-primary, with an explicit total-order tie-break chain down to
+    # `ticker` so equal-H_e rows have ONE deterministic ordering — reproducible run-to-run and
+    # well-defined for any future re-implementation (the board must not depend on DB row order or
+    # dict-insertion order). Ties cascade H_e → sov → authors → mentions → ticker.
+    out.sort(key=lambda r: (-r.h_e, -r.sov, -r.authors, -r.mentions, r.ticker))
     return out
 
 
@@ -182,6 +190,7 @@ def write_snapshot(
     movers: list | None = None,
     names: dict | None = None,
     min_window_mentions: int | None = None,
+    capped: bool = False,
 ) -> None:
     """Write the dashboard's JSON contract (the daemon's output; avoids DuckDB write-lock contention).
 
@@ -190,6 +199,8 @@ def write_snapshot(
     `names` maps symbol → raw company name (from ticker_names); displayed alongside every ticker.
     `min_window_mentions`: when the window's TOTAL mentions fall below this, the snapshot is flagged
     `quiet` so the dashboard can banner the board as low-confidence (off-hours single-mention noise).
+    `capped`: the source poll hit its pagination cap (window incomplete) → flagged so the board can
+    banner the SoV as untrustworthy (data-model invariant 14).
     """
     analytical = analytical or {}
     names = names or {}
@@ -215,6 +226,9 @@ def write_snapshot(
         "generated_at": generated_at,
         "total_mentions": total_mentions,
         "quiet": (min_window_mentions is not None and total_mentions < min_window_mentions),
+        # `capped`: the poll hit its pagination cap → the window is undercounted → `sov` is
+        # untrustworthy (data-model invariant 14). Surfaced so the board can banner it low-trust.
+        "capped": capped,
         "rows": out_rows,
     }
     if movers is not None:
@@ -240,11 +254,13 @@ def write_history(db: DB, path: Path) -> None:
     tmp.replace(path)
 
 
-def run_aggregation(db: DB, settings, now: int, snapshot_path: Path | None = None, names: dict | None = None):
+def run_aggregation(db: DB, settings, now: int, snapshot_path: Path | None = None,
+                    names: dict | None = None, capped: bool = False):
     """Aggregate the window containing `now`, persist features, optionally write the snapshot.
 
     When a snapshot is written (i.e. for the current window, not the W−1 finalization pass) we also
-    refresh history.parquet so the dashboard's day/month views stay current.
+    refresh history.parquet so the dashboard's day/month views stay current. `capped` (from the poll)
+    flows into the snapshot so the board can banner an incomplete window (data-model invariant 14).
     """
     window_seconds = settings.ingest["window_seconds"]
     heat = settings.cfg["heat"]
@@ -260,6 +276,6 @@ def run_aggregation(db: DB, settings, now: int, snapshot_path: Path | None = Non
         if names is None:
             names = db.ticker_names()
         write_snapshot(rows, ws, window_seconds, snapshot_path, now, names=names,
-                       min_window_mentions=heat.get("min_window_mentions"))
+                       min_window_mentions=heat.get("min_window_mentions"), capped=capped)
         write_history(db, settings.data_dir / "history.parquet")
     return ws, rows

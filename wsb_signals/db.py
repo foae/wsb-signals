@@ -184,10 +184,15 @@ class DB:
 
     # --- aggregator reads/writes (Phase 1) ---
     def mentions_in_window(self, start: int, end: int) -> list[tuple]:
-        """(ticker, thing_id, thing_type, author, flair, direction) for [start, end)."""
+        """(ticker, thing_id, thing_type, author, flair, direction) for [start, end).
+
+        `ORDER BY thing_id` makes the row stream deterministic — the aggregator builds its per-ticker
+        state in this order, so flair-encounter order (and thus the canonical `flair_counts` JSON)
+        can't drift with the DB's physical row ordering.
+        """
         return self.con.execute(
             "SELECT ticker, thing_id, thing_type, author, flair, direction "
-            "FROM mentions WHERE created_utc >= ? AND created_utc < ?",
+            "FROM mentions WHERE created_utc >= ? AND created_utc < ? ORDER BY thing_id",
             [start, end],
         ).fetchall()
 
@@ -207,9 +212,13 @@ class DB:
         ).fetchall()
 
     def sov_ranks_at(self, window_start: int) -> dict[str, int]:
-        """Prior-window SoV rank by ticker (1 = top) — supplies rank_delta."""
+        """Prior-window SoV rank by ticker (1 = top) — supplies rank_delta.
+
+        Tie-break equal-SoV tickers by `ticker` so the prior rank is deterministic (matches the
+        in-memory `cur_rank` tie-break in aggregate.py).
+        """
         rows = self.con.execute(
-            "SELECT ticker FROM empirical_features WHERE window_start = ? ORDER BY sov DESC",
+            "SELECT ticker FROM empirical_features WHERE window_start = ? ORDER BY sov DESC, ticker ASC",
             [window_start],
         ).fetchall()
         return {r[0]: i for i, r in enumerate(rows, 1)}

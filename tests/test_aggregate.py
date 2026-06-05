@@ -148,3 +148,36 @@ def test_quiet_flag_in_snapshot(tmp_path):
     write_snapshot(rows, WS, WINDOW, snap, WS)   # no threshold → never quiet
     p = json.loads(snap.read_text())
     assert p["quiet"] is False
+
+
+# --- deterministic ranking (canonical tie-break) -------------------------------
+
+def test_ranking_is_deterministic_under_input_order(db):
+    """Equal-scored tickers must get ONE canonical order (ticker asc), independent of the order
+    mentions were inserted. Pre-fix the board echoed DB/insertion order for ties (nondeterministic);
+    now `out.sort` breaks ties by (h_e, sov, authors, mentions, ticker)."""
+    def board(order):
+        db.con.execute("DELETE FROM mentions")
+        for tk in order:
+            db.upsert_mentions([_mention(tk, f"{tk}1", "ua"), _mention(tk, f"{tk}2", "ub")])
+        return [r.ticker for r in _agg(db)]
+
+    # three tickers, identical mentions(2)/authors(2) → identical H_e → tie-break is ticker asc
+    assert board(["CCC", "AAA", "BBB"]) == ["AAA", "BBB", "CCC"]
+    assert board(["BBB", "CCC", "AAA"]) == ["AAA", "BBB", "CCC"]   # same output, different insert order
+
+
+# --- capped-window flag --------------------------------------------------------
+
+def test_capped_flag_in_snapshot(tmp_path):
+    """A pagination-capped poll surfaces `capped=True` in the snapshot so the board can banner the
+    window as low-trust (data-model invariant 14); default is False."""
+    rows = [EmpiricalFeature(ticker="NVDA", window_start=WS, mentions=3, authors=2, sov=1.0,
+                             baseline_status="cold", h_e=0.4)]
+    snap = tmp_path / "leaderboard.json"
+
+    write_snapshot(rows, WS, WINDOW, snap, WS, capped=True)
+    assert json.loads(snap.read_text())["capped"] is True
+
+    write_snapshot(rows, WS, WINDOW, snap, WS)   # default → not capped
+    assert json.loads(snap.read_text())["capped"] is False

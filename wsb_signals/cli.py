@@ -415,14 +415,15 @@ def cmd_run(args: argparse.Namespace) -> None:
                     # snapshot) before the current window so the current window's velocity/accel read
                     # the finalized prior. Idempotent upsert.
                     run_aggregation(db, s, t0 - window)
-                    ws, rows = run_aggregation(db, s, t0, snapshot_path=snap, names=names)
+                    ws, rows = run_aggregation(db, s, t0, snapshot_path=snap, names=names, capped=res.capped)
 
                     n_mkt = 0
                     if market is not None and rows:
                         try:
                             analytical, movers = overlay_market(db, s, ws, rows, market)
                             write_snapshot(rows, ws, window, snap, t0, analytical=analytical, movers=movers,
-                                           names=names, min_window_mentions=s.cfg["heat"].get("min_window_mentions"))
+                                           names=names, min_window_mentions=s.cfg["heat"].get("min_window_mentions"),
+                                           capped=res.capped)
                             n_mkt = len(analytical)
                         except Exception as e:  # noqa: BLE001 — market is best-effort, never kill the loop
                             log.warning("market overlay failed this cycle: %s", e)

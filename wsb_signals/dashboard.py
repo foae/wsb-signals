@@ -276,6 +276,16 @@ def main() -> None:
                     "(thin-support rows are damped, but small-sample noise dominates off-hours)."
                 )
 
+            # Capped window: the poll hit its pagination cap, so this window is UNDERCOUNTED — its
+            # SoV denominator is biased and the ranking is unreliable (data-model invariant 14).
+            # More severe than `quiet` (actual data loss, not just thin volume) → st.error.
+            if snap.get("capped"):
+                st.error(
+                    "**Incomplete window** — the source poll hit its pagination cap, so this window is "
+                    "undercounted; `sov` is unreliable (data-model invariant 14). Raise `ingest.max_pages` "
+                    "if this recurs at peak hours."
+                )
+
             # --- build DataFrame ---
             COLS = ["rank", "ticker", "name", "mentions", "authors", "sov", "velocity",
                     "accel", "z", "net_dir", "dd_count", "baseline_status", "h_e"]

@@ -90,12 +90,18 @@ top-N hot → overlay (H_m) → JSON snapshot + Parquet → dashboard`. Module m
   Baselines are **forward-only** — no backfill.
 - **Components are max-normalized within the window, not percentile-ranked** — see `aggregate._max_norm`'s
   docstring for *why* (percentile rank would let secondaries override the SoV-primary signal).
+- **Ranking is deterministic** — equal-scored rows break ties by an explicit total order
+  (`h_e → sov → authors → mentions → ticker`) in `aggregate.aggregate_window`, and `mentions_in_window` /
+  `sov_ranks_at` are `ORDER BY`-stable; the board never depends on DB row or dict-insertion order.
 - **`velocity`/`accel` are `None` when there is no real prior window** (cold start or a polling gap).
   Emitting 0-based deltas would make every ticker look like a fresh breakout and inflate `H_e`. The
   `run` loop re-aggregates W−1 (persist-only) before the current window so prior-window momentum is final.
 - **A partial poll (`PollResult.ok == False`) is discarded whole** — not persisted, aggregated, or
   marked — because an undercounted window biases the SoV denominator. (`arctic_shift._fetch` →
   `cmd_run`.)
+- **A `capped` poll (pagination cap hit) is persisted but flagged low-trust** — unlike `ok == False`
+  (discarded), a capped window keeps its data but is surfaced (`snapshot["capped"]` → dashboard banner)
+  as undercounted/untrustworthy `sov` (data-model invariant 14). Don't treat capped as complete.
 - **Missing whitelist fails CLOSED to cashtag-only**, never to bare-token extraction (which would
   flood the board with uppercase non-tickers). See `cli._build_extractor`.
 - **`rvol` / `ret` are day-to-date, NOT window-aligned** — `H_m` answers "hot *today*", not "hot *this

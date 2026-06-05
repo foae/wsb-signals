@@ -207,11 +207,16 @@ v0.0.1.
 ## 5. Non-negotiables (carry from the framework)
 - **Rank on `sov`, not raw counts or cold-start `z`** — `z` enters only when its baseline is
   `ready` ([signal-framework §4](./signal-framework.md)).
+- **Deterministic, canonical ranking** — board order and SoV ranks break ties by an explicit total
+  order (`H_e → sov → authors → mentions → ticker`), never by DB row or dict-insertion order, so the
+  board is reproducible run-to-run and well-defined for any re-implementation.
 - **Flair-segment** empirical signals.
 - **Badge divergence, don't predict** — surface Confirmed/Hype, plus `astroturf`; **STEALTH is
   feasible (bounded)** via the free screeners (§2.5) — detection in Phase 3, not UNKNOWN.
 - **Monitor source freshness with an active heartbeat** — Arctic-Shift is the single live tap; a
   newest-item-lag alarm + a documented "tap is down" runbook are Phase-0, not later.
+- **A `capped` (pagination-truncated) window is low-trust** — its `sov` is undercounted
+  ([data-model](./data-model.md) invariant 14); surface it to the board, never treat it as complete.
 - **Flag `rvol` confidence by feed**; don't treat free-IEX volume as ground truth.
 - **Outcome/P&L is per-post only — never aggregate to a per-ticker win rate** (survivorship).
 - **Never commit API keys** (Alpaca, Massive).
