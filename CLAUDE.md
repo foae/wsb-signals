@@ -7,6 +7,18 @@ WSB Signals is a near-live r/wallstreetbets "trending radar": poll Reddit, rank 
 (eventually) badge the divergence between chatter and market action. It is observational research,
 **not** a trading signal — keep that framing in any user-facing copy.
 
+## ⚠ Version state — READ THIS FIRST
+
+**This branch (`main`) is v0.0.1 — FROZEN.** The Python + DuckDB + Streamlit radar described in this
+file is tagged `v0.0.1`, stable, deterministic, and feature-frozen. It is the **parity oracle** for v2;
+don't add features to it here.
+
+**Active development is v2 — a full-stack TypeScript rewrite** (the whole worker re-implemented in TS, a
+Nuxt 4 SSR frontend, Postgres, a pnpm monorepo). It lives on branch **`feat/v2-fullstack-nuxt`** —
+**`git switch feat/v2-fullstack-nuxt`** for all new work and the authoritative v2 docs (`design/v2-plan.md`
++ `design/v2-porting-spec.md` exist on that branch, not here). The rest of this file describes the frozen
+v0.0.1 radar.
+
 ## Source of truth
 
 The `design/` docs are authoritative; code references them by section number (e.g. "signal-framework §4").
