@@ -1,0 +1,80 @@
+{
+  "cassette": {
+    "comments": [
+      {
+        "data": [],
+        "status": 200
+      }
+    ],
+    "posts": [
+      {
+        "data": [
+          {
+            "author": "u",
+            "created_utc": 1704070790,
+            "id": "g1",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          },
+          {
+            "author": "ghost",
+            "id": "g2",
+            "title": "no timestamp"
+          },
+          {
+            "author": "u",
+            "created_utc": 1704070750,
+            "id": "g3",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          }
+        ],
+        "status": 200
+      }
+    ]
+  },
+  "expected": {
+    "capped": false,
+    "comments": [],
+    "newest_utc": 1704070790,
+    "ok": true,
+    "posts": [
+      {
+        "author": "u",
+        "created_utc": 1704070790,
+        "id": "g1",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      },
+      {
+        "author": "u",
+        "created_utc": 1704070750,
+        "id": "g3",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      }
+    ]
+  },
+  "max_pages": 10,
+  "name": "missing_created_excluded",
+  "now": 1704070800,
+  "page_limit": 4,
+  "subreddit": "wallstreetbets",
+  "window_seconds": 3600
+}

@@ -1,0 +1,141 @@
+{
+  "cassette": {
+    "comments": [
+      {
+        "data": [
+          {
+            "author": "u",
+            "body": "b",
+            "created_utc": 1704070790,
+            "id": "d1",
+            "link_id": "t3_x",
+            "parent_id": "t3_x",
+            "score": 1
+          },
+          {
+            "author": "u",
+            "body": "b",
+            "created_utc": 1704070700,
+            "id": "d2",
+            "link_id": "t3_x",
+            "parent_id": "t3_x",
+            "score": 1
+          },
+          {
+            "author": "u",
+            "body": "b",
+            "created_utc": 1704070500,
+            "id": "d3",
+            "link_id": "t3_x",
+            "parent_id": "t3_x",
+            "score": 1
+          }
+        ],
+        "status": 200
+      },
+      {
+        "body": "boom",
+        "status": 500
+      }
+    ],
+    "posts": [
+      {
+        "data": [
+          {
+            "author": "u",
+            "created_utc": 1704070790,
+            "id": "p1",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          },
+          {
+            "author": "u",
+            "created_utc": 1704070780,
+            "id": "p2",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          }
+        ],
+        "status": 200
+      }
+    ]
+  },
+  "expected": {
+    "capped": false,
+    "comments": [
+      {
+        "author": "u",
+        "body": "b",
+        "created_utc": 1704070790,
+        "id": "d1",
+        "link_id": "t3_x",
+        "parent_id": "t3_x",
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "source": "arctic_shift"
+      },
+      {
+        "author": "u",
+        "body": "b",
+        "created_utc": 1704070700,
+        "id": "d2",
+        "link_id": "t3_x",
+        "parent_id": "t3_x",
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "source": "arctic_shift"
+      },
+      {
+        "author": "u",
+        "body": "b",
+        "created_utc": 1704070500,
+        "id": "d3",
+        "link_id": "t3_x",
+        "parent_id": "t3_x",
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "source": "arctic_shift"
+      }
+    ],
+    "newest_utc": 1704070790,
+    "ok": false,
+    "posts": [
+      {
+        "author": "u",
+        "created_utc": 1704070790,
+        "id": "p1",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      },
+      {
+        "author": "u",
+        "created_utc": 1704070780,
+        "id": "p2",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      }
+    ]
+  },
+  "max_pages": 10,
+  "name": "comments_partial_posts_ok",
+  "now": 1704070800,
+  "page_limit": 3,
+  "subreddit": "wallstreetbets",
+  "window_seconds": 3600
+}

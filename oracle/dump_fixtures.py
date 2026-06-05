@@ -26,6 +26,9 @@ import sys
 import tempfile
 import tomllib
 from pathlib import Path
+from unittest import mock
+
+import httpx
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))  # import the frozen package in-place (no install needed)
@@ -34,7 +37,8 @@ from wsb_signals.aggregate import aggregate_window, hour_of_week, write_snapshot
 from wsb_signals.classify import direction  # noqa: E402
 from wsb_signals.db import DB  # noqa: E402
 from wsb_signals.extract import DEFAULT_REGEX, TickerExtractor, _load_wordset  # noqa: E402
-from wsb_signals.models import EmpiricalFeature, Mention  # noqa: E402
+from wsb_signals.models import EmpiricalFeature, Mention, RawComment, RawPost  # noqa: E402
+from wsb_signals.sources.arctic_shift import ArcticShiftSource  # noqa: E402
 
 FIXTURES = REPO / "fixtures"
 
@@ -299,6 +303,216 @@ def dump_random_scenarios(cfg: dict, *, seed: int = 1729, count: int = 30) -> No
                      cfg=cfg, window_start=window_start, weights=(z_weights if i % 2 == 0 else cfg["weights"]))
 
 
+# --------------------------------------------------------------------------------------------------
+# B2/I/O — Arctic-Shift ingestion (slice 4). Two boundaries:
+#   * normalize : raw API dict → RawPost/RawComment (from_arctic) — the pure field-mapping landmines.
+#   * poll      : a scripted page CASSETTE driven through the FROZEN ArcticShiftSource via a fake httpx
+#                 client (+ patched time/sleep), dumping the (posts, comments, capped, ok, newest_utc)
+#                 the oracle actually produces. The SAME cassette feeds the TS mock server, so pagination
+#                 / `ok` / `capped` / window-filter semantics are oracle-verified, not re-derived.
+# --------------------------------------------------------------------------------------------------
+N_NOW = 1_704_070_800  # NOW for ingest fixtures = W + 3600 → cutoff (NOW - 3600h-window) == W (a Monday).
+
+
+def dump_ingest_normalize() -> None:
+    """B2 — `from_arctic` field mapping over hand dicts: str(id) incl. int-id, int(created_utc or 0)
+    (missing/zero/float), null/empty passthrough. The TS `normalizePost`/`normalizeComment` must match."""
+    print("ingest normalize (B2):")
+    posts = {
+        "full": {"id": "p_full", "created_utc": N_NOW - 10, "author": "alice", "title": "T",
+                 "selftext": "body", "link_flair_text": "DD", "score": 42, "num_comments": 7},
+        "missing_optionals": {"id": "p_min", "created_utc": N_NOW - 20},
+        "explicit_nulls": {"id": "p_null", "created_utc": N_NOW - 30, "author": None, "title": None,
+                           "selftext": None, "link_flair_text": None, "score": None, "num_comments": None},
+        "int_id": {"id": 12345, "created_utc": N_NOW - 40},
+        "float_created": {"id": "p_float", "created_utc": (N_NOW - 50) + 0.9},
+        "zero_created": {"id": "p_zero", "created_utc": 0},
+        "missing_created": {"id": "p_nocts", "author": "bob"},
+        "empty_author": {"id": "p_empty", "created_utc": N_NOW - 60, "author": ""},
+    }
+    comments = {
+        "full": {"id": "c_full", "created_utc": N_NOW - 11, "author": "carol", "link_id": "t3_aaa",
+                 "parent_id": "t1_bbb", "body": "to the moon", "score": 9},
+        "missing_optionals": {"id": "c_min", "created_utc": N_NOW - 21},
+        "explicit_nulls": {"id": "c_null", "created_utc": N_NOW - 31, "author": None, "link_id": None,
+                           "parent_id": None, "body": None, "score": None},
+        "int_id": {"id": 67890, "created_utc": N_NOW - 41},
+        "missing_created": {"id": "c_nocts", "body": "x"},
+    }
+    write_fixture("ingest/normalize.json", {
+        "retrieved_on": N_NOW,
+        "posts": {k: RawPost.from_arctic(d, N_NOW).model_dump() for k, d in posts.items()},
+        "comments": {k: RawComment.from_arctic(d, N_NOW).model_dump() for k, d in comments.items()},
+        "posts_raw": posts,
+        "comments_raw": comments,
+    })
+
+
+class _FakeResp:
+    """Mimics the httpx.Response surface ArcticShiftSource touches: status_code, headers.get, json(), text."""
+    def __init__(self, page: dict):
+        self.status_code = page.get("status", 200)
+        self.headers = page.get("headers", {})  # plain dict; arctic looks up the exact "X-RateLimit-Remaining"
+        self.text = page.get("body", "")
+        self._non_json = page.get("non_json", False)
+        self._data = page.get("data", [])
+
+    def json(self):
+        if self._non_json:
+            raise ValueError("simulated non-JSON body")  # httpx raises a JSONDecodeError (a ValueError)
+        return {"data": self._data}
+
+
+class _FakeClient:
+    """Serves cassette pages per-kind in order; an `{"error":"network"}` page raises like httpx would."""
+    def __init__(self, cassette: dict):
+        self._pages = cassette
+        self._idx = {"posts": 0, "comments": 0}
+
+    def get(self, path: str, params=None) -> _FakeResp:
+        kind = "posts" if "/posts/" in path else "comments"
+        page = self._pages[kind][self._idx[kind]]
+        self._idx[kind] += 1
+        if page.get("error") == "network":
+            raise httpx.ConnectError("simulated connection reset")
+        return _FakeResp(page)
+
+    def close(self) -> None:
+        pass
+
+
+def _run_poll_cassette(name: str, *, cassette: dict, page_limit: int, max_pages: int,
+                       now: int = N_NOW, window_seconds: int = 3600, subreddit: str = "wallstreetbets") -> None:
+    src = ArcticShiftSource("https://example.test/api", subreddit, page_limit=page_limit, max_pages=max_pages)
+    src.client = _FakeClient(cassette)  # swap the real httpx client for the scripted fake
+    with mock.patch("time.time", return_value=now), mock.patch("time.sleep"):  # deterministic now, no real waits
+        result = src.poll(window_seconds)
+    write_fixture(f"ingest/poll/{name}.json", {
+        "name": name,
+        "now": now,
+        "window_seconds": window_seconds,
+        "page_limit": page_limit,
+        "max_pages": max_pages,
+        "subreddit": subreddit,
+        "cassette": cassette,
+        "expected": {
+            "posts": [p.model_dump() for p in result.posts],
+            "comments": [c.model_dump() for c in result.comments],
+            "newest_utc": result.newest_utc,
+            "capped": result.capped,
+            "ok": result.ok,
+        },
+    })
+
+
+def dump_ingest_poll() -> None:
+    """Poll-level cassettes (B1→B2 + the I/O control flow): pagination, stop conditions, the `for…else`
+    cap, `ok` on net/non-200/non-JSON, post-vs-comment asymmetry, and the dual created_utc defaults."""
+    print("ingest poll (cassette dual-run):")
+    # NOTE: cutoff == N_NOW - 3600; a thing is in-window ⇔ created_utc >= that (a5 below sits exactly on it).
+
+    def _p(pid, created, **kw):
+        return {"id": pid, "created_utc": created, "author": kw.get("author", "u"),
+                "title": kw.get("title", "t"), "selftext": kw.get("selftext", ""),
+                "link_flair_text": kw.get("flair"), "score": kw.get("score", 1),
+                "num_comments": kw.get("num_comments", 0)}
+
+    def _c(cid, created, **kw):
+        return {"id": cid, "created_utc": created, "author": kw.get("author", "u"),
+                "link_id": kw.get("link_id", "t3_x"), "parent_id": kw.get("parent_id", "t3_x"),
+                "body": kw.get("body", "b"), "score": kw.get("score", 1)}
+
+    def data(*things):
+        return {"status": 200, "data": list(things)}
+
+    # 1) one short page each (len < page_limit → stop); plain happy path.
+    _run_poll_cassette("happy_single_page", page_limit=5, max_pages=10, cassette={
+        "posts": [data(_p("p1", N_NOW - 10), _p("p2", N_NOW - 100), _p("p3", N_NOW - 200))],
+        "comments": [data(_c("k1", N_NOW - 50), _c("k2", N_NOW - 60))],
+    })
+
+    # 2) multi-page walk: page1 full (continue, advance `before`), page2 straddles cutoff (oldest<=cutoff →
+    #    stop) AND drops its out-of-window item via the in_window filter. Comments: empty first page → stop.
+    _run_poll_cassette("multi_page_walk", page_limit=3, max_pages=10, cassette={
+        "posts": [
+            data(_p("a1", N_NOW - 10), _p("a2", N_NOW - 100), _p("a3", N_NOW - 300)),
+            data(_p("a4", N_NOW - 3500), _p("a5", N_NOW - 3600), _p("a6", N_NOW - 3700)),  # a5==cutoff in, a6 out
+        ],
+        "comments": [data()],  # empty → immediate stop, zero comments
+    })
+
+    # 3) capped: every page is full and oldest>cutoff so nothing stops the walk → the `for…else` fires.
+    _run_poll_cassette("capped_overflow", page_limit=2, max_pages=3, cassette={
+        "posts": [
+            data(_p("o1", N_NOW - 10), _p("o2", N_NOW - 20)),
+            data(_p("o3", N_NOW - 30), _p("o4", N_NOW - 40)),
+            data(_p("o5", N_NOW - 50), _p("o6", N_NOW - 60)),
+        ],
+        "comments": [data(_c("cc1", N_NOW - 5))],
+    })
+
+    # 4) 500 mid-walk → ok=false, partial (page1 retained). Comments OK ⇒ poll ok = pok && cok = false.
+    _run_poll_cassette("partial_500_midwalk", page_limit=3, max_pages=10, cassette={
+        "posts": [
+            data(_p("s1", N_NOW - 10), _p("s2", N_NOW - 100), _p("s3", N_NOW - 300)),
+            {"status": 500, "body": "upstream boom"},
+        ],
+        "comments": [data(_c("k1", N_NOW - 5))],
+    })
+
+    # 5) non-JSON body mid-walk → ok=false (the .json() ValueError branch).
+    _run_poll_cassette("non_json_midwalk", page_limit=3, max_pages=10, cassette={
+        "posts": [
+            data(_p("n1", N_NOW - 10), _p("n2", N_NOW - 100), _p("n3", N_NOW - 300)),
+            {"status": 200, "non_json": True},
+        ],
+        "comments": [data(_c("k1", N_NOW - 5))],
+    })
+
+    # 6) network error on the FIRST posts page → ok=false, zero posts; newest still computed from comments.
+    _run_poll_cassette("network_error_first_page", page_limit=5, max_pages=10, cassette={
+        "posts": [{"error": "network"}],
+        "comments": [data(_c("m1", N_NOW - 9))],
+    })
+
+    # 7) asymmetry: posts OK, comments fail mid-walk (500) → cok=false ⇒ poll ok=false.
+    _run_poll_cassette("comments_partial_posts_ok", page_limit=3, max_pages=10, cassette={
+        "posts": [data(_p("p1", N_NOW - 10), _p("p2", N_NOW - 20))],
+        "comments": [
+            data(_c("d1", N_NOW - 10), _c("d2", N_NOW - 100), _c("d3", N_NOW - 300)),
+            {"status": 500, "body": "boom"},
+        ],
+    })
+
+    # 8) the dual created_utc default landmine: a thing with NO created_utc is fetched (oldest uses `now`,
+    #    so it doesn't drag the cursor down) yet EXCLUDED from the window (filter uses 0). g2 must vanish.
+    _run_poll_cassette("missing_created_excluded", page_limit=4, max_pages=10, cassette={
+        "posts": [data(
+            _p("g1", N_NOW - 10),
+            {"id": "g2", "author": "ghost", "title": "no timestamp"},  # missing created_utc
+            _p("g3", N_NOW - 50),
+        )],
+        "comments": [data()],
+    })
+
+    # 9) genuinely empty window: empty first page both kinds → no items, ok=true, capped=false, newest=null.
+    _run_poll_cassette("empty_window", page_limit=5, max_pages=10, cassette={
+        "posts": [data()],
+        "comments": [data()],
+    })
+
+    # 10) rate-limit header present (<50) → backoff path exercised (output unchanged; the TS fault test
+    #     asserts the 2s sleep). Also a low remaining on a non-stopping page, then a short stop page.
+    _run_poll_cassette("rate_limit_backoff", page_limit=2, max_pages=10, cassette={
+        "posts": [
+            {"status": 200, "headers": {"X-RateLimit-Remaining": "12"},
+             "data": [_p("r1", N_NOW - 10), _p("r2", N_NOW - 20)]},
+            data(_p("r3", N_NOW - 30)),  # 1 < page_limit → stop
+        ],
+        "comments": [data(_c("rc1", N_NOW - 5))],
+    })
+
+
 def check_oracle_frozen() -> None:
     """Warn LOUDLY if wsb_signals/ has drifted from tag v0.0.1 — fixtures regenerated from drifted code
     would silently redefine the oracle (the parity target). Soft check: warn, don't abort."""
@@ -321,6 +535,8 @@ def main() -> None:
     dump_wordset_loader()
     dump_aggregate(cfg)
     dump_random_scenarios(cfg)
+    dump_ingest_normalize()
+    dump_ingest_poll()
     print("done.")
 
 

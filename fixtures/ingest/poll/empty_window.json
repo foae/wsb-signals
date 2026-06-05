@@ -1,0 +1,29 @@
+{
+  "cassette": {
+    "comments": [
+      {
+        "data": [],
+        "status": 200
+      }
+    ],
+    "posts": [
+      {
+        "data": [],
+        "status": 200
+      }
+    ]
+  },
+  "expected": {
+    "capped": false,
+    "comments": [],
+    "newest_utc": null,
+    "ok": true,
+    "posts": []
+  },
+  "max_pages": 10,
+  "name": "empty_window",
+  "now": 1704070800,
+  "page_limit": 5,
+  "subreddit": "wallstreetbets",
+  "window_seconds": 3600
+}

@@ -1,0 +1,237 @@
+{
+  "comments": {
+    "explicit_nulls": {
+      "author": null,
+      "body": null,
+      "created_utc": 1704070769,
+      "id": "c_null",
+      "link_id": null,
+      "parent_id": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "source": "arctic_shift"
+    },
+    "full": {
+      "author": "carol",
+      "body": "to the moon",
+      "created_utc": 1704070789,
+      "id": "c_full",
+      "link_id": "t3_aaa",
+      "parent_id": "t1_bbb",
+      "retrieved_on": 1704070800,
+      "score": 9,
+      "source": "arctic_shift"
+    },
+    "int_id": {
+      "author": null,
+      "body": null,
+      "created_utc": 1704070759,
+      "id": "67890",
+      "link_id": null,
+      "parent_id": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "source": "arctic_shift"
+    },
+    "missing_created": {
+      "author": null,
+      "body": "x",
+      "created_utc": 0,
+      "id": "c_nocts",
+      "link_id": null,
+      "parent_id": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "source": "arctic_shift"
+    },
+    "missing_optionals": {
+      "author": null,
+      "body": null,
+      "created_utc": 1704070779,
+      "id": "c_min",
+      "link_id": null,
+      "parent_id": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "source": "arctic_shift"
+    }
+  },
+  "comments_raw": {
+    "explicit_nulls": {
+      "author": null,
+      "body": null,
+      "created_utc": 1704070769,
+      "id": "c_null",
+      "link_id": null,
+      "parent_id": null,
+      "score": null
+    },
+    "full": {
+      "author": "carol",
+      "body": "to the moon",
+      "created_utc": 1704070789,
+      "id": "c_full",
+      "link_id": "t3_aaa",
+      "parent_id": "t1_bbb",
+      "score": 9
+    },
+    "int_id": {
+      "created_utc": 1704070759,
+      "id": 67890
+    },
+    "missing_created": {
+      "body": "x",
+      "id": "c_nocts"
+    },
+    "missing_optionals": {
+      "created_utc": 1704070779,
+      "id": "c_min"
+    }
+  },
+  "posts": {
+    "empty_author": {
+      "author": "",
+      "created_utc": 1704070740,
+      "id": "p_empty",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    },
+    "explicit_nulls": {
+      "author": null,
+      "created_utc": 1704070770,
+      "id": "p_null",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    },
+    "float_created": {
+      "author": null,
+      "created_utc": 1704070750,
+      "id": "p_float",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    },
+    "full": {
+      "author": "alice",
+      "created_utc": 1704070790,
+      "id": "p_full",
+      "link_flair_text": "DD",
+      "num_comments": 7,
+      "retrieved_on": 1704070800,
+      "score": 42,
+      "selftext": "body",
+      "source": "arctic_shift",
+      "title": "T"
+    },
+    "int_id": {
+      "author": null,
+      "created_utc": 1704070760,
+      "id": "12345",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    },
+    "missing_created": {
+      "author": "bob",
+      "created_utc": 0,
+      "id": "p_nocts",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    },
+    "missing_optionals": {
+      "author": null,
+      "created_utc": 1704070780,
+      "id": "p_min",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    },
+    "zero_created": {
+      "author": null,
+      "created_utc": 0,
+      "id": "p_zero",
+      "link_flair_text": null,
+      "num_comments": null,
+      "retrieved_on": 1704070800,
+      "score": null,
+      "selftext": null,
+      "source": "arctic_shift",
+      "title": null
+    }
+  },
+  "posts_raw": {
+    "empty_author": {
+      "author": "",
+      "created_utc": 1704070740,
+      "id": "p_empty"
+    },
+    "explicit_nulls": {
+      "author": null,
+      "created_utc": 1704070770,
+      "id": "p_null",
+      "link_flair_text": null,
+      "num_comments": null,
+      "score": null,
+      "selftext": null,
+      "title": null
+    },
+    "float_created": {
+      "created_utc": 1704070750.9,
+      "id": "p_float"
+    },
+    "full": {
+      "author": "alice",
+      "created_utc": 1704070790,
+      "id": "p_full",
+      "link_flair_text": "DD",
+      "num_comments": 7,
+      "score": 42,
+      "selftext": "body",
+      "title": "T"
+    },
+    "int_id": {
+      "created_utc": 1704070760,
+      "id": 12345
+    },
+    "missing_created": {
+      "author": "bob",
+      "id": "p_nocts"
+    },
+    "missing_optionals": {
+      "created_utc": 1704070780,
+      "id": "p_min"
+    },
+    "zero_created": {
+      "created_utc": 0,
+      "id": "p_zero"
+    }
+  },
+  "retrieved_on": 1704070800
+}
