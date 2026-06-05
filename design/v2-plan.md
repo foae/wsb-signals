@@ -87,6 +87,24 @@ and types are defined; worker and web both import it (the single-language payoff
 Reordered per the review — port the cheap, deterministic, no-I/O logic first so the scoring is proven
 before live data flows; the riskiest I/O comes last, when any anomaly is isolated to it.
 
+> **Near-term focus (current):** the **headless data pipeline — process + insert into Postgres — is the
+> deliverable.** The **Nuxt web (slice 8) is DEFERRED to much later**; nothing on the data path depends
+> on it. Active track: **2 → 3 → 4 → 5 → 6 → 7**, then **9 (live shadow, DB-table diff)** and a
+> **worker-only deploy**. Milestones:
+> - **M1 — process + insert (slices 2–3):** mentions → `H_e` features **written to Postgres**,
+>   oracle-gated, round-tripped on testcontainers. The empirical path is computable **and** persistable.
+> - **M2 — live + automated (slices 4–6):** Arctic-Shift ingest, Alpaca `H_m` overlay, the 5-min loop
+>   with atomic per-cycle publish, SIGTERM, advisory lock. The worker runs unattended.
+> - **M3 — new signals (slice 7):** divergence / quadrants / lead-lag computed + persisted.
+> - **M4 — live parity (slice 9):** TS worker shadowing the Python radar into separate tables, diffed
+>   cycle-by-cycle on live data.
+> - **M5 — ship headless (slice 10, interim):** deploy **db + worker** (2 services). Web + cutover UI
+>   land later with slice 8.
+>
+> **Review gate (mandatory):** at the end of each milestone (M1–M5), run a cross-model review
+> (`/second-opinion` or `/multi-llm-review`) over the work since the last gate — catch parity/
+> architecture drift before building further. Synthesize, fix real findings, then advance.
+
 0. **Scaffold + oracle harness.** pnpm monorepo; `shared/` Drizzle schema (port `db.py SCHEMA`); a
    Python dump-harness on the `v0.0.1` tag that emits golden fixtures at boundaries B2–B5
    (porting-spec §1). Vitest + testcontainers wired.
@@ -102,29 +120,33 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 6. **Worker loop.** Assemble the cycle (poll→…→publish), lifecycle (SIGTERM, advisory lock, throttle,
    W−1-before-W) (porting-spec §7).
 7. **Analytics (new).** divergence / quadrants / lead-lag from the stored series — fresh TS, no port.
-8. **Web.** Nuxt SSR leaderboard + history **tables** + banners (quiet/capped/stale); Nitro read routes
-   (Zod-validated, complete-window reads); route caching; `@nuxtjs/html-validator` green.
+8. **Web — DEFERRED (much later).** Nuxt SSR leaderboard + history **tables** + banners
+   (quiet/capped/stale); Nitro read routes (Zod-validated, complete-window reads); route caching;
+   `@nuxtjs/html-validator` green. Parked until the headless pipeline ships; the web skeleton stays
+   scaffolded but untouched (so the monorepo keeps building).
 9. **Live shadow → cutover.** Run TS worker beside the frozen Python radar into separate tables; diff
-   cycle-by-cycle; cut over only when parity holds (porting-spec §9).
-10. **Deploy.** Two images, 3-service compose.
+   cycle-by-cycle (**DB-table diff — needs no web**); cut over only when parity holds (porting-spec §9).
+10. **Deploy (interim, headless).** **db + worker** — 2 services, 1 image. Ships the pipeline without a
+    UI; the web service is added when slice 8 lands.
 
 ## 5. Data flow & publication
 
 - **Single writer** (worker), **atomic per-cycle publish** (one transaction over empirical + analytical
-  + movers, and/or a `run_status`/`cycle_runs` marker). The web reads the latest **complete**
-  `window_start` only — never a half-written cycle (porting-spec §6).
-- **Freshness:** the worker persists each cycle's freshness/`capped`/`quiet` state; the web banners
-  degraded states instead of letting route caching hide a stale or dead worker (architecture §5).
+  + movers, and/or a `run_status`/`cycle_runs` marker). Any reader takes the latest **complete**
+  `window_start` only — never a half-written cycle (porting-spec §6). Built now for the **shadow-diff**
+  (slice 9) and a future web — it's correctness, not a UI concession.
+- **Freshness:** the worker persists each cycle's freshness/`capped`/`quiet` state so a reader (the
+  shadow-diff now, the web later) can tell a degraded/stale cycle from a healthy one (architecture §5).
 
 ## 6. Deployment
 
-Three services, two images:
+**Interim (headless): 2 services, 1 image** — db + worker. The `web` service is added when slice 8 lands.
 ```
 db      postgres:<pinned>          named volume; pg_isready healthcheck
 worker  wsb-worker (Node image)    the writer; the poll loop; runs migrations on boot; advisory lock;
                                     healthcheck = a freshness/heartbeat probe; depends_on db healthy
-web     wsb-web (Node image)       built Nuxt server (node .output/server/index.mjs); read-only DB role;
-                                    binds 0.0.0.0:3000; depends_on db healthy
+web     wsb-web (Node image)       DEFERRED (slice 8) — built Nuxt server (node .output/server/index.mjs),
+                                    read-only DB role, binds 0.0.0.0:3000, depends_on db healthy
 ```
 Carry over the Incus host-networking note (worker needs egress to Arctic-Shift/Alpaca). Secrets via
 `env_file`; nothing baked into images. The frozen Python radar is **not** deployed (oracle only).
