@@ -80,6 +80,14 @@ Reproduce `aggregate_window` exactly. Reference: `wsb_signals/aggregate.py` @ `v
   `sd = sqrt(var)`; `z = (m-mean)/sd` if `sd > 0` else `null`.
 - elif `n > 0`: `status = "warming"`, `z = null`. else `status = "cold"`, `z = null`.
 - The `max(2, …)` guard is mandatory (n−1 with n=1 divides by zero).
+- **`sd` landmine (≤1-ULP, NOT exactly reproducible):** the oracle computes `sd = var ** 0.5` — CPython's
+  `**` on a float routes to libm **`pow`**, which is **1 ULP off correctly-rounded `sqrt` in ~0.08% of
+  inputs** (measured). The TS port uses `Math.sqrt` (correctly rounded — and V8's `Math.sqrt` == Python
+  `math.sqrt`). Do **NOT** "fix" this with `Math.pow(var, 0.5)`: that re-introduces the cross-engine `pow`
+  instability §2.6 deliberately bans (and is no closer to the oracle). So `z` (and, where the `z` weight is
+  non-zero, a sub-ULP nudge to `h_e`) can differ by ≤1 ULP from the oracle. The parity tests already
+  tolerate this (`toBeCloseTo(_, 9)`); the live-shadow diff surfaces it as **NEAR** (§12) — the canonical
+  case the §2.6 sub-ε tolerance exists for. It is **not** a port bug.
 
 ### 2.5 rank_delta, normalization, blend
 - `cur_rank`: rank tickers by `sorted(key = (-sov, ticker))`, 1-based. `rank_delta = prior_rank −
@@ -265,11 +273,15 @@ Gate the relevant slice on each:
 - **I/O fault injection** (mock Arctic-Shift/Alpaca server, not just VCR happy-path): 500 on page 3,
   non-JSON on page 5, missing/garbage rate-limit headers, empty page mid-walk, connection reset,
   partial post-vs-comment fetch → assert `ok`/`capped` semantics match the oracle exactly.
-- **Live shadow** before cutover: run the TS worker alongside the frozen Python radar against the live
-  APIs, write to **separate tables**, diff cycle-by-cycle (per-ticker, per-component) for a sustained
-  window. Real rate-limit curves and Reddit/Alpaca data shapes only surface here.
-- **Observability for debugging drift:** both pipelines dump per-cycle intermediate JSON (B2–B5) with
-  identical field names so a diff pinpoints which ticker/component diverged.
+- **Live shadow** before cutover — see **§12** for the implemented design. (The original "run both live
+  into **separate tables** and diff" framing was **superseded**: two *independent* live polls fetch
+  different data, so their boards can never match exactly — an un-gateable, noisy comparison. The live TS
+  worker instead **captures the exact inputs its scorer consumed** and replays them through the frozen
+  oracle, so the diff is a **deterministic** value+order check on real data. The TS worker running live by
+  itself is what exercises real rate-limit curves / data shapes — no second live poller is needed.)
+- **Observability for debugging drift:** the worker's `--shadow` dump carries per-cycle B3 (poll+mentions)
+  and B4 (the aggregate inputs + the board) in identical field names, so the diff pinpoints which
+  ticker/component diverged (§12).
 
 ## 10. Also-port surface (don't forget)
 
@@ -344,3 +356,97 @@ Code: `analytics.ts` (pure), `pipeline.buildSignals` (orchestration), `db.ts` re
 - **Config** (`config.toml [signals]`): `median_lookback_seconds`, `min_quadrant_population`;
   `[signals.lead_lag]` `enabled`, `lookback_seconds`, `max_lag_windows`, `min_pairs`, `min_corr`. Tunables,
   not on any parity path.
+
+## 12. Live shadow — replay-vs-oracle (slice 9, M4) — the cutover gate
+
+Continuous, **deterministic** value+order parity of the TS worker against the frozen oracle, on **real
+live data**. The scorer/extraction half of the cutover gate (the full criterion — shadow + read-back +
+green ITs — is at the end of this section).
+
+- **Design (chosen; supersedes the v2-plan "separate tables / beside the radar" wording).** Two
+  *independent* live pollers fetch different data each cycle, so their boards could never match exactly — a
+  noisy, un-gateable comparison. Instead the **one** live TS worker (`--shadow`) captures, per cycle, the
+  **exact inputs its scorer consumed** + the board it produced; `oracle/replay.py` feeds those *identical*
+  inputs through the frozen `aggregate_window`; `shadow-diff` asserts parity at the **object boundary**
+  (§1 — never DB rows). Same input ⇒ any divergence is a **real port bug**, not input noise. This is
+  strictly **stronger than the committed golden fixtures** (§9): it runs the parity contract against
+  whatever real ticker / flair / author / unicode shapes the live firehose actually produces. The TS
+  worker running live **by itself** is what exercises real rate-limit curves / data shapes — no second
+  live poller (and no DuckDB↔Postgres row diff, §1) is needed.
+- **Three artifacts.**
+  - `packages/worker/src/shadow.ts` — the CAPTURE side (lean; on the worker hot path). `--shadow` (or
+    `SHADOW=1`; dir = `SHADOW_DIR` or `<dataDir>/shadow`) writes one `cycle-<window_start>.json` per cycle:
+    **B3** = the raw `poll` + assembled `mentions` (sorted `thing_id, ticker`); **B4** = the exact
+    `inputs` the scorer read (`mentions_in_window`, `prior_features`, `prior_sov_ranks`, `feature_history`,
+    + window/weights/config) and the `features` board (canonical order). Wire form is canonical
+    **snake_case** = Python `model_dump` field names. Captured ONLY when the window had mentions; a
+    discarded (`!ok`) cycle emits nothing. `flair_counts` is an **object** on the wire (the oracle's JSON
+    *string* is parsed to one in replay) — parity is on the counts (§2.6). The dump also carries (M4
+    review): a **`readback`** (the write-path check, below) and a **`wordsets`** fingerprint — per set,
+    `{n, fnv}` where `fnv` is an FNV-1a (32-bit, `Math.imul`) over the C-sorted symbols, reproduced
+    byte-identically in `replay.py`, so a stale `symbols.txt` is *detected* not silently misdiagnosed.
+  - `oracle/replay.py` — drives the FROZEN oracle over the captured inputs via a **duck-typed fake-db**
+    (returns the dumped `inputs` from the four reads `aggregate_window` calls — no DuckDB, no
+    reconstruction) and re-runs `_mentions_from_poll` over the raw `poll`. Emits the oracle's B3+B4 truth
+    in the same wire shape, plus **`wordset_match`** (its own wordset fingerprint vs the dump's). Verified
+    to reproduce the committed `fixtures/aggregate/*` **bit-for-bit**.
+  - `shadow-diff` (`pnpm -C packages/worker shadow-diff <tsDir> <oracleDir>`) — pairs cycles by
+    `window_start`, runs the pure `diffCycle`, prints a per-ticker/per-component report, and exits
+    **1 on any DRIFT** (a real parity failure), **2 on a SETUP error** (the gate couldn't certify: 0 paired
+    cycles, or undiffed ts-only/oracle-only cycles from a stale/partial replay — `--allow-unpaired` to
+    override — or a wordset mismatch), **0 only when parity holds**. (The old "exit 0 unless DRIFT" let a
+    stale replay that produced 0 cycles pass green — codex/qwen M4 review.)
+- **Diff semantics (`diffCycle`, `shadow-diff.ts`).** Verdict per cycle ∈ `MATCH | NEAR | DRIFT`, rolled
+  up to the worst across cycles.
+  - **Exact** (mismatch ⇒ DRIFT): integer/string fields (`mentions`, `authors`, `dd_count`,
+    `baseline_status`, `ticker`, `window_start`), `flair_counts` (object/count compare), **null alignment**
+    (`velocity`/`accel`/`z` null-vs-number is load-bearing — §2.3), membership (same ticker set), and the
+    full **B3** mention stream (extraction/classification is pure ⇒ exact). `schema_version`/`window_start`
+    mismatch is FATAL ⇒ DRIFT.
+  - **Order** parity (the FULL comparator, M4-review hardened): both boards use the same total order
+    (§2.6), so a positional disagreement is an inversion of an adjacent TS pair. Gap = `ts[i].h_e −
+    ts[i+1].h_e ≥ 0`. Classification: **gap > ε ⇒ DRIFT**; **gap ≤ ε AND a cross-engine `h_e` WOBBLE
+    explains it (`wobble ≥ gap > 0`, `wobble = |tsₐ−orₐ| + |ts_b−or_b|`) ⇒ NEAR** (a real 1-ULP tie flip);
+    **gap ≤ ε but NO wobble (the pair's `h_e` is bit-identical on both engines) ⇒ DRIFT** — the order then
+    rests purely on the secondary tie-break (`sov→authors→mentions→ticker`, all bit-identical across
+    engines), so a reordering can ONLY be a secondary-comparator bug. (This closes the gap the earlier
+    h_e-gap-only check masked, flagged by codex+gemini: a wrong tie-break among equal-`h_e` rows used to
+    pass as NEAR.) The wobble test distinguishes a genuine sub-ε flip from a tie-break bug **without**
+    consulting the secondary keys directly — so it never re-creates the `random/010` quantization bug §2.6
+    bans. Completeness: a permutation of `[0..n)` with *no* adjacent inversion is the identity, so any order
+    difference surfaces ≥1 adjacent inversion (and `compareBoard` is property-tested as a total order, so
+    the adjacent scan can't be fooled by a non-transitive comparator).
+  - **Sub-ε tolerance lives HERE and nowhere else** (§2.6): floats equal-or-within `ε = absEps(1e-12) +
+    relEps(1e-12)·max|·|` are NEAR, not DRIFT. ε is sized to the ACTUAL cross-language wobble (~1e-15),
+    leaving ~1000× headroom yet flagging any drift ≥ ~1e-11 as DRIFT. (Was `relEps=1e-9` — ~4.5M ULPs near
+    1.0, loose enough to hide a real small-math bug; tightened per the M4 review.) **Known NEAR case:** `z`
+    (and a non-zero-weight `h_e` nudge) differs by ≤1 ULP because the oracle uses `var ** 0.5` (libm `pow`)
+    vs the port's `Math.sqrt` (§2.4) — ~0.08% of baseline-ready tickers. The gate must classify this NEAR.
+  - **Write-path read-back ⇒ DRIFT** (M4 review — the unanimous strongest objection). The replay consumes
+    the worker's *reads*, so it can't see a *write* bug. So in shadow mode, right after the atomic publish,
+    `verifyPublished` re-reads the persisted `empirical_features` + `analytical_features` + `signals` + the
+    `cycle_runs` marker for W and diffs them **bit-exactly** (same engine) against the in-memory board the
+    gate just approved; the result rides in the dump's `readback`. `!readback.ok` (a wrong `ON CONFLICT`, a
+    truncated column, a JSONB/BIGINT coercion, an `h_e` written NULL, a missing marker) ⇒ DRIFT. This is the
+    seam the web actually reads, which replay-vs-oracle structurally cannot see.
+  - **Wordset mismatch ⇒ SETUP, not DRIFT.** When `wordset_match === false`, B3 mention diffs are attributed
+    to the stale wordlist (not a port bug): still reported, but excluded from the DRIFT rollup, and the CLI
+    exits 2 (setup). B4 is wordset-independent, so it gates normally.
+- **Operational.** **B4 (scoring) parity is wordset-independent** — it replays the captured mention rows
+  directly, so it holds regardless of the whitelist. **B3 (mention) parity needs the SAME wordsets** the
+  worker used: run `replay.py` against the **same repo state** (especially the derived, gitignored
+  `whitelist/symbols.txt`). The `wordsets` fingerprint makes a mismatch explicit (a SETUP error pointing at
+  `symbols.txt`) instead of a confusing B3 DRIFT. If `symbols.txt` is absent, both worker and replay
+  **fail-closed identically** to cashtag-only (empty set) — still parity, reduced coverage. Runbook:
+  `oracle/README.md`.
+- **Cutover criterion (honest scope — M4 review).** The live shadow is **necessary but not sufficient**
+  alone; cut over only when **all** hold over a sustained window: (1) **no DRIFT** in the shadow (H_e
+  scoring + B3 extraction parity), (2) every cycle's **`readback.ok`** (the write path), AND (3) **green
+  testcontainers ITs** in the cutover window (the SQL read shapes + `ON CONFLICT` + lifecycle). What the
+  shadow does **not** cover, and what does: **SQL-read provenance** (a wrong `created_utc` window bound or
+  `hour_of_week` filter would feed *both* sides the same wrong rows → MATCH) is gated by `reads.it.test.ts`
+  + the transitive prior-read chain (each window's priors are a prior window's board, itself diffed) — not
+  by replay alone; **H_m / market overlay** compute parity by the §5 fixtures (its write path by the
+  read-back); **signals** (slice 7) by their own tests (§11, no oracle); **live-I/O robustness** (rate-
+  limit/backoff/`ok`/`capped`/pagination) by the worker's own live loop + the §4/§5 fault-injection suites.
+  Don't read a green shadow as certifying the layers above it.

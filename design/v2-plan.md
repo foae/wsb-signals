@@ -98,8 +98,11 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 > - **M3 — new signals (slice 7): DONE.** divergence / quadrants / lead-lag computed + persisted to
 >   `signals` each cycle (atomic publish). NEW code, no oracle — gated by its own unit + integration tests
 >   (see porting-spec §11 for the fixed semantics).
-> - **M4 — live parity (slice 9):** TS worker shadowing the Python radar into separate tables, diffed
->   cycle-by-cycle on live data.
+> - **M4 — live parity (slice 9): DONE.** Deterministic **replay-vs-oracle** shadow: the live TS worker
+>   (`--shadow`) captures each cycle's exact scorer inputs + board; `oracle/replay.py` replays them through
+>   the frozen `aggregate_window`; `shadow-diff` asserts value+order parity (exit non-zero on DRIFT) — the
+>   cutover gate. Supersedes the "two live pollers into separate tables" framing (independent polls fetch
+>   different data ⇒ un-gateable). Semantics authoritative in porting-spec **§12**.
 > - **M5 — ship headless (slice 10, interim):** deploy **db + worker** (2 services). Web + cutover UI
 >   land later with slice 8.
 >
@@ -130,8 +133,12 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
    (quiet/capped/stale); Nitro read routes (Zod-validated, complete-window reads); route caching;
    `@nuxtjs/html-validator` green. Parked until the headless pipeline ships; the web skeleton stays
    scaffolded but untouched (so the monorepo keeps building).
-9. **Live shadow → cutover.** Run TS worker beside the frozen Python radar into separate tables; diff
-   cycle-by-cycle (**DB-table diff — needs no web**); cut over only when parity holds (porting-spec §9).
+9. **Live shadow → cutover — DONE.** Deterministic **replay-vs-oracle** (porting-spec §12): the live TS
+   worker `--shadow`-dumps each cycle's exact scorer inputs + board (B3+B4); `oracle/replay.py` replays
+   them through the frozen oracle; `shadow-diff` asserts value+order parity (MATCH/NEAR/DRIFT, exit
+   non-zero on DRIFT) — **needs no web, no second live poller, no DB-row diff**. Cut over only when no
+   DRIFT holds over a sustained window. (The earlier "beside the radar into separate tables" framing is
+   superseded — independent live polls fetch different data, so they can't gate exact parity.)
 10. **Deploy (interim, headless).** **db + worker** — 2 services, 1 image. Ships the pipeline without a
     UI; the web service is added when slice 8 lands.
 

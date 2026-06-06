@@ -5,7 +5,7 @@
  */
 import type { AnalyticalFeatureInsert, MarketMoverInsert, SignalInsert } from '@wsb/shared'
 
-import { aggregateWindow, type EmpiricalFeature, type HeatWeights } from './aggregate'
+import { aggregateWindow, type AggregateInputs, type EmpiricalFeature, type HeatWeights } from './aggregate'
 import {
   classifyQuadrant, divergence, leadLagHours, median, type SignalsConfig,
 } from './analytics'
@@ -41,7 +41,12 @@ export async function runAggregation(
   db: Db,
   windowStart: number,
   cfg: AggregateConfig,
-  opts: { persist: boolean },
+  opts: {
+    persist: boolean
+    /** Live-shadow hook (slice 9): receives the EXACT inputs `aggregateWindow` consumed, so the cycle can
+     *  dump them for the deterministic replay-vs-oracle diff. Undefined off the shadow path (zero overhead). */
+    onInputs?: (inputs: AggregateInputs) => void
+  },
 ): Promise<EmpiricalFeature[]> {
   const mentionsInWindow = await readMentionsInWindow(db, windowStart, windowStart + cfg.windowSeconds)
   if (mentionsInWindow.length === 0) return [] // Python `if not rows: return []` — skip the prior reads
@@ -50,7 +55,7 @@ export async function runAggregation(
   const priorSovRanks = await readSovRanksAt(db, windowStart - cfg.windowSeconds)
   const featureHistory = await readFeatureHistory(db, windowStart)
 
-  const rows = aggregateWindow({
+  const inputs: AggregateInputs = {
     windowStart,
     windowSeconds: cfg.windowSeconds,
     weights: cfg.weights,
@@ -60,7 +65,9 @@ export async function runAggregation(
     priorFeatures,
     priorSovRanks,
     featureHistory,
-  })
+  }
+  opts.onInputs?.(inputs)
+  const rows = aggregateWindow(inputs)
 
   // The W−1 finalize persists in ONE transaction so a crash can't leave the prior window's baseline
   // half-written across the ≤1000-row chunks. (This doesn't defeat the self-heal: a rolled-back W−1 is
