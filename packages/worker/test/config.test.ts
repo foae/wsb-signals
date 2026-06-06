@@ -1,8 +1,9 @@
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import { buildExtractor, buildMarket, buildSource, loadConfig } from '../src/config'
+import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig } from '../src/config'
 
 // Slice-6 config wiring: the worker reads the SAME committed config.toml (parity tunables) and builds the
 // extractor with the SAME fail-closed rule as `cli._build_extractor`.
@@ -20,6 +21,7 @@ describe('config loading', () => {
     expect(worker.bots.has('AutoModerator')).toBe(true)
     expect(worker.aggregate.weights.sov).toBeCloseTo(0.35, 9)
     expect(worker.aggregate.minSamplesReady).toBe(8)
+    expect(worker.aggregate.baselineLookbackSeconds).toBe(15724800) // 26-week z-baseline bound (porting-spec §2.7)
     expect(worker.aggregate.minAuthorsFull).toBe(3)
     expect(worker.market.topN).toBe(25)
     expect(worker.market.screenerTop).toBe(25)
@@ -32,6 +34,14 @@ describe('config loading', () => {
     const ext = buildExtractor(raw, ROOT)
     expect(ext.extract('NVDA to the moon')).toEqual([]) // bare token rejected — NOT degraded to open extraction
     expect(ext.extract('$NVDA calls')).toEqual(['NVDA']) // $-cashtag still accepted
+  })
+
+  it('findRoot walks up from a subdir to the dir holding config.toml', () => {
+    // The worker runs with cwd=packages/worker (pnpm -C / the container), where config.toml does NOT live;
+    // findRoot must walk up to the repo root so loadConfig finds config.toml + whitelist/ regardless of cwd.
+    const root = ROOT.replace(/\/+$/, '') // ROOT carries a trailing slash; findRoot returns without one
+    expect(findRoot(join(root, 'packages', 'worker'))).toBe(root)
+    expect(findRoot(root)).toBe(root)
   })
 
   it('builds the source + gates the market client on creds', () => {

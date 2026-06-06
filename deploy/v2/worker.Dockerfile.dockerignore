@@ -1,0 +1,47 @@
+# Per-Dockerfile .dockerignore for deploy/v2/worker.Dockerfile (BuildKit reads <dockerfile>.dockerignore).
+# This replaces the root .dockerignore for this build. The Dockerfile uses explicit COPY paths, so only
+# the files actually COPYed are baked in — but we still exclude large/irrelevant trees to keep the
+# context transfer fast.
+
+# Secrets — never baked in; arrive via compose env_file at runtime
+.env
+.env.*
+
+# Local Python env + caches
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.egg-info/
+
+# Git history
+.git/
+
+# Local data stores (the running container uses named volumes)
+data/
+whitelist/symbols.txt
+
+# Heavy trees the worker image does not need
+# Note: packages/web/package.json is NOT excluded — the Dockerfile COPYs it so pnpm can parse
+# the workspace graph during `pnpm install --filter @wsb/worker...` without pulling Nuxt deps.
+packages/web/node_modules/
+packages/web/.nuxt/
+packages/web/.output/
+packages/web/public/
+node_modules/
+packages/shared/node_modules/
+packages/worker/node_modules/
+packages/web/node_modules/
+**.duckdb
+oracle/
+design/
+tests/
+wsb_signals/
+fixtures/
+scripts/
+sources/
+.firecrawl/
+
+# deploy/ is intentionally NOT excluded — we COPY deploy/v2/entrypoint.sh into the image.
+# The root .dockerignore excluded deploy/ wholesale, which broke that COPY; this file fixes it.

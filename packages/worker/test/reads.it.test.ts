@@ -2,6 +2,7 @@ import { empiricalFeatures } from '@wsb/shared'
 import type { EmpiricalFeatureInsert } from '@wsb/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { hourOfWeek } from '../src/aggregate'
 import {
   acquireAdvisoryLock, advisoryLockAlive, createDb, readFeatureHistory, readFeaturesAt,
   readMentionsInWindow, readSovRanksAt, upsertMentions,
@@ -44,15 +45,50 @@ describe('aggregator reads on Postgres', () => {
     expect(prior).toEqual({ NVDA: { mentions: 2, velocity: 1 }, TSLA: { mentions: 3, velocity: null } })
   })
 
-  it('readFeatureHistory returns every row with window_start < before', async () => {
+  it('readFeatureHistory is scoped to the hour-of-week bucket AND bounded to [from, before)', async () => {
+    // v2 bounded+scoped baseline read (porting-spec §2.7). W0 = 2024-01-01 00:00 UTC (a Monday) → bucket 0.
+    const W0 = 1_704_067_200
+    const WEEK = 604_800
+    // Pin the SQL hour_of_week expression against the scorer's hourOfWeek: the bucket-0 rows must be 0, and
+    // the off-by-one-hour row (Sunday 23:00 UTC) must be 167 — so the wrong-bucket exclusion below proves
+    // the SQL `dow`/`hour` math matches aggregate.hourOfWeek, not just that some filter ran.
+    expect(hourOfWeek(W0)).toBe(0)
+    expect(hourOfWeek(W0 - 3600)).toBe(167)
+
     await pg.db.insert(empiricalFeatures).values([
-      feat({ ticker: 'NVDA', windowStart: 1000, mentions: 3 }),
-      feat({ ticker: 'NVDA', windowStart: 2000, mentions: 5 }),
-      feat({ ticker: 'AMD', windowStart: 2000, mentions: 4 }),
-      feat({ ticker: 'NVDA', windowStart: 3000, mentions: 7 }), // >= before → excluded
+      feat({ ticker: 'NVDA', windowStart: W0 - 40 * WEEK, mentions: 99 }), // bucket 0 but older than `from` → excluded
+      feat({ ticker: 'NVDA', windowStart: W0 - WEEK, mentions: 5 }), //       bucket 0, in range → included
+      feat({ ticker: 'NVDA', windowStart: W0, mentions: 3 }), //              bucket 0, in range → included
+      feat({ ticker: 'AMD', windowStart: W0, mentions: 4 }), //               bucket 0, in range → included (ticker tie-break)
+      feat({ ticker: 'TSLA', windowStart: W0 - 3600, mentions: 7 }), //       bucket 167 (in range) → excluded by hour-of-week
+      feat({ ticker: 'NVDA', windowStart: W0 + WEEK, mentions: 50 }), //      bucket 0 but >= before → excluded
     ])
-    const hist = await readFeatureHistory(pg.db, 2500)
-    expect(hist).toEqual([['NVDA', 1000, 3], ['AMD', 2000, 4], ['NVDA', 2000, 5]]) // ordered (window_start, ticker)
+
+    const before = W0 + 1
+    const from = before - 26 * WEEK // 26-week trailing bound
+    const hist = await readFeatureHistory(pg.db, before, from, 0)
+    // ordered (window_start ASC, ticker C-collation); only same-bucket rows within the bound survive.
+    expect(hist).toEqual([['NVDA', W0 - WEEK, 5], ['AMD', W0, 4], ['NVDA', W0, 3]])
+  })
+
+  it('the SQL hour_of_week expression matches aggregate.hourOfWeek across diverse buckets', async () => {
+    // W0 (Monday 00:00 UTC) + k hours lands in hour_of_week bucket k (for k in 0..167). Insert one row per
+    // chosen bucket, then for each query with how=k and assert exactly that row returns — pinning the SQL
+    // `(((dow+6)%7)*24 + hour)` to the JS `((getUTCDay()+6)%7)*24 + getUTCHours()` across the week, not just
+    // the Mon/Sun boundary. A mismatch in the SQL dow/hour math would return the wrong row (or none).
+    const W0 = 1_704_067_200 // Monday 00:00 UTC
+    const HOUR = 3600
+    const buckets = [0, 1, 13, 23, 24, 62, 143, 156, 167] // Mon, …, Wed 14:00, …, Sat 23:00, Sun 12:00, Sun 23:00
+    for (const k of buckets) expect(hourOfWeek(W0 + k * HOUR), `JS hourOfWeek bucket ${k}`).toBe(k)
+
+    await pg.db.insert(empiricalFeatures).values(
+      buckets.map((k) => feat({ ticker: `T${k}`, windowStart: W0 + k * HOUR, mentions: k + 1 })),
+    )
+    const before = W0 + 168 * HOUR // end of the week — everything is in range
+    for (const k of buckets) {
+      const hist = await readFeatureHistory(pg.db, before, 0, k)
+      expect(hist, `SQL bucket ${k}`).toEqual([[`T${k}`, W0 + k * HOUR, k + 1]])
+    }
   })
 
   it('readSovRanksAt ranks by sov DESC, ticker ASC (the rank_delta tie-break)', async () => {

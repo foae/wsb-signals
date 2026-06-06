@@ -5,7 +5,7 @@
  */
 import type { AnalyticalFeatureInsert, MarketMoverInsert, SignalInsert } from '@wsb/shared'
 
-import { aggregateWindow, type AggregateInputs, type EmpiricalFeature, type HeatWeights } from './aggregate'
+import { aggregateWindow, hourOfWeek, type AggregateInputs, type EmpiricalFeature, type HeatWeights } from './aggregate'
 import {
   classifyQuadrant, divergence, leadLagHours, median, type SignalsConfig,
 } from './analytics'
@@ -21,6 +21,9 @@ export interface AggregateConfig {
   windowSeconds: number
   weights: HeatWeights
   minSamplesReady: number
+  /** Trailing window (seconds) the z-baseline read is bounded to — v2's deliberate divergence from the
+   *  oracle's all-time `feature_history` (porting-spec §2.7). Keeps the per-cycle read O(lookback). */
+  baselineLookbackSeconds: number
   minAuthorsFull: number
 }
 
@@ -53,7 +56,12 @@ export async function runAggregation(
 
   const priorFeatures = await readFeaturesAt(db, windowStart - cfg.windowSeconds)
   const priorSovRanks = await readSovRanksAt(db, windowStart - cfg.windowSeconds)
-  const featureHistory = await readFeatureHistory(db, windowStart)
+  // Bounded z-baseline read (porting-spec §2.7): only the same-hour-of-week rows within the trailing
+  // lookback — the exact subset aggregateWindow's baseline uses. `how` is computed by the SAME hourOfWeek
+  // the scorer applies, so the SQL pre-filter and the scorer's internal filter never disagree.
+  const featureHistory = await readFeatureHistory(
+    db, windowStart, windowStart - cfg.baselineLookbackSeconds, hourOfWeek(windowStart),
+  )
 
   const inputs: AggregateInputs = {
     windowStart,

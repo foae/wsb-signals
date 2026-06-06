@@ -14,7 +14,7 @@ import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
 
 import { windowStartFor, type AggregateInputs } from './aggregate'
 import type { WorkerConfig } from './config'
-import { buildExtractor, buildMarket, buildSource, loadConfig } from './config'
+import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig } from './config'
 import {
   acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, upsertComments,
   upsertMentions, upsertPosts, verifyPublished, type Db,
@@ -321,7 +321,7 @@ export interface StartOptions {
  * instance already holds the lock.
  */
 export async function startWorker(opts: StartOptions = {}): Promise<void> {
-  const root = opts.root ?? process.cwd()
+  const root = opts.root ?? findRoot()
   const { raw, env, worker } = loadConfig(root)
 
   const dbUrl = env.DATABASE_URL

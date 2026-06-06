@@ -45,6 +45,11 @@ z          = 0.00   # zeroed until baseline `ready`
 [baseline]
 hour_of_week_buckets = 168
 min_samples_ready    = 8     # per-(ticker, bucket) floor before z is trusted
+# v2 ONLY (deliberate divergence from the frozen oracle — porting-spec §2.7): the z-baseline read is bounded
+# to this trailing window instead of the oracle's all-time history, so a long-running worker's per-cycle
+# feature_history read stays O(lookback) not O(all-time). MUST exceed min_samples_ready weeks (each
+# hour-of-week bucket fills one sample/week) or buckets never reach `ready`. 26 weeks ≈ 6 months.
+lookback_seconds     = 15724800  # 26 weeks (26 × 604800)
 
 [market]
 # Phase 2 overlay (Alpaca free). Gated to the WSB-hot list. See sources/market-data-access.md.

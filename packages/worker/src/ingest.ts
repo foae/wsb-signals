@@ -237,6 +237,56 @@ export class ArcticShiftSource implements Source {
     return { items: inWindow, capped, ok }
   }
 
+  /**
+   * Seconds between `now` and the freshest archived item of `kind` ('comments'|'posts') — the heartbeat
+   * probe (port of arctic_shift.newest_item_lag). null if the tap errors, returns non-200, or is empty.
+   *
+   * Minor hardening vs Python: network errors (fetch throws) are ALSO caught → null, which the healthcheck
+   * treats as NO-DATA. Python only handles non-200 status; we treat a throw identically.
+   */
+  async newestItemLag(kind: string, now?: number): Promise<number | null> {
+    const params = new URLSearchParams({
+      subreddit: this.subreddit,
+      limit: '1',
+      sort: 'desc',
+    })
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(new Error(`timeout after ${this.timeoutMs}ms`)), this.timeoutMs)
+    timer.unref?.()
+    let res: Response
+    try {
+      res = await fetch(`${this.baseUrl}/${kind}/search?${params.toString()}`, {
+        method: 'GET',
+        headers: { 'User-Agent': this.userAgent },
+        signal: ac.signal,
+      })
+    } catch (e) {
+      // Network error (also timeout) — Python's newest_item_lag doesn't catch these, but treating
+      // them as null (NO-DATA) is correct: a connection failure means the tap is unreachable.
+      log.warn({ kind, err: String(e) }, `heartbeat ${kind} probe failed (network error)`)
+      clearTimeout(timer)
+      return null
+    } finally {
+      clearTimeout(timer)
+    }
+    if (res.status !== 200) {
+      log.warn({ kind, status: res.status }, `heartbeat ${kind} probe failed`)
+      return null
+    }
+    let data: RawThing[]
+    try {
+      const json = (await res.json()) as { data?: RawThing[] }
+      data = json.data ?? []
+    } catch {
+      log.warn({ kind }, `heartbeat ${kind} probe returned non-JSON body`)
+      return null
+    }
+    if (data.length === 0) return null
+    const newest = Math.max(...data.map((x) => Number(x.created_utc ?? 0)))
+    const nowSec = now ?? Math.floor(Date.now() / 1000)
+    return nowSec - newest
+  }
+
   async poll(windowSeconds: number, opts: PollOptions = {}): Promise<PollResult> {
     const now = opts.now ?? Math.floor(Date.now() / 1000)
     const sleep = opts.sleep ?? this.sleep

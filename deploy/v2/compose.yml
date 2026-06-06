@@ -1,0 +1,78 @@
+# WSB Signals v2 — interim headless deploy: db + worker (2 services, 1 image).
+# The web service (Nuxt SSR, slice 8) is not yet deployed; it will be added here when it lands.
+# The frozen Python radar is NOT deployed — it is the parity oracle only.
+#
+#   docker compose -f deploy/v2/compose.yml up -d --build
+#   docker compose -f deploy/v2/compose.yml logs -f worker
+#   docker compose -f deploy/v2/compose.yml ps
+#   docker compose -f deploy/v2/compose.yml down            # volumes (PG data + worker data dir) survive
+#   docker compose -f deploy/v2/compose.yml down -v         # WIPES all volumes (loses history)
+#
+# NETWORKING — this host is Docker-inside-Incus/LXC, where the default docker bridge has NO egress
+# (NAT through the nested netns fails), so both services use `network_mode: host` and the build uses
+# `network: host`. The worker MUST have egress (Arctic-Shift + Alpaca + heartbeat).
+# With host networking Postgres is reachable at localhost:5432, so DATABASE_URL must use localhost.
+#
+# ON A NORMAL DOCKER HOST: drop `network_mode: host` from both services and `network: host` from the
+# worker build, put both on the default bridge, and set DATABASE_URL to use the service name:
+#   DATABASE_URL=postgres://<user>:<pw>@db:5432/<dbname>
+# Then also add explicit port mappings if you want the dashboard reachable externally.
+name: wsb-signals-v2
+
+services:
+
+  # ── Postgres ──────────────────────────────────────────────────────────────
+  # Named volume persists all DB data across restarts and recreates.
+  # Only `down -v` deletes it (intentional — don't unless wiping history).
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-wsb}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-wsb_signals}
+    volumes:
+      - wsb-v2-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wsb} -d ${POSTGRES_DB:-wsb_signals}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── Worker ────────────────────────────────────────────────────────────────
+  # The SINGLE Postgres writer. Runs the 5-min poll loop; acquires an advisory lock on boot so
+  # a second instance fails fast rather than double-writing. Runs migrateToLatest on boot — no
+  # separate migration step needed. Do not scale beyond 1 replica.
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/v2/worker.Dockerfile
+      network: host          # build-time egress to npmjs.com (nested-bridge has none); harmless elsewhere
+    image: wsb-worker:latest
+    restart: unless-stopped
+    network_mode: host       # runtime egress to Arctic-Shift / Alpaca / heartbeat
+    env_file: .env           # provides DATABASE_URL, ALPACA_API_KEY, ALPACA_API_SECRET (see .env.example)
+    volumes:
+      - wsb-v2-data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+    # Heartbeat = Arctic-Shift freshness probe (same cadence as the frozen Python radar's healthcheck).
+    # Exits non-zero when the sole live tap is stale or down → container shows `unhealthy` in
+    # `docker compose ps`. See deploy/README.md §Runbook for the stale/down response playbook.
+    healthcheck:
+      test: ["CMD", "pnpm", "-C", "packages/worker", "heartbeat"]
+      interval: 10m
+      # 90s covers two sequential Arctic-Shift probes (each up to ingest.request_timeout=60s on a
+      # slow-but-alive tap) plus the pnpm/tsx spawn — a 30s timeout could kill a recoverable probe.
+      timeout: 90s
+      retries: 2
+      start_period: 3m
+
+volumes:
+  # wsb-v2-pg: Postgres data — persists across restarts/recreates; only `down -v` wipes it.
+  wsb-v2-pg:
+  # wsb-v2-data: worker data dir (/app/data — .last_poll and any shadow dumps).
+  wsb-v2-data:

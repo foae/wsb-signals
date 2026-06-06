@@ -103,8 +103,11 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 >   the frozen `aggregate_window`; `shadow-diff` asserts value+order parity (exit non-zero on DRIFT) — the
 >   cutover gate. Supersedes the "two live pollers into separate tables" framing (independent polls fetch
 >   different data ⇒ un-gateable). Semantics authoritative in porting-spec **§12**.
-> - **M5 — ship headless (slice 10, interim):** deploy **db + worker** (2 services). Web + cutover UI
->   land later with slice 8.
+> - **M5 — ship headless (slice 10, interim): DONE.** `deploy/v2/` ships **db + worker** (2 services, 1
+>   image): a Node/tsx worker image (migrates on boot, advisory lock, `heartbeat` healthcheck) + pinned
+>   Postgres. Ported the two remaining `also-port` CLIs — `build-whitelist` (`assets.ts`) and `heartbeat`
+>   (exit 0/1/2) — and bounded the z-baseline read to a trailing window (porting-spec §2.7) so a
+>   long-running worker's `feature_history` read stays O(lookback). Web + cutover UI land later with slice 8.
 >
 > **Review gate (mandatory):** at the end of each milestone (M1–M5), run a cross-model review
 > (`/second-opinion` or `/multi-llm-review`) over the work since the last gate — catch parity/
@@ -139,8 +142,8 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
    non-zero on DRIFT) — **needs no web, no second live poller, no DB-row diff**. Cut over only when no
    DRIFT holds over a sustained window. (The earlier "beside the radar into separate tables" framing is
    superseded — independent live polls fetch different data, so they can't gate exact parity.)
-10. **Deploy (interim, headless).** **db + worker** — 2 services, 1 image. Ships the pipeline without a
-    UI; the web service is added when slice 8 lands.
+10. **Deploy (interim, headless) — DONE.** **db + worker** — 2 services, 1 image (`deploy/v2/`). Ships the
+    pipeline without a UI; the web service is added when slice 8 lands.
 
 ## 5. Data flow & publication
 
@@ -153,7 +156,9 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 
 ## 6. Deployment
 
-**Interim (headless): 2 services, 1 image** — db + worker. The `web` service is added when slice 8 lands.
+**Interim (headless): 2 services, 1 image** — db + worker, in **`deploy/v2/`** (`compose.yml` +
+`worker.Dockerfile` + `entrypoint.sh` + `.env.example` + `README.md`). The `web` service is added when
+slice 8 lands.
 ```
 db      postgres:<pinned>          named volume; pg_isready healthcheck
 worker  wsb-worker (Node image)    the writer; the poll loop; runs migrations on boot; advisory lock;
