@@ -42,7 +42,14 @@ interface RawConfig {
   market: { feed: string; top_n: number; screener_top: number; weights: MarketWeights }
   signals: {
     median_lookback_seconds: number
-    lead_lag: { lookback_seconds: number; max_lag_windows: number; min_pairs: number; min_corr: number }
+    min_quadrant_population: number
+    lead_lag: {
+      enabled: boolean
+      lookback_seconds: number
+      max_lag_windows: number
+      min_pairs: number
+      min_corr: number
+    }
   }
   heartbeat: { max_staleness_seconds: number }
   storage: { data_dir: string }
@@ -110,7 +117,9 @@ export function loadConfig(root: string): LoadedConfig {
     },
     signals: {
       medianLookbackSeconds: raw.signals.median_lookback_seconds,
+      minQuadrantPopulation: raw.signals.min_quadrant_population,
       leadLag: {
+        enabled: raw.signals.lead_lag.enabled,
         lookbackSeconds: raw.signals.lead_lag.lookback_seconds,
         maxLagWindows: raw.signals.lead_lag.max_lag_windows,
         minPairs: raw.signals.lead_lag.min_pairs,

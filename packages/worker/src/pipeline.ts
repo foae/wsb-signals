@@ -10,8 +10,9 @@ import {
   classifyQuadrant, divergence, leadLagHours, median, type SignalsConfig,
 } from './analytics'
 import {
-  readAnalyticalHmAt, readFeatureHistory, readFeaturesAt, readHeRanksAt, readMentionsInWindow,
-  readOverlaidCells, readSignalSeries, readSovRanksAt, upsertEmpiricalFeatures, type Db,
+  readAnalyticalHmAt, readBoardHeCells, readFeatureHistory, readFeaturesAt, readHeRanksAt,
+  readMentionsInWindow, readOverlaidCells, readSignalSeries, readSovRanksAt, upsertEmpiricalFeatures,
+  type Db,
 } from './db'
 import { log } from './logger'
 import { computeAnalytical, type MarketData, type MarketWeights } from './market'
@@ -120,33 +121,40 @@ export async function buildSignals(
   const hmByTicker = freshAnalytical
     ? new Map(freshAnalytical.flatMap((a) => (a.hM != null ? [[a.ticker, a.hM] as const] : [])))
     : await readAnalyticalHmAt(db, windowStart)
+  const from = windowStart - cfg.medianLookbackSeconds
 
-  // Global rolling-median split: median over the trailing overlaid cells PLUS this window's overlaid cells
-  // (W isn't committed yet, so it isn't in the history read — add it so day-one has a population).
-  const history = await readOverlaidCells(db, windowStart - cfg.medianLookbackSeconds, windowStart)
-  const current: { hE: number; hM: number }[] = []
+  // Global rolling-median split, with DIFFERENT populations per axis (M3 fix): H_e over the trailing FULL
+  // board (so "WSB quiet" = genuinely low attention, not just below the hottest top-N) and H_m over the
+  // trailing OVERLAID cells (only they have market data). Both include this window's own cells — W isn't
+  // committed yet, so it isn't in the history reads. A quadrant is assigned only once the limiting
+  // (overlaid) population clears `minQuadrantPopulation`, so a 1–2-cell cold start can't make a degenerate split.
+  const boardHeHistory = await readBoardHeCells(db, from, windowStart)
+  const overlaidHistory = await readOverlaidCells(db, from, windowStart)
+  const currentOverlaidHm: number[] = []
   for (const r of rows) {
     const hm = hmByTicker.get(r.ticker)
-    if (hm != null) current.push({ hE: r.hE, hM: hm })
+    if (hm != null) currentOverlaidHm.push(hm)
   }
-  const pop = [...history, ...current]
-  const thrHe = median(pop.map((p) => p.hE))
-  const thrHm = median(pop.map((p) => p.hM))
-  const hasThresholds = thrHe != null && thrHm != null
+  const thrHe = median([...boardHeHistory, ...rows.map((r) => r.hE)])
+  const thrHm = median([...overlaidHistory.map((c) => c.hM), ...currentOverlaidHm])
+  const overlaidPopulation = overlaidHistory.length + currentOverlaidHm.length
+  const canQuadrant = thrHe != null && thrHm != null && overlaidPopulation >= cfg.minQuadrantPopulation
 
   // rank = canonical board index (rows is already sorted); rank_delta vs the prior window's H_e ranks.
   const priorRanks = await readHeRanksAt(db, windowStart - windowSeconds)
 
-  // Lead-lag: only for currently-overlaid tickers (need both axes; bounded to ≤ top-N). Read each one's
-  // trailing H_e/H_m series and append this window's point before correlating.
+  // Lead-lag (DISABLED by default — see analytics.LeadLagConfig). When on: only currently-overlaid tickers
+  // (need both axes; bounded to ≤ top-N). Read each one's trailing H_e/H_m series and append this window's point.
   const overlaid = [...hmByTicker.keys()]
-  const series = await readSignalSeries(db, overlaid, windowStart - cfg.leadLag.lookbackSeconds, windowStart)
-  const hEnow = new Map(rows.map((r) => [r.ticker, r.hE]))
   const leadLag = new Map<string, number | null>()
-  for (const t of overlaid) {
-    const pts = series.get(t) ?? []
-    pts.push({ windowStart, hE: hEnow.get(t) ?? null, hM: hmByTicker.get(t) ?? null })
-    leadLag.set(t, leadLagHours(pts, windowSeconds, cfg.leadLag))
+  if (cfg.leadLag.enabled) {
+    const series = await readSignalSeries(db, overlaid, windowStart - cfg.leadLag.lookbackSeconds, windowStart)
+    const hEnow = new Map(rows.map((r) => [r.ticker, r.hE]))
+    for (const t of overlaid) {
+      const pts = series.get(t) ?? []
+      pts.push({ windowStart, hE: hEnow.get(t) ?? null, hM: hmByTicker.get(t) ?? null })
+      leadLag.set(t, leadLagHours(pts, windowSeconds, cfg.leadLag))
+    }
   }
 
   return rows.map((r, i) => {
@@ -158,7 +166,7 @@ export async function buildSignals(
       hE: r.hE,
       hM,
       divergence: hM != null ? divergence(r.hE, hM) : null,
-      quadrant: hM != null && hasThresholds ? classifyQuadrant(r.hE, hM, thrHe, thrHm) : null,
+      quadrant: hM != null && canQuadrant ? classifyQuadrant(r.hE, hM, thrHe, thrHm) : null,
       rank: i + 1,
       rankDelta: prior != null ? prior - (i + 1) : null,
       leadLagHrs: hM != null ? (leadLag.get(r.ticker) ?? null) : null,

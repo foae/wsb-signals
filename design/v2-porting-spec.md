@@ -295,30 +295,52 @@ Code: `analytics.ts` (pure), `pipeline.buildSignals` (orchestration), `db.ts` re
   committed `analytical_features` at W (read back), so signals always reflect the H_m the window carries.
 - **`divergence = H_e − H_m`** (signed; null when no H_m). +ve = chatter ahead of market (HYPE side);
   −ve = market ahead of chatter (STEALTH side).
-- **Quadrant = GLOBAL rolling median split** (the chosen reading of §6.1's "split at each one's rolling
-  median"). One `H_e` threshold and one `H_m` threshold per cycle = the **median over the trailing
-  `signals.median_lookback_seconds` of *overlaid* cells** (cells with both signals) **plus this window's
-  overlaid cells** (W isn't committed yet, so it's added in-memory → day-one has a population). **"Hot" =
-  STRICTLY above** the threshold (a value on the median is the quiet side). CONFIRMED = hot/hot,
-  HYPE = hot/quiet, STEALTH = quiet/hot, QUIET = quiet/quiet. Rolling (recomputed each cycle), not
-  cross-sectional-per-window and not per-ticker — decided to match the literal "rolling median" and avoid
-  a per-ticker cold-start. Null when the population is empty.
+- **Quadrant = GLOBAL rolling median split**, with **per-axis populations** (the M3-review correction).
+  Recomputed each cycle: the **`H_e` threshold** = median over the trailing `median_lookback_seconds` of
+  the **FULL board's** cells **+ this window's board** — so "WSB quiet" means *genuinely low attention*
+  and a top-N-hot ticker is never mislabelled STEALTH; the **`H_m` threshold** = median over the trailing
+  **overlaid** cells (only they have market data) **+ this window's overlaid cells** (W isn't committed
+  yet, so the current cells are added in-memory). **"Hot" = STRICTLY above** the threshold. CONFIRMED =
+  hot/hot, HYPE = hot/quiet, STEALTH = quiet/hot, QUIET = quiet/quiet. Rolling (not cross-sectional-per-
+  window, not per-ticker — matches the literal "rolling median" and avoids a per-ticker cold-start). A
+  quadrant is assigned only once the limiting (**overlaid**) population ≥ `min_quadrant_population` (else
+  null) so a 1–2-cell cold start can't produce a degenerate / flip-flopping split.
+  > **Earlier draft (superseded):** both thresholds over the *overlaid* population. The M3 review (gemini/
+  > codex/qwen/deepseek) showed that splitting H_e over the top-N-gated set mislabels genuinely-hot tickers
+  > as STEALTH (median of "the hottest" ⇒ half the hottest are "quiet"). Fixed to the full-board H_e
+  > population above. On-board STEALTH is now correctly *rare* — true STEALTH needs the deferred screener path.
 - **`rank` / `rank_delta`.** `rank` = 1-based position in the canonical **H_e** board order
   (`compareBoard` — the same total order `aggregateWindow` sorts on, reused via `db.readHeRanksAt` so the
   persisted ranks can't drift from the live board). `rank_delta = priorRank − curRank` (+ve = climbing);
   **null** when the ticker had no prior-window rank (NOT 0 — same "don't fake a delta" stance as
   velocity/accel, §2.3). This is the **H_e** leaderboard rank, distinct from the SoV `rank_delta` that
   feeds H_e inside `aggregate.py`.
-- **Lead-lag (`lead_lag_hrs`).** Per overlaid ticker, correlate its `H_e(t)` and `H_m(t)` series over the
-  trailing `lead_lag.lookback_seconds` on a **regular window grid** (gaps = absent indices). For each
-  integer lag k ∈ [−`max_lag_windows`, +`max_lag_windows`], Pearson-correlate `H_e[t]` with `H_m[t+k]`
-  over the overlapping pairs; the lag with the **highest** correlation is the lead-lag, **k>0 ⇒ WSB
-  attention LEADS market action** by k windows → `k·window_seconds/3600` hours. Ties prefer smaller |lag|.
-  **Null** unless some lag has ≥ `min_pairs` overlapping pairs AND peak correlation ≥ `min_corr` (never
-  claim a lag from noise — the §6.2 causality caveat: report association, not prediction). Bounded to the
-  currently-overlaid tickers (≤ top-N) so the series reads stay small.
+- **Lead-lag (`lead_lag_hrs`) — DISABLED by default (`lead_lag.enabled = false`).** Per overlaid ticker,
+  correlate its `H_e(t)` and `H_m(t)` series over the trailing `lead_lag.lookback_seconds` on a **regular
+  window grid** (gaps = absent indices). For each integer lag k ∈ [−`max_lag_windows`, +`max_lag_windows`],
+  Pearson-correlate `H_e[t]` with `H_m[t+k]`; the lag with the **highest** correlation is the lead-lag,
+  **k>0 ⇒ WSB attention LEADS market action** → `k·window_seconds/3600` hours. **Null** unless some lag has
+  ≥ `min_pairs` overlapping pairs AND peak correlation ≥ a **sample-size-scaled bar** `max(min_corr,
+  2/√pairs)` (≈ p<0.05 — small early samples need a much higher r, partly offsetting the multi-lag search).
+  - **Why off by default (M3 review, UNANIMOUS HIGH):** `H_m` is **day-to-date, not window-aligned**
+    (`ret`/`rvol` share the day's denominator — §5, architecture §5). So intraday `H_m(t)` is a near-daily
+    accumulation ramp, and an *hourly* cross-correlation against it measures that ramp, not a genuine
+    lead-lag — a category error tuning can't fix. Both series are also **within-window max-normalized**
+    (non-stationary), and `H_m` exists only where the ticker was top-N-gated (**selection on the very
+    signal being correlated**). The code + guards are kept (and tested) so the path is ready, but it
+    **persists null** until `H_m` is window-aligned (intraday bars land). Enabling it on day-to-date `H_m`
+    would publish a misleading "WSB leads by Xh" — exactly what "badge, don't predict" (§6.2) forbids.
 - **Out of scope (deferred):** screener-movers ∖ WSB-hot **STEALTH discovery** (tickers with no H_e, so
   not (ticker, H_e, H_m) rows) — the inputs stay captured in `market_movers`; surfacing them is a later
-  query/web concern. The on-board low-H_e/high-H_m **STEALTH quadrant** IS computed here.
-- **Config** (`config.toml [signals]`): `median_lookback_seconds`; `[signals.lead_lag]`
-  `lookback_seconds`, `max_lag_windows`, `min_pairs`, `min_corr`. Tunables, not on any parity path.
+  query/web concern.
+- **Acknowledged (not changed):** `signals.h_m`/`divergence` are the **publish-time** H_m, written in the
+  **same atomic transaction** as `analytical_features` so the two are consistent in any committed state
+  (cycle-level staleness is surfaced via `cycle_runs.newest_utc`/`generated_at`, §6/§7, not per signals
+  row). `signals` uses a **plain upsert** (no delete-then-insert) — sound for live operation because the
+  board is monotonic within a window (mentions only accumulate); an admin re-run *after deleting* mentions
+  could leave stale rows, same as `empirical_features` (clear the window manually for such corrections).
+- **Persistence:** `signals_window_start_idx` on `window_start` (the web reads the latest-window board;
+  the `(ticker, window_start)` PK can't serve that) — mirrors the empirical/analytical window indexes.
+- **Config** (`config.toml [signals]`): `median_lookback_seconds`, `min_quadrant_population`;
+  `[signals.lead_lag]` `enabled`, `lookback_seconds`, `max_lag_windows`, `min_pairs`, `min_corr`. Tunables,
+  not on any parity path.

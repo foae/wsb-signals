@@ -60,15 +60,22 @@ iv   = 0.0
 
 [signals]
 # Attention × Action product (signal-framework §6) — divergence / quadrants / lead-lag (v0.0.2).
-# Quadrant split = GLOBAL rolling median of H_e and H_m over the trailing overlaid cells (cells that have
-# BOTH signals), recomputed each cycle. "Hot" = strictly above the median.
+# Quadrant split = GLOBAL rolling median, recomputed each cycle: the H_e threshold is the median over the
+# trailing FULL board (so "WSB quiet" means genuinely low attention — a top-N ticker isn't mislabelled
+# STEALTH), the H_m threshold the median over trailing OVERLAID cells (only those have market data).
+# "Hot" = strictly above the median.
 median_lookback_seconds = 604800   # 7d trailing window for the rolling-median quadrant split
+min_quadrant_population = 5         # need ≥ this many overlaid cells before assigning a quadrant (else null)
 
 [signals.lead_lag]     # cross-correlation of H_e(t) vs H_m(t); k>0 ⇒ WSB attention leads market action
+# DISABLED by default: H_m is day-to-date (not window-aligned), so an hourly cross-correlation measures the
+# daily accumulation ramp, not a real lead-lag (M3 review, unanimous). Flip on only once H_m is
+# window-aligned (intraday bars). The guards below apply when enabled. (porting-spec §11)
+enabled          = false
 lookback_seconds = 604800   # 7d of per-ticker H_e/H_m history to correlate
 max_lag_windows  = 6        # search ±6 windows (±6h at the 1h cadence)
-min_pairs        = 6        # min overlapping (H_e,H_m) point-pairs required at a lag
-min_corr         = 0.3      # min peak correlation to report a lead-lag (else null — never claim from noise)
+min_pairs        = 10       # min overlapping (H_e,H_m) point-pairs required at a lag
+min_corr         = 0.5      # FLOOR; the effective bar is max(min_corr, ~2/√pairs) — small samples need more
 
 [heartbeat]
 max_staleness_seconds = 1800  # alarm if newest Arctic-Shift item older than this (Phase 0.5)

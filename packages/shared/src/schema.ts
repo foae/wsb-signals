@@ -127,7 +127,12 @@ export const signals = pgTable('signals', {
   rank: integer('rank'),
   rankDelta: integer('rank_delta'),
   leadLagHrs: doublePrecision('lead_lag_hrs'),
-}, (t) => [primaryKey({ columns: [t.ticker, t.windowStart] })])
+}, (t) => [
+  primaryKey({ columns: [t.ticker, t.windowStart] }),
+  // The web reads signals by window_start (the latest-window board); the composite PK can't serve that,
+  // so mirror the empirical/analytical window indexes (M3 review).
+  index('signals_window_start_idx').on(t.windowStart),
+])
 
 export const baselines = pgTable('baselines', {
   ticker: text('ticker').notNull(),

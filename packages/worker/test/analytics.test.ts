@@ -53,13 +53,18 @@ describe('pearson', () => {
     expect(pearson([5], [5])).toBeNull()
     expect(pearson([1, 2], [1])).toBeNull() // length mismatch
   })
+  it('null for a NEAR-constant series (epsilon guard — no NaN from float-noise variance)', () => {
+    expect(pearson([1, 2, 3], [1, 1 + 1e-15, 1 - 1e-15])).toBeNull()
+  })
 })
 
 describe('leadLagHours', () => {
   const PI = [3, 1, 4, 1, 5, 9, 2, 6, 5, 3, 5, 8, 9, 7, 9, 3] // distinctive, low self-correlation off lag 0
   const W = 3600
   const BASE = 1_700_000_000
-  const cfg: LeadLagConfig = { lookbackSeconds: 7 * 24 * 3600, maxLagWindows: 6, minPairs: 4, minCorr: 0.3 }
+  const cfg: LeadLagConfig = {
+    enabled: true, lookbackSeconds: 7 * 24 * 3600, maxLagWindows: 6, minPairs: 4, minCorr: 0.3,
+  }
 
   /** Build a series where H_m(t) = H_e(t − shift): H_e leads H_m by `shift` windows (shift>0 ⇒ WSB leads). */
   const shifted = (shift: number): SeriesPoint[] =>
@@ -91,6 +96,14 @@ describe('leadLagHours', () => {
   })
   it('null when the peak correlation does not clear minCorr', () => {
     expect(leadLagHours(shifted(2), W, { ...cfg, minCorr: 1.1 })).toBeNull() // unreachable threshold
+  })
+  it('null when an underpowered sample fails the sample-size-scaled floor (max(minCorr, 2/√pairs))', () => {
+    // 6 windows, H_m=H_e at lag 0 only (other lags have <6 pairs → skipped by minPairs=6). r≈0.46 at lag 0
+    // — above minCorr 0.3 but BELOW the small-sample floor 2/√6≈0.82, so it must NOT be reported.
+    const e = [0, 1, 2, 3, 4, 5]
+    const m = [3, 1, 4, 5, 2, 5]
+    const s: SeriesPoint[] = e.map((hE, k) => ({ windowStart: BASE + k * W, hE, hM: m[k]! }))
+    expect(leadLagHours(s, W, { ...cfg, minPairs: 6, minCorr: 0.3 })).toBeNull()
   })
   it('handles gaps (missing windows) on the regular grid', () => {
     const withGap = shifted(2).filter((p) => (p.windowStart - BASE) / W !== 5) // drop window index 5

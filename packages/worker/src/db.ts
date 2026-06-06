@@ -288,8 +288,18 @@ export async function readHeRanksAt(db: Db, windowStart: number): Promise<Record
   return out
 }
 
-/** Overlaid cells (those with BOTH H_e and H_m) in `[from, before)` — the population for the global
- *  rolling-median quadrant split. Inner-joins empirical⋈analytical on (ticker, window_start). */
+/** Every board cell's H_e in `[from, before)` — the population for the quadrant's **H_e** rolling-median
+ *  threshold. Over the FULL board (not just the top-N overlaid set) so "WSB quiet" means genuinely low
+ *  attention and a top-N ticker is never mislabelled STEALTH (M3 review — porting-spec §11). Bounded by
+ *  the lookback; lighter than the existing `readFeatureHistory` (which is unbounded). */
+export async function readBoardHeCells(db: Db, from: number, before: number): Promise<number[]> {
+  const rows = await db.select({ hE: empiricalFeatures.hE }).from(empiricalFeatures)
+    .where(and(gte(empiricalFeatures.windowStart, from), lt(empiricalFeatures.windowStart, before)))
+  return rows.flatMap((r) => (r.hE != null ? [r.hE] : []))
+}
+
+/** Overlaid cells (those with BOTH H_e and H_m) in `[from, before)` — the population for the quadrant's
+ *  **H_m** rolling-median threshold. Inner-joins empirical⋈analytical on (ticker, window_start). */
 export async function readOverlaidCells(db: Db, from: number, before: number): Promise<{ hE: number; hM: number }[]> {
   const rows = await db.select({ hE: empiricalFeatures.hE, hM: analyticalFeatures.hM })
     .from(analyticalFeatures)

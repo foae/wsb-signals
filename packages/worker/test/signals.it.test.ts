@@ -19,7 +19,8 @@ const W = 1_704_070_800
 const WS = 3600
 const cfg: SignalsConfig = {
   medianLookbackSeconds: 7 * 24 * 3600,
-  leadLag: { lookbackSeconds: 7 * 24 * 3600, maxLagWindows: 6, minPairs: 6, minCorr: 0.3 },
+  minQuadrantPopulation: 2, // low so the small seeded worlds still get quadrants
+  leadLag: { enabled: false, lookbackSeconds: 7 * 24 * 3600, maxLagWindows: 6, minPairs: 6, minCorr: 0.3 },
 }
 
 /** A minimal EmpiricalFeature (the in-memory current board buildSignals consumes; rows must be sorted). */
@@ -75,7 +76,7 @@ describe('buildSignals — divergence / quadrant / rank', () => {
     expect(by.get('D')!.rankDelta).toBeNull() // no prior rank
     expect(by.get('E')!.rankDelta).toBeNull()
 
-    // lead-lag is null here (no overlaid history) — proven non-null in the next test
+    // lead-lag is disabled by default → null for all (proven non-null with enabled:true in the next test)
     expect(out.every((s) => s.leadLagHrs === null)).toBe(true)
 
     // persists atomically through publishCycle
@@ -97,6 +98,17 @@ describe('buildSignals — divergence / quadrant / rank', () => {
     expect(by.get('A')!.hM).toBeCloseTo(0.9, 12) // came from the preserved DB overlay
     expect(by.get('A')!.divergence).toBeCloseTo(0.0, 12)
     expect(by.get('B')!.hM).toBeCloseTo(0.1, 12)
+    // quadrant is classified from the preserved H_m too (thrHe=med[.9,.2]=.55, thrHm=med[.9,.1]=.5)
+    expect(by.get('A')!.quadrant).toBe('CONFIRMED') // .9>.55, .9>.5
+    expect(by.get('B')!.quadrant).toBe('QUIET') //     .2<.55, .1<.5
+
+    // and it persists atomically
+    await publishCycle(pg.db, {
+      meta: { windowStart: W, generatedAt: W + 1, totalMentions: 2, quiet: false, capped: false, newestUtc: W },
+      features: rows, signals: out,
+    })
+    const stored = await pg.db.select().from(signalsTable).where(eq(signalsTable.windowStart, W))
+    expect(stored.find((s) => s.ticker === 'A')!.quadrant).toBe('CONFIRMED')
   })
 })
 
@@ -117,9 +129,14 @@ describe('buildSignals — lead-lag end-to-end', () => {
     // current window: keep the lag-2 alignment exact — H_m(now) must equal H_e two windows back (PI[14]).
     const rows = [ef('LAG', 3)]
     const fresh = [ana('LAG', PI[14]!)]
-    const out = await buildSignals(pg.db, W, WS, cfg, rows, fresh)
+    const enabled: SignalsConfig = { ...cfg, leadLag: { ...cfg.leadLag, enabled: true } }
+    const out = await buildSignals(pg.db, W, WS, enabled, rows, fresh)
 
     expect(out).toHaveLength(1)
     expect(out[0]!.leadLagHrs).toBeCloseTo(2, 12) // WSB attention leads market action by ~2h
+
+    // and with lead-lag DISABLED (the default), the very same world yields null
+    const off = await buildSignals(pg.db, W, WS, cfg, rows, fresh)
+    expect(off[0]!.leadLagHrs).toBeNull()
   })
 })

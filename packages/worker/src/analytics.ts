@@ -24,21 +24,36 @@
 export type Quadrant = 'CONFIRMED' | 'HYPE' | 'STEALTH' | 'QUIET'
 
 export interface LeadLagConfig {
+  /**
+   * Lead-lag is DISABLED by default (persists null). It correlates H_e(t) — a true per-window signal —
+   * against H_m(t), which is **day-to-date, NOT window-aligned** (`analytical.compute_analytical`:
+   * ret/rvol share the day's denominator). Intraday H_m is therefore a near-daily accumulation ramp, so
+   * an hourly cross-correlation measures that ramp, not a real lead-lag (all four M3 reviewers, unanimous
+   * HIGH — see porting-spec §11). Flip on only once H_m is window-aligned (intraday bars land — the
+   * architecture §5 caveat). The math below still applies the small-sample guard for when it IS enabled.
+   */
+  enabled: boolean
   /** Trailing span (seconds) of H_e(t)/H_m(t) history to correlate. */
   lookbackSeconds: number
   /** Search lags in [-maxLagWindows, +maxLagWindows] windows. */
   maxLagWindows: number
   /** Minimum overlapping (H_e, H_m) point-pairs required at a lag for it to be considered. */
   minPairs: number
-  /** Minimum peak correlation to report a lead-lag at all (else null — don't claim a lag from noise). */
+  /** Minimum-correlation FLOOR (the effective bar is `max(minCorr, ~2/√pairs)` — see leadLagHours). */
   minCorr: number
 }
 
 export interface SignalsConfig {
-  /** Trailing span (seconds) of overlaid cells feeding the global rolling-median quadrant split. */
+  /** Trailing span (seconds) of cells feeding the global rolling-median quadrant split. */
   medianLookbackSeconds: number
+  /** Minimum population on the limiting (overlaid) axis before a quadrant is assigned (else null) — keeps
+   *  a 1–2-cell cold-start population from producing degenerate / flip-flopping quadrants. */
+  minQuadrantPopulation: number
   leadLag: LeadLagConfig
 }
+
+/** ≈ the |r| significant at p<0.05 two-sided is ~2/√n for moderate n; used as a sample-size-scaled floor. */
+const SIG_Z = 2
 
 /** A per-window point on one ticker's series; `hE`/`hM` are null for windows where the ticker was
  *  absent from the board / not overlaid (a gap on that axis). */
@@ -95,17 +110,26 @@ export function pearson(xs: readonly number[], ys: readonly number[]): number | 
     syy += dy * dy
     sxy += dx * dy
   }
-  if (sxx <= 0 || syy <= 0) return null // a constant series has undefined correlation
+  if (sxx <= PEARSON_EPS || syy <= PEARSON_EPS) return null // (near-)constant series → no correlation
   return sxy / Math.sqrt(sxx * syy)
 }
+
+/** Treat a near-zero sum-of-squares as constant — guards a float-noise denominator underflowing to NaN. */
+const PEARSON_EPS = 1e-12
 
 /**
  * Lead-lag in HOURS (signal-framework §6.2). Places the series on a regular window grid (so gaps are
  * handled — a missing window is simply an absent index), then for each integer lag k in
  * [-maxLagWindows, +maxLagWindows] correlates H_e(t) with H_m(t+k). The lag with the highest correlation
  * is the lead-lag: **k>0 ⇒ H_e (WSB attention) leads H_m (market) by k windows**. Ties prefer the
- * smaller |lag| (the more conservative claim). Returns `k·windowSeconds/3600`, or null when no lag has
- * ≥ `minPairs` overlapping pairs with correlation ≥ `minCorr`.
+ * smaller |lag| (the more conservative claim). Returns `k·windowSeconds/3600`, or null.
+ *
+ * Two guards keep this from reporting noise (M3 review, unanimous HIGH — porting-spec §11): a lag needs
+ * ≥ `minPairs` overlapping pairs, AND the peak correlation must clear a **sample-size-scaled bar**
+ * `max(minCorr, SIG_Z/√pairs)` — so with few overlapping points (the radar is days old) a much higher r
+ * is required, roughly the p<0.05 significance level, partly offsetting the 13-lag multiple-comparison
+ * search. NOTE this is necessary but NOT sufficient: it does NOT fix the day-to-date-vs-window-aligned
+ * H_m mismatch (that's why lead-lag is disabled by default; see `LeadLagConfig.enabled`).
  */
 export function leadLagHours(
   series: readonly SeriesPoint[],
@@ -125,6 +149,7 @@ export function leadLagHours(
 
   let bestCorr = Number.NEGATIVE_INFINITY
   let bestLag: number | null = null
+  let bestPairs = 0
   for (let lag = -cfg.maxLagWindows; lag <= cfg.maxLagWindows; lag++) {
     const xs: number[] = []
     const ys: number[] = []
@@ -141,8 +166,11 @@ export function leadLagHours(
     if (c > bestCorr || (c === bestCorr && bestLag != null && Math.abs(lag) < Math.abs(bestLag))) {
       bestCorr = c
       bestLag = lag
+      bestPairs = xs.length
     }
   }
-  if (bestLag == null || bestCorr < cfg.minCorr) return null
+  if (bestLag == null) return null
+  const bar = Math.max(cfg.minCorr, SIG_Z / Math.sqrt(bestPairs)) // sample-size-scaled significance floor
+  if (bestCorr < bar) return null
   return (bestLag * windowSeconds) / 3600
 }
