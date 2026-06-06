@@ -9,7 +9,7 @@
  *    transaction, so a reader sees a whole cycle or none (the shadow-diff / future web read the latest
  *    complete window). This replaces the v0.0.1 DuckDB-lock + JSON-snapshot workaround entirely.
  */
-import { and, asc, desc, eq, getTableColumns, gte, lt, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, getTableColumns, gte, inArray, lt, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import type { PgTable } from 'drizzle-orm/pg-core'
@@ -17,13 +17,14 @@ import { Pool, type PoolClient } from 'pg'
 
 import {
   analyticalFeatures, cycleRuns, empiricalFeatures, marketMovers, mentions, rawComments, rawPosts,
-  tickerNames,
+  signals, tickerNames,
   type AnalyticalFeatureInsert, type MarketMoverInsert, type MentionInsert, type RawCommentInsert,
-  type RawPostInsert, type TickerNameInsert,
+  type RawPostInsert, type SignalInsert, type TickerNameInsert,
 } from '@wsb/shared'
 import { migrationsFolder } from '@wsb/shared/migrations'
 
-import type { EmpiricalFeature, HistoryRow, MentionRow, PriorFeatures } from './aggregate'
+import { compareBoard, type EmpiricalFeature, type HistoryRow, type MentionRow, type PriorFeatures } from './aggregate'
+import type { SeriesPoint } from './analytics'
 
 export type Db = NodePgDatabase
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
@@ -138,6 +139,20 @@ export async function upsertTickerNames(ex: Executor, rows: readonly TickerNameI
   }
 }
 
+const SIGNALS_UPDATE = ['hE', 'hM', 'divergence', 'quadrant', 'rank', 'rankDelta', 'leadLagHrs'] as const
+
+/** Per-(ticker, window) Attention×Action signals (slice 7). Plain upsert — like `empirical_features`,
+ *  the grain is the board ticker and the within-window board is monotonic (mentions only accumulate), so
+ *  there is no shrunk-set staleness to delete-then-insert around (unlike the top-N-gated analytical set). */
+export async function upsertSignals(ex: Executor, rows: readonly SignalInsert[]): Promise<void> {
+  for (const chunk of chunkForCols(rows, 9)) {
+    await ex.insert(signals).values(chunk).onConflictDoUpdate({
+      target: [signals.ticker, signals.windowStart],
+      set: excludedSet(signals, SIGNALS_UPDATE),
+    })
+  }
+}
+
 // --- atomic per-cycle publish ----------------------------------------------------------------------
 
 export interface CycleMeta {
@@ -154,6 +169,7 @@ export interface CyclePayload {
   features: readonly EmpiricalFeature[]
   analytical?: readonly AnalyticalFeatureInsert[] // slice 5
   movers?: readonly MarketMoverInsert[] // slice 5
+  signals?: readonly SignalInsert[] // slice 7 — divergence / quadrant / lead-lag
 }
 
 /**
@@ -173,6 +189,9 @@ export async function publishCycle(db: Db, payload: CyclePayload): Promise<void>
       if (payload.analytical.length) await upsertAnalyticalFeatures(tx, payload.analytical)
     }
     if (payload.movers?.length) await upsertMovers(tx, payload.movers)
+    // Signals share the empirical grain (one row per board ticker for THIS window_start) — a plain upsert
+    // in the same atomic transaction, so a reader sees the window's features + signals together or not at all.
+    if (payload.signals?.length) await upsertSignals(tx, payload.signals)
     await tx.insert(cycleRuns).values({
       windowStart: meta.windowStart,
       generatedAt: meta.generatedAt,
@@ -247,6 +266,85 @@ export async function readSovRanksAt(db: Db, windowStart: number): Promise<Recor
     .orderBy(desc(empiricalFeatures.sov), sql`${empiricalFeatures.ticker} collate "C"`)
   const out: Record<string, number> = {}
   rows.forEach((r, i) => { out[r.ticker] = i + 1 })
+  return out
+}
+
+// --- signals reads (slice 7 — the Attention×Action product; NEW, no oracle) -----------------------
+
+/** H_e leaderboard ranks at a window (1 = top), ordered by the canonical board total order — the basis
+ *  for `signals.rank_delta`. Sorts in memory with `compareBoard` so the persisted ranks match the live
+ *  board ordering exactly (one definition of the order, no SQL/in-memory drift). */
+export async function readHeRanksAt(db: Db, windowStart: number): Promise<Record<string, number>> {
+  const rows = await db.select({
+    ticker: empiricalFeatures.ticker, hE: empiricalFeatures.hE, sov: empiricalFeatures.sov,
+    authors: empiricalFeatures.authors, mentions: empiricalFeatures.mentions,
+  }).from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, windowStart))
+  const sorted = [...rows].sort((a, b) => compareBoard(
+    { hE: a.hE ?? 0, sov: a.sov ?? 0, authors: a.authors ?? 0, mentions: a.mentions ?? 0, ticker: a.ticker },
+    { hE: b.hE ?? 0, sov: b.sov ?? 0, authors: b.authors ?? 0, mentions: b.mentions ?? 0, ticker: b.ticker },
+  ))
+  const out: Record<string, number> = {}
+  sorted.forEach((r, i) => { out[r.ticker] = i + 1 })
+  return out
+}
+
+/** Overlaid cells (those with BOTH H_e and H_m) in `[from, before)` — the population for the global
+ *  rolling-median quadrant split. Inner-joins empirical⋈analytical on (ticker, window_start). */
+export async function readOverlaidCells(db: Db, from: number, before: number): Promise<{ hE: number; hM: number }[]> {
+  const rows = await db.select({ hE: empiricalFeatures.hE, hM: analyticalFeatures.hM })
+    .from(analyticalFeatures)
+    .innerJoin(empiricalFeatures, and(
+      eq(analyticalFeatures.ticker, empiricalFeatures.ticker),
+      eq(analyticalFeatures.windowStart, empiricalFeatures.windowStart),
+    ))
+    .where(and(gte(analyticalFeatures.windowStart, from), lt(analyticalFeatures.windowStart, before)))
+  return rows.flatMap((r) => (r.hE != null && r.hM != null ? [{ hE: r.hE, hM: r.hM }] : []))
+}
+
+/** H_m by ticker at one window — the EFFECTIVE/preserved overlay (used when this cycle's market fetch
+ *  failed and `publishCycle` is keeping the prior overlay, so signals still reflect the live H_m). */
+export async function readAnalyticalHmAt(db: Db, windowStart: number): Promise<Map<string, number>> {
+  const rows = await db.select({ ticker: analyticalFeatures.ticker, hM: analyticalFeatures.hM })
+    .from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, windowStart))
+  const out = new Map<string, number>()
+  for (const r of rows) if (r.hM != null) out.set(r.ticker, r.hM)
+  return out
+}
+
+/** Per-ticker H_e(t)+H_m(t) series in `[from, before)` for the given tickers — the lead-lag input.
+ *  H_e comes from `empirical_features` (the ticker's whole board history), H_m from `analytical_features`
+ *  (its overlaid history); they're merged by window_start so each point carries whichever axes exist. */
+export async function readSignalSeries(
+  db: Db, tickers: readonly string[], from: number, before: number,
+): Promise<Map<string, SeriesPoint[]>> {
+  if (tickers.length === 0) return new Map()
+  const tset = [...new Set(tickers)]
+  const emp = await db.select({
+    ticker: empiricalFeatures.ticker, ws: empiricalFeatures.windowStart, hE: empiricalFeatures.hE,
+  }).from(empiricalFeatures).where(and(
+    inArray(empiricalFeatures.ticker, tset),
+    gte(empiricalFeatures.windowStart, from), lt(empiricalFeatures.windowStart, before),
+  ))
+  const ana = await db.select({
+    ticker: analyticalFeatures.ticker, ws: analyticalFeatures.windowStart, hM: analyticalFeatures.hM,
+  }).from(analyticalFeatures).where(and(
+    inArray(analyticalFeatures.ticker, tset),
+    gte(analyticalFeatures.windowStart, from), lt(analyticalFeatures.windowStart, before),
+  ))
+
+  const byTicker = new Map<string, Map<number, SeriesPoint>>()
+  const point = (t: string, ws: number): SeriesPoint => {
+    let m = byTicker.get(t)
+    if (!m) { m = new Map(); byTicker.set(t, m) }
+    let p = m.get(ws)
+    if (!p) { p = { windowStart: ws, hE: null, hM: null }; m.set(ws, p) }
+    return p
+  }
+  for (const r of emp) point(r.ticker, r.ws).hE = r.hE
+  for (const r of ana) point(r.ticker, r.ws).hM = r.hM
+
+  const out = new Map<string, SeriesPoint[]>()
+  for (const [t, m] of byTicker) out.set(t, [...m.values()])
   return out
 }
 

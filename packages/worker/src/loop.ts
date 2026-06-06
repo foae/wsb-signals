@@ -24,7 +24,7 @@ import type { Source } from './ingest'
 import { log } from './logger'
 import type { MarketData } from './market'
 import { mentionsFromPoll } from './mentions'
-import { overlayMarket, runAggregation } from './pipeline'
+import { buildSignals, overlayMarket, runAggregation } from './pipeline'
 
 /** Stable 64-bit advisory-lock key ('wSBS') — the double-run guard. */
 const WORKER_LOCK_KEY = 0x7753_4253
@@ -100,6 +100,11 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
     }
   }
 
+  // Attention×Action signals (slice 7): divergence / quadrant / lead-lag from the board + the effective
+  // H_m (fresh overlay, or the preserved prior when `analytical` is undefined). Computed before the publish
+  // so it lands in the SAME atomic transaction.
+  const signals = await buildSignals(db, ws, config.windowSeconds, config.signals, rows, analytical)
+
   const totalMentions = rows.reduce((s, r) => s + r.mentions, 0)
   await publishCycle(db, {
     meta: {
@@ -113,6 +118,7 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
     features: rows,
     analytical,
     movers,
+    signals,
   })
 
   const lag = poll.newestUtc != null ? now - poll.newestUtc : null

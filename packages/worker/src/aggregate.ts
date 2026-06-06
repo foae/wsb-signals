@@ -280,11 +280,20 @@ export function aggregateWindow(inp: AggregateInputs): EmpiricalFeature[] {
   // to 1e-9 (porting-spec §2.6, original) DISCARDS that real signal and inverts such pairs vs the oracle —
   // the random/010 fixture proved it. Near-tie robustness belongs in the slice-9 shadow-diff tolerance,
   // not in the production sort. (Spec §2.6 corrected to match.)
-  out.sort(
-    (a, b) =>
-      b.hE - a.hE || b.sov - a.sov || b.authors - a.authors || b.mentions - a.mentions || cmpStr(a.ticker, b.ticker),
-  )
+  out.sort(compareBoard)
   return out
+}
+
+/** A row carrying the canonical-sort keys — the structural shape `compareBoard` orders on. */
+export type BoardRow = Pick<EmpiricalFeature, 'hE' | 'sov' | 'authors' | 'mentions' | 'ticker'>
+
+/**
+ * The canonical leaderboard total order — `h_e→sov→authors→mentions→ticker`, on RAW floats (see the
+ * call-site note above). Exported so the rank/rank_delta reads (db.readHeRanksAt) order identically to
+ * `aggregateWindow`'s board — one definition, no drift between the live board and the persisted ranks.
+ */
+export function compareBoard(a: BoardRow, b: BoardRow): number {
+  return b.hE - a.hE || b.sov - a.sov || b.authors - a.authors || b.mentions - a.mentions || cmpStr(a.ticker, b.ticker)
 }
 
 /** Ascending string compare matching Python's `<` on str (code-point order for the ASCII tickers here). */

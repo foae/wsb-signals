@@ -95,7 +95,9 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 >   oracle-gated, round-tripped on testcontainers. The empirical path is computable **and** persistable.
 > - **M2 — live + automated (slices 4–6):** Arctic-Shift ingest, Alpaca `H_m` overlay, the 5-min loop
 >   with atomic per-cycle publish, SIGTERM, advisory lock. The worker runs unattended.
-> - **M3 — new signals (slice 7):** divergence / quadrants / lead-lag computed + persisted.
+> - **M3 — new signals (slice 7): DONE.** divergence / quadrants / lead-lag computed + persisted to
+>   `signals` each cycle (atomic publish). NEW code, no oracle — gated by its own unit + integration tests
+>   (see porting-spec §11 for the fixed semantics).
 > - **M4 — live parity (slice 9):** TS worker shadowing the Python radar into separate tables, diffed
 >   cycle-by-cycle on live data.
 > - **M5 — ship headless (slice 10, interim):** deploy **db + worker** (2 services). Web + cutover UI
@@ -119,7 +121,11 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 5. **Market client + `H_m`.** Port Alpaca snapshots/screeners + `compute_analytical` (porting-spec §5).
 6. **Worker loop.** Assemble the cycle (poll→…→publish), lifecycle (SIGTERM, advisory lock, throttle,
    W−1-before-W) (porting-spec §7).
-7. **Analytics (new).** divergence / quadrants / lead-lag from the stored series — fresh TS, no port.
+7. **Analytics (new) — DONE.** divergence / quadrants / lead-lag from the stored series — fresh TS, no
+   port (the frozen radar never populated `signals`). Semantics fixed in porting-spec §11: divergence =
+   `H_e − H_m`; quadrant split = **global rolling median** of H_e/H_m over the trailing overlaid cells
+   (strictly-above = hot); lead-lag = argmax normalized cross-correlation (k>0 ⇒ WSB leads). Screener-
+   movers ∖ WSB-hot STEALTH discovery deferred (stays captured in `market_movers`).
 8. **Web — DEFERRED (much later).** Nuxt SSR leaderboard + history **tables** + banners
    (quiet/capped/stale); Nitro read routes (Zod-validated, complete-window reads); route caching;
    `@nuxtjs/html-validator` green. Parked until the headless pipeline ships; the web skeleton stays

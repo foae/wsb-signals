@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { parse as parseToml } from 'smol-toml'
 
 import type { HeatWeights } from './aggregate'
+import type { SignalsConfig } from './analytics'
 import { loadWordset, TickerExtractor } from './extract'
 import { ArcticShiftSource } from './ingest'
 import { log } from './logger'
@@ -39,6 +40,10 @@ interface RawConfig {
   heat: { min_authors_full: number; min_window_mentions: number; weights: HeatWeights }
   baseline: { min_samples_ready: number }
   market: { feed: string; top_n: number; screener_top: number; weights: MarketWeights }
+  signals: {
+    median_lookback_seconds: number
+    lead_lag: { lookback_seconds: number; max_lag_windows: number; min_pairs: number; min_corr: number }
+  }
   heartbeat: { max_staleness_seconds: number }
   storage: { data_dir: string }
 }
@@ -54,6 +59,7 @@ export interface WorkerConfig {
   dataDir: string
   aggregate: AggregateConfig
   market: MarketConfig
+  signals: SignalsConfig
 }
 
 export interface LoadedConfig {
@@ -101,6 +107,15 @@ export function loadConfig(root: string): LoadedConfig {
       topN: raw.market.top_n,
       screenerTop: raw.market.screener_top,
       weights: raw.market.weights,
+    },
+    signals: {
+      medianLookbackSeconds: raw.signals.median_lookback_seconds,
+      leadLag: {
+        lookbackSeconds: raw.signals.lead_lag.lookback_seconds,
+        maxLagWindows: raw.signals.lead_lag.max_lag_windows,
+        minPairs: raw.signals.lead_lag.min_pairs,
+        minCorr: raw.signals.lead_lag.min_corr,
+      },
     },
   }
   return { raw, env, worker, root }

@@ -3,12 +3,15 @@
  * These tie the pure scorers (aggregate.ts, market.ts) to the Postgres reads/writes. Persistence of the
  * CURRENT window is deferred to the atomic `publishCycle` (db.ts); only the W−1 finalize persists here.
  */
-import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
+import type { AnalyticalFeatureInsert, MarketMoverInsert, SignalInsert } from '@wsb/shared'
 
 import { aggregateWindow, type EmpiricalFeature, type HeatWeights } from './aggregate'
 import {
-  readFeatureHistory, readFeaturesAt, readMentionsInWindow, readSovRanksAt, upsertEmpiricalFeatures,
-  type Db,
+  classifyQuadrant, divergence, leadLagHours, median, type SignalsConfig,
+} from './analytics'
+import {
+  readAnalyticalHmAt, readFeatureHistory, readFeaturesAt, readHeRanksAt, readMentionsInWindow,
+  readOverlaidCells, readSignalSeries, readSovRanksAt, upsertEmpiricalFeatures, type Db,
 } from './db'
 import { log } from './logger'
 import { computeAnalytical, type MarketData, type MarketWeights } from './market'
@@ -91,4 +94,74 @@ export async function overlayMarket(
     log.warn({ err: String(e) }, 'screeners failed — keeping analytical, skipping movers this cycle')
   }
   return { analytical, movers }
+}
+
+/**
+ * Build the Attention×Action signals for window W (slice 7 — NEW, no oracle; see analytics.ts). Joins the
+ * just-computed empirical board (`rows`, canonical order) with the window's H_m, derives divergence +
+ * quadrant + the H_e-rank delta + lead-lag, and returns the `signals` rows for the atomic publish (it does
+ * NOT persist — publishCycle does).
+ *
+ * `freshAnalytical` is this cycle's overlay when it succeeded; when it's undefined (market failed / absent,
+ * so publishCycle is PRESERVING the prior overlay), the effective H_m is read back from the committed
+ * `analytical_features` at W — so the signals always reflect the H_m that the window will actually carry.
+ */
+export async function buildSignals(
+  db: Db,
+  windowStart: number,
+  windowSeconds: number,
+  cfg: SignalsConfig,
+  rows: readonly EmpiricalFeature[],
+  freshAnalytical: readonly AnalyticalFeatureInsert[] | undefined,
+): Promise<SignalInsert[]> {
+  if (rows.length === 0) return []
+
+  // Effective H_m at W: this cycle's overlay if present, else the committed/preserved overlay.
+  const hmByTicker = freshAnalytical
+    ? new Map(freshAnalytical.flatMap((a) => (a.hM != null ? [[a.ticker, a.hM] as const] : [])))
+    : await readAnalyticalHmAt(db, windowStart)
+
+  // Global rolling-median split: median over the trailing overlaid cells PLUS this window's overlaid cells
+  // (W isn't committed yet, so it isn't in the history read — add it so day-one has a population).
+  const history = await readOverlaidCells(db, windowStart - cfg.medianLookbackSeconds, windowStart)
+  const current: { hE: number; hM: number }[] = []
+  for (const r of rows) {
+    const hm = hmByTicker.get(r.ticker)
+    if (hm != null) current.push({ hE: r.hE, hM: hm })
+  }
+  const pop = [...history, ...current]
+  const thrHe = median(pop.map((p) => p.hE))
+  const thrHm = median(pop.map((p) => p.hM))
+  const hasThresholds = thrHe != null && thrHm != null
+
+  // rank = canonical board index (rows is already sorted); rank_delta vs the prior window's H_e ranks.
+  const priorRanks = await readHeRanksAt(db, windowStart - windowSeconds)
+
+  // Lead-lag: only for currently-overlaid tickers (need both axes; bounded to ≤ top-N). Read each one's
+  // trailing H_e/H_m series and append this window's point before correlating.
+  const overlaid = [...hmByTicker.keys()]
+  const series = await readSignalSeries(db, overlaid, windowStart - cfg.leadLag.lookbackSeconds, windowStart)
+  const hEnow = new Map(rows.map((r) => [r.ticker, r.hE]))
+  const leadLag = new Map<string, number | null>()
+  for (const t of overlaid) {
+    const pts = series.get(t) ?? []
+    pts.push({ windowStart, hE: hEnow.get(t) ?? null, hM: hmByTicker.get(t) ?? null })
+    leadLag.set(t, leadLagHours(pts, windowSeconds, cfg.leadLag))
+  }
+
+  return rows.map((r, i) => {
+    const hM = hmByTicker.get(r.ticker) ?? null
+    const prior = priorRanks[r.ticker]
+    return {
+      ticker: r.ticker,
+      windowStart,
+      hE: r.hE,
+      hM,
+      divergence: hM != null ? divergence(r.hE, hM) : null,
+      quadrant: hM != null && hasThresholds ? classifyQuadrant(r.hE, hM, thrHe, thrHm) : null,
+      rank: i + 1,
+      rankDelta: prior != null ? prior - (i + 1) : null,
+      leadLagHrs: hM != null ? (leadLag.get(r.ticker) ?? null) : null,
+    }
+  })
 }

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   analyticalFeatures, empiricalFeatures, mentions as mentionsTable, rawComments, rawPosts,
+  signals as signalsTable,
   type MarketMoverInsert, type RawCommentInsert, type RawPostInsert,
 } from '@wsb/shared'
 import { eq } from 'drizzle-orm'
@@ -102,6 +103,13 @@ describe('runCycle', () => {
     expect(await latestCompleteWindow(pg.db)).toBe(WS)
     const ana = await pg.db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, WS))
     expect(ana.map((a) => a.ticker)).toEqual(['NVDA']) // only NVDA had a snapshot
+
+    // slice 7: signals published in the SAME cycle — one row per board ticker; NVDA (overlaid) carries a
+    // divergence, AMD (un-priced) does not.
+    const sig = await pg.db.select().from(signalsTable).where(eq(signalsTable.windowStart, WS))
+    expect(sig.map((s) => s.ticker).sort()).toEqual(['AMD', 'NVDA'])
+    expect(sig.find((s) => s.ticker === 'NVDA')!.divergence).not.toBeNull()
+    expect(sig.find((s) => s.ticker === 'AMD')!.divergence).toBeNull()
   })
 
   it('discards a !ok poll WHOLE — nothing persisted, no marker', async () => {
