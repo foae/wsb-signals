@@ -1,0 +1,106 @@
+{
+  "cassette": {
+    "most_actives": {
+      "json": {
+        "most_actives": [
+          {
+            "symbol": "SPY",
+            "volume": 1000
+          },
+          {
+            "symbol": "QQQ",
+            "volume": 800
+          },
+          {
+            "symbol": "AAPL",
+            "volume": 600
+          }
+        ]
+      },
+      "status": 200
+    },
+    "movers": {
+      "json": {
+        "gainers": [
+          {
+            "percent_change": 5.2,
+            "price": 120,
+            "symbol": "NVDA"
+          },
+          {
+            "percent_change": 3.1,
+            "price": 90,
+            "symbol": "AMD"
+          }
+        ],
+        "losers": [
+          {
+            "percent_change": -8.0,
+            "price": 20,
+            "symbol": "GME"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  "expected": [
+    {
+      "kind": "active",
+      "percent_change": null,
+      "price": null,
+      "rank": 1,
+      "symbol": "SPY",
+      "ts": 1704070800,
+      "volume": 1000
+    },
+    {
+      "kind": "active",
+      "percent_change": null,
+      "price": null,
+      "rank": 2,
+      "symbol": "QQQ",
+      "ts": 1704070800,
+      "volume": 800
+    },
+    {
+      "kind": "active",
+      "percent_change": null,
+      "price": null,
+      "rank": 3,
+      "symbol": "AAPL",
+      "ts": 1704070800,
+      "volume": 600
+    },
+    {
+      "kind": "gainer",
+      "percent_change": 5.2,
+      "price": 120.0,
+      "rank": 1,
+      "symbol": "NVDA",
+      "ts": 1704070800,
+      "volume": null
+    },
+    {
+      "kind": "gainer",
+      "percent_change": 3.1,
+      "price": 90.0,
+      "rank": 2,
+      "symbol": "AMD",
+      "ts": 1704070800,
+      "volume": null
+    },
+    {
+      "kind": "loser",
+      "percent_change": -8.0,
+      "price": 20.0,
+      "rank": 1,
+      "symbol": "GME",
+      "ts": 1704070800,
+      "volume": null
+    }
+  ],
+  "name": "happy",
+  "now": 1704070800,
+  "top": 25
+}

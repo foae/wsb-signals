@@ -1,0 +1,331 @@
+{
+  "features": [
+    {
+      "accel": 1.0,
+      "authors": 4,
+      "baseline_status": "cold",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.9500000000000001,
+      "mentions": 4,
+      "net_dir": 0.5,
+      "sov": 0.3333333333333333,
+      "ticker": "NVDA",
+      "velocity": 2.0,
+      "window_start": 1704067200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.24722222222222218,
+      "mentions": 3,
+      "net_dir": -0.3333333333333333,
+      "sov": 0.25,
+      "ticker": "TSLA",
+      "velocity": 0.0,
+      "window_start": 1704067200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.2333333333333333,
+      "mentions": 2,
+      "net_dir": 1.0,
+      "sov": 0.16666666666666666,
+      "ticker": "AMD",
+      "velocity": 2.0,
+      "window_start": 1704067200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.2333333333333333,
+      "mentions": 2,
+      "net_dir": -1.0,
+      "sov": 0.16666666666666666,
+      "ticker": "PLTR",
+      "velocity": 2.0,
+      "window_start": 1704067200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.075,
+      "mentions": 1,
+      "net_dir": 1.0,
+      "sov": 0.08333333333333333,
+      "ticker": "GME",
+      "velocity": 1.0,
+      "window_start": 1704067200,
+      "z": null
+    }
+  ],
+  "generated_at": 1704067450,
+  "inputs": {
+    "feature_history": [
+      [
+        "NVDA",
+        1704063600,
+        2
+      ],
+      [
+        "TSLA",
+        1704063600,
+        3
+      ]
+    ],
+    "hour_of_week": 0,
+    "mentions_in_window": [
+      [
+        "NVDA",
+        "c1",
+        "comment",
+        "bob",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "c2",
+        "comment",
+        "carol",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "c3",
+        "comment",
+        "dave",
+        null,
+        "bear"
+      ],
+      [
+        "TSLA",
+        "c4",
+        "comment",
+        "bob",
+        null,
+        "bear"
+      ],
+      [
+        "TSLA",
+        "c5",
+        "comment",
+        "bob",
+        null,
+        "bear"
+      ],
+      [
+        "AMD",
+        "c6",
+        "comment",
+        "frank",
+        null,
+        "bull"
+      ],
+      [
+        "PLTR",
+        "c7",
+        "comment",
+        "heidi",
+        null,
+        "bear"
+      ],
+      [
+        "GME",
+        "c8",
+        "comment",
+        "ivan",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "p1",
+        "post",
+        "alice",
+        "DD",
+        "bull"
+      ],
+      [
+        "TSLA",
+        "p2",
+        "post",
+        "alice",
+        null,
+        "bull"
+      ],
+      [
+        "AMD",
+        "p3",
+        "post",
+        "erin",
+        null,
+        "neutral"
+      ],
+      [
+        "PLTR",
+        "p4",
+        "post",
+        "grace",
+        null,
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "NVDA": {
+        "mentions": 2,
+        "velocity": 1.0
+      },
+      "TSLA": {
+        "mentions": 3,
+        "velocity": null
+      }
+    },
+    "prior_sov_ranks": {
+      "NVDA": 2,
+      "TSLA": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1704067200
+  },
+  "name": "basic_with_prior",
+  "names": {
+    "AMD": "ADVANCED MICRO DEVICES INC COMMON STOCK",
+    "NVDA": "NVIDIA CORPORATION COMMON STOCK"
+  },
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704067450,
+    "quiet": true,
+    "rows": [
+      {
+        "accel": 1.0,
+        "authors": 4,
+        "baseline_status": "cold",
+        "dd_count": 1,
+        "h_e": 0.95,
+        "h_m": null,
+        "mentions": 4,
+        "name": "Nvidia Corporation",
+        "net_dir": 0.5,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.3333,
+        "ticker": "NVDA",
+        "velocity": 2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.2472,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": -0.333,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.25,
+        "ticker": "TSLA",
+        "velocity": 0.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.2333,
+        "h_m": null,
+        "mentions": 2,
+        "name": "Advanced Micro Devices Inc",
+        "net_dir": 1.0,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1667,
+        "ticker": "AMD",
+        "velocity": 2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.2333,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1667,
+        "ticker": "PLTR",
+        "velocity": 2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.075,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0833,
+        "ticker": "GME",
+        "velocity": 1.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 12,
+    "window_end": 1704070800,
+    "window_seconds": 3600,
+    "window_start": 1704067200
+  }
+}

@@ -1,0 +1,134 @@
+{
+  "features": [
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.39999999999999997,
+      "mentions": 2,
+      "net_dir": 1.0,
+      "sov": 0.6666666666666666,
+      "ticker": "NVDA",
+      "velocity": null,
+      "window_start": 1704067200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.11666666666666665,
+      "mentions": 1,
+      "net_dir": -1.0,
+      "sov": 0.3333333333333333,
+      "ticker": "AMD",
+      "velocity": null,
+      "window_start": 1704067200,
+      "z": null
+    }
+  ],
+  "generated_at": 1704067450,
+  "inputs": {
+    "feature_history": [],
+    "hour_of_week": 0,
+    "mentions_in_window": [
+      [
+        "NVDA",
+        "x1",
+        "post",
+        "alice",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "x2",
+        "comment",
+        "bob",
+        null,
+        "bull"
+      ],
+      [
+        "AMD",
+        "x3",
+        "comment",
+        "carol",
+        null,
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {},
+    "prior_sov_ranks": {},
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1704067200
+  },
+  "name": "cold_start",
+  "names": {
+    "AMD": "ADVANCED MICRO DEVICES INC COMMON STOCK",
+    "NVDA": "NVIDIA CORPORATION COMMON STOCK"
+  },
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704067450,
+    "quiet": true,
+    "rows": [
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.4,
+        "h_m": null,
+        "mentions": 2,
+        "name": "Nvidia Corporation",
+        "net_dir": 1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.6667,
+        "ticker": "NVDA",
+        "velocity": null,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.1167,
+        "h_m": null,
+        "mentions": 1,
+        "name": "Advanced Micro Devices Inc",
+        "net_dir": -1.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.3333,
+        "ticker": "AMD",
+        "velocity": null,
+        "z": null
+      }
+    ],
+    "total_mentions": 3,
+    "window_end": 1704070800,
+    "window_seconds": 3600,
+    "window_start": 1704067200
+  }
+}

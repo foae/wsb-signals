@@ -1,0 +1,156 @@
+{
+  "cassette": {
+    "comments": [
+      {
+        "data": [],
+        "status": 200
+      }
+    ],
+    "posts": [
+      {
+        "data": [
+          {
+            "author": "u",
+            "created_utc": 1704070790,
+            "id": "a1",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          },
+          {
+            "author": "u",
+            "created_utc": 1704070700,
+            "id": "a2",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          },
+          {
+            "author": "u",
+            "created_utc": 1704070500,
+            "id": "a3",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          }
+        ],
+        "status": 200
+      },
+      {
+        "data": [
+          {
+            "author": "u",
+            "created_utc": 1704067300,
+            "id": "a4",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          },
+          {
+            "author": "u",
+            "created_utc": 1704067200,
+            "id": "a5",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          },
+          {
+            "author": "u",
+            "created_utc": 1704067100,
+            "id": "a6",
+            "link_flair_text": null,
+            "num_comments": 0,
+            "score": 1,
+            "selftext": "",
+            "title": "t"
+          }
+        ],
+        "status": 200
+      }
+    ]
+  },
+  "expected": {
+    "capped": false,
+    "comments": [],
+    "newest_utc": 1704070790,
+    "ok": true,
+    "posts": [
+      {
+        "author": "u",
+        "created_utc": 1704070790,
+        "id": "a1",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      },
+      {
+        "author": "u",
+        "created_utc": 1704070700,
+        "id": "a2",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      },
+      {
+        "author": "u",
+        "created_utc": 1704070500,
+        "id": "a3",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      },
+      {
+        "author": "u",
+        "created_utc": 1704067300,
+        "id": "a4",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      },
+      {
+        "author": "u",
+        "created_utc": 1704067200,
+        "id": "a5",
+        "link_flair_text": null,
+        "num_comments": 0,
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "selftext": "",
+        "source": "arctic_shift",
+        "title": "t"
+      }
+    ]
+  },
+  "max_pages": 10,
+  "name": "multi_page_walk",
+  "now": 1704070800,
+  "page_limit": 3,
+  "subreddit": "wallstreetbets",
+  "window_seconds": 3600
+}

@@ -1,0 +1,166 @@
+{
+  "bots": [
+    "AutoModerator",
+    "VisualMod"
+  ],
+  "comments": [
+    {
+      "author": "carol",
+      "body": "AMD calls printing",
+      "created_utc": 1704070680,
+      "id": "c1"
+    },
+    {
+      "author": "VisualMod",
+      "body": "beep boop $NVDA",
+      "created_utc": 1704070680,
+      "id": "c2"
+    },
+    {
+      "author": "dave",
+      "body": "DRAM prices rising",
+      "created_utc": 1704070680,
+      "id": "c3"
+    },
+    {
+      "author": "erin",
+      "body": "DRAM calls",
+      "created_utc": 1704070680,
+      "id": "c4"
+    },
+    {
+      "author": null,
+      "body": "ALL IN ON SOFI",
+      "created_utc": 1704070680,
+      "id": "c5"
+    }
+  ],
+  "mentions": [
+    {
+      "author": "carol",
+      "created_utc": 1704070680,
+      "direction": "bull",
+      "flair": null,
+      "thing_id": "c1",
+      "thing_type": "comment",
+      "ticker": "AMD"
+    },
+    {
+      "author": "erin",
+      "created_utc": 1704070680,
+      "direction": "bull",
+      "flair": null,
+      "thing_id": "c4",
+      "thing_type": "comment",
+      "ticker": "DRAM"
+    },
+    {
+      "author": "alice",
+      "created_utc": 1704070680,
+      "direction": "bull",
+      "flair": "DD",
+      "thing_id": "p1",
+      "thing_type": "post",
+      "ticker": "NVDA"
+    },
+    {
+      "author": "bob",
+      "created_utc": 1704070680,
+      "direction": "bear",
+      "flair": null,
+      "thing_id": "p3",
+      "thing_type": "post",
+      "ticker": "AMD"
+    },
+    {
+      "author": "bob",
+      "created_utc": 1704070680,
+      "direction": "bear",
+      "flair": null,
+      "thing_id": "p3",
+      "thing_type": "post",
+      "ticker": "TSLA"
+    },
+    {
+      "author": null,
+      "created_utc": 1704070680,
+      "direction": "bull",
+      "flair": null,
+      "thing_id": "p4",
+      "thing_type": "post",
+      "ticker": "GME"
+    }
+  ],
+  "posts": [
+    {
+      "author": "alice",
+      "created_utc": 1704070680,
+      "id": "p1",
+      "link_flair_text": "DD",
+      "selftext": "loading calls",
+      "title": "NVDA to the moon"
+    },
+    {
+      "author": "AutoModerator",
+      "created_utc": 1704070680,
+      "id": "p2",
+      "selftext": "",
+      "title": "GME $TSLA daily"
+    },
+    {
+      "author": "bob",
+      "created_utc": 1704070680,
+      "id": "p3",
+      "selftext": "",
+      "title": "puts on TSLA, short AMD"
+    },
+    {
+      "author": null,
+      "created_utc": 1704070680,
+      "id": "p4",
+      "selftext": "DD on $GME",
+      "title": "$GME $GME squeeze"
+    }
+  ],
+  "retrieved_on": 1704070800,
+  "wordsets": {
+    "ambiguous": [
+      "ALL",
+      "ANY",
+      "DRAM",
+      "IT",
+      "ON",
+      "OPEN",
+      "REAL",
+      "SO"
+    ],
+    "stoplist": [
+      "A",
+      "ALL",
+      "AND",
+      "CEO",
+      "DD",
+      "FD",
+      "I",
+      "IMO",
+      "IN",
+      "THE",
+      "USA",
+      "YOLO"
+    ],
+    "whitelist": [
+      "AMC",
+      "AMD",
+      "BABA",
+      "DRAM",
+      "F",
+      "GME",
+      "NVDA",
+      "ON",
+      "PLTR",
+      "SO",
+      "T",
+      "TSLA"
+    ]
+  }
+}

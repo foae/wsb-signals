@@ -1,0 +1,1 @@
+CREATE INDEX "signals_window_start_idx" ON "signals" USING btree ("window_start");

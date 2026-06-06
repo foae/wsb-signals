@@ -1,0 +1,50 @@
+{
+  "cassette": {
+    "comments": [
+      {
+        "data": [
+          {
+            "author": "u",
+            "body": "b",
+            "created_utc": 1704070791,
+            "id": "m1",
+            "link_id": "t3_x",
+            "parent_id": "t3_x",
+            "score": 1
+          }
+        ],
+        "status": 200
+      }
+    ],
+    "posts": [
+      {
+        "error": "network"
+      }
+    ]
+  },
+  "expected": {
+    "capped": false,
+    "comments": [
+      {
+        "author": "u",
+        "body": "b",
+        "created_utc": 1704070791,
+        "id": "m1",
+        "link_id": "t3_x",
+        "parent_id": "t3_x",
+        "retrieved_on": 1704070800,
+        "score": 1,
+        "source": "arctic_shift"
+      }
+    ],
+    "newest_utc": 1704070791,
+    "ok": false,
+    "posts": []
+  },
+  "max_pages": 10,
+  "name": "network_error_first_page",
+  "now": 1704070800,
+  "page_limit": 5,
+  "subreddit": "wallstreetbets",
+  "window_seconds": 3600
+}

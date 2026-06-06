@@ -1,0 +1,751 @@
+{
+  "features": [
+    {
+      "accel": 3.0,
+      "authors": 4,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 2, \"YOLO\": 1}",
+      "h_e": 0.6616666666666666,
+      "mentions": 5,
+      "net_dir": 1.0,
+      "sov": 0.18518518518518517,
+      "ticker": "NVDA",
+      "velocity": 2.0,
+      "window_start": 1704499200,
+      "z": -0.5039526306789694
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{\"YOLO\": 2}",
+      "h_e": 0.64,
+      "mentions": 6,
+      "net_dir": 0.2,
+      "sov": 0.2222222222222222,
+      "ticker": "BBB",
+      "velocity": 1.0,
+      "window_start": 1704499200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2, \"Discussion\": 1}",
+      "h_e": 0.5533333333333332,
+      "mentions": 4,
+      "net_dir": 1.0,
+      "sov": 0.14814814814814814,
+      "ticker": "CCC",
+      "velocity": -2.0,
+      "window_start": 1704499200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 5,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 2, \"Gain\": 2}",
+      "h_e": 0.52,
+      "mentions": 6,
+      "net_dir": 0.2,
+      "sov": 0.2222222222222222,
+      "ticker": "AAA",
+      "velocity": 6.0,
+      "window_start": 1704499200,
+      "z": 0.23783535600422523
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"Gain\": 1}",
+      "h_e": 0.265,
+      "mentions": 3,
+      "net_dir": 0.0,
+      "sov": 0.1111111111111111,
+      "ticker": "EEE",
+      "velocity": 3.0,
+      "window_start": 1704499200,
+      "z": -0.2610868166626523
+    },
+    {
+      "accel": -7.0,
+      "authors": 2,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"Gain\": 1}",
+      "h_e": 0.1844444444444444,
+      "mentions": 2,
+      "net_dir": -1.0,
+      "sov": 0.07407407407407407,
+      "ticker": "SPY",
+      "velocity": -4.0,
+      "window_start": 1704499200,
+      "z": -1.4974422637729086
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.0961111111111111,
+      "mentions": 1,
+      "net_dir": -1.0,
+      "sov": 0.037037037037037035,
+      "ticker": "HHH",
+      "velocity": 1.0,
+      "window_start": 1704499200,
+      "z": null
+    }
+  ],
+  "generated_at": 1704499450,
+  "inputs": {
+    "feature_history": [
+      [
+        "NVDA",
+        1704495600,
+        3
+      ],
+      [
+        "NVDA",
+        1703894400,
+        2
+      ],
+      [
+        "NVDA",
+        1703289600,
+        8
+      ],
+      [
+        "NVDA",
+        1702684800,
+        8
+      ],
+      [
+        "NVDA",
+        1702080000,
+        4
+      ],
+      [
+        "NVDA",
+        1701475200,
+        7
+      ],
+      [
+        "NVDA",
+        1700870400,
+        7
+      ],
+      [
+        "NVDA",
+        1700265600,
+        9
+      ],
+      [
+        "NVDA",
+        1699660800,
+        3
+      ],
+      [
+        "NVDA",
+        1699056000,
+        9
+      ],
+      [
+        "EEE",
+        1703894400,
+        7
+      ],
+      [
+        "EEE",
+        1703289600,
+        3
+      ],
+      [
+        "EEE",
+        1702684800,
+        1
+      ],
+      [
+        "EEE",
+        1702080000,
+        1
+      ],
+      [
+        "EEE",
+        1701475200,
+        6
+      ],
+      [
+        "EEE",
+        1700870400,
+        3
+      ],
+      [
+        "EEE",
+        1700265600,
+        4
+      ],
+      [
+        "EEE",
+        1699660800,
+        5
+      ],
+      [
+        "EEE",
+        1699056000,
+        2
+      ],
+      [
+        "CCC",
+        1704495600,
+        6
+      ],
+      [
+        "CCC",
+        1703894400,
+        8
+      ],
+      [
+        "CCC",
+        1703289600,
+        5
+      ],
+      [
+        "CCC",
+        1702684800,
+        5
+      ],
+      [
+        "CCC",
+        1702080000,
+        2
+      ],
+      [
+        "CCC",
+        1701475200,
+        3
+      ],
+      [
+        "HHH",
+        1703894400,
+        3
+      ],
+      [
+        "HHH",
+        1703289600,
+        4
+      ],
+      [
+        "HHH",
+        1702684800,
+        4
+      ],
+      [
+        "BBB",
+        1704495600,
+        5
+      ],
+      [
+        "AAA",
+        1703894400,
+        6
+      ],
+      [
+        "AAA",
+        1703289600,
+        8
+      ],
+      [
+        "AAA",
+        1702684800,
+        4
+      ],
+      [
+        "AAA",
+        1702080000,
+        9
+      ],
+      [
+        "AAA",
+        1701475200,
+        1
+      ],
+      [
+        "AAA",
+        1700870400,
+        8
+      ],
+      [
+        "AAA",
+        1700265600,
+        2
+      ],
+      [
+        "AAA",
+        1699660800,
+        8
+      ],
+      [
+        "AAA",
+        1699056000,
+        1
+      ],
+      [
+        "SPY",
+        1704495600,
+        6
+      ],
+      [
+        "SPY",
+        1703894400,
+        8
+      ],
+      [
+        "SPY",
+        1703289600,
+        6
+      ],
+      [
+        "SPY",
+        1702684800,
+        3
+      ],
+      [
+        "SPY",
+        1702080000,
+        8
+      ],
+      [
+        "SPY",
+        1701475200,
+        4
+      ],
+      [
+        "SPY",
+        1700870400,
+        9
+      ],
+      [
+        "SPY",
+        1700265600,
+        2
+      ],
+      [
+        "SPY",
+        1699660800,
+        7
+      ]
+    ],
+    "hour_of_week": 120,
+    "mentions_in_window": [
+      [
+        "NVDA",
+        "t1",
+        "post",
+        "u3",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t10",
+        "comment",
+        "u1",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t11",
+        "comment",
+        "u2",
+        null,
+        "neutral"
+      ],
+      [
+        "CCC",
+        "t12",
+        "post",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t13",
+        "post",
+        "u0",
+        "DD",
+        "bear"
+      ],
+      [
+        "BBB",
+        "t14",
+        "comment",
+        "u5",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "BBB",
+        "t15",
+        "comment",
+        "u5",
+        null,
+        "bull"
+      ],
+      [
+        "BBB",
+        "t16",
+        "comment",
+        "u7",
+        null,
+        "bull"
+      ],
+      [
+        "BBB",
+        "t17",
+        "post",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "BBB",
+        "t18",
+        "post",
+        "u3",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "BBB",
+        "t19",
+        "post",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t2",
+        "post",
+        "u4",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "AAA",
+        "t20",
+        "comment",
+        "u0",
+        "Gain",
+        "bull"
+      ],
+      [
+        "AAA",
+        "t21",
+        "post",
+        "u1",
+        null,
+        "bear"
+      ],
+      [
+        "AAA",
+        "t22",
+        "comment",
+        "u5",
+        "DD",
+        "bull"
+      ],
+      [
+        "AAA",
+        "t23",
+        "comment",
+        "u2",
+        "DD",
+        "bear"
+      ],
+      [
+        "AAA",
+        "t24",
+        "comment",
+        "u1",
+        null,
+        "bull"
+      ],
+      [
+        "AAA",
+        "t25",
+        "post",
+        "u6",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t26",
+        "post",
+        "u3",
+        "Gain",
+        "bear"
+      ],
+      [
+        "SPY",
+        "t27",
+        "post",
+        "u4",
+        null,
+        "bear"
+      ],
+      [
+        "NVDA",
+        "t3",
+        "post",
+        "u1",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "NVDA",
+        "t4",
+        "post",
+        "u2",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t5",
+        "comment",
+        "u1",
+        null,
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t6",
+        "post",
+        "u4",
+        null,
+        "bull"
+      ],
+      [
+        "EEE",
+        "t7",
+        "comment",
+        "u1",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t8",
+        "post",
+        "u5",
+        null,
+        "bear"
+      ],
+      [
+        "CCC",
+        "t9",
+        "comment",
+        "u5",
+        "DD",
+        "bull"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "BBB": {
+        "mentions": 5,
+        "velocity": null
+      },
+      "CCC": {
+        "mentions": 6,
+        "velocity": null
+      },
+      "NVDA": {
+        "mentions": 3,
+        "velocity": -1.0
+      },
+      "SPY": {
+        "mentions": 6,
+        "velocity": 3.0
+      }
+    },
+    "prior_sov_ranks": {
+      "BBB": 3,
+      "CCC": 2,
+      "NVDA": 1,
+      "SPY": 4
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1704499200
+  },
+  "name": "random/011",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704499450,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": 3.0,
+        "authors": 4,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.6617,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1852,
+        "ticker": "NVDA",
+        "velocity": 2.0,
+        "z": -0.504
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.64,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 0.2,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.2222,
+        "ticker": "BBB",
+        "velocity": 1.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.5533,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1481,
+        "ticker": "CCC",
+        "velocity": -2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 5,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.52,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 0.2,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.2222,
+        "ticker": "AAA",
+        "velocity": 6.0,
+        "z": 0.238
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.265,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1111,
+        "ticker": "EEE",
+        "velocity": 3.0,
+        "z": -0.261
+      },
+      {
+        "accel": -7.0,
+        "authors": 2,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.1844,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0741,
+        "ticker": "SPY",
+        "velocity": -4.0,
+        "z": -1.497
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.0961,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.037,
+        "ticker": "HHH",
+        "velocity": 1.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 27,
+    "window_end": 1704502800,
+    "window_seconds": 3600,
+    "window_start": 1704499200
+  }
+}

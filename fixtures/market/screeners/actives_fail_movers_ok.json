@@ -1,0 +1,50 @@
+{
+  "cassette": {
+    "most_actives": {
+      "body": "boom",
+      "status": 500
+    },
+    "movers": {
+      "json": {
+        "gainers": [
+          {
+            "percent_change": 4.0,
+            "price": 250,
+            "symbol": "TSLA"
+          }
+        ],
+        "losers": [
+          {
+            "percent_change": -2.0,
+            "price": 11,
+            "symbol": "F"
+          }
+        ]
+      },
+      "status": 200
+    }
+  },
+  "expected": [
+    {
+      "kind": "gainer",
+      "percent_change": 4.0,
+      "price": 250.0,
+      "rank": 1,
+      "symbol": "TSLA",
+      "ts": 1704070800,
+      "volume": null
+    },
+    {
+      "kind": "loser",
+      "percent_change": -2.0,
+      "price": 11.0,
+      "rank": 1,
+      "symbol": "F",
+      "ts": 1704070800,
+      "volume": null
+    }
+  ],
+  "name": "actives_fail_movers_ok",
+  "now": 1704070800,
+  "top": 25
+}

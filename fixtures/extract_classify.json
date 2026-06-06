@@ -1,0 +1,257 @@
+{
+  "cases": [
+    {
+      "classify": [
+        [
+          "I",
+          "too_short"
+        ],
+        [
+          "NVDA",
+          "cashtag"
+        ]
+      ],
+      "direction": "bull",
+      "extract": [
+        "NVDA"
+      ],
+      "id": "cashtag_overrides_too_short",
+      "mode": "whitelist",
+      "text": "I bought $NVDA calls"
+    },
+    {
+      "classify": [
+        [
+          "NVDA",
+          "whitelist_ok"
+        ]
+      ],
+      "direction": "bull",
+      "extract": [
+        "NVDA"
+      ],
+      "id": "bare_whitelist_ok_bull",
+      "mode": "whitelist",
+      "text": "NVDA to the moon"
+    },
+    {
+      "classify": [
+        [
+          "DRAM",
+          "ambig_no_context"
+        ]
+      ],
+      "direction": "neutral",
+      "extract": [],
+      "id": "ambiguous_no_context",
+      "mode": "whitelist",
+      "text": "DRAM prices are rising"
+    },
+    {
+      "classify": [
+        [
+          "DRAM",
+          "whitelist_ok"
+        ]
+      ],
+      "direction": "bull",
+      "extract": [
+        "DRAM"
+      ],
+      "id": "ambiguous_with_context",
+      "mode": "whitelist",
+      "text": "DRAM calls printing"
+    },
+    {
+      "classify": [
+        [
+          "DRAM",
+          "cashtag"
+        ]
+      ],
+      "direction": "neutral",
+      "extract": [
+        "DRAM"
+      ],
+      "id": "cashtag_overrides_ambiguous",
+      "mode": "whitelist",
+      "text": "$DRAM is memory"
+    },
+    {
+      "classify": [
+        [
+          "DD",
+          "stop"
+        ],
+        [
+          "GME",
+          "cashtag"
+        ]
+      ],
+      "direction": "neutral",
+      "extract": [
+        "GME"
+      ],
+      "id": "stop_bare_dd_but_cashtag_ok",
+      "mode": "whitelist",
+      "text": "DD on $GME"
+    },
+    {
+      "classify": [
+        [
+          "BUY",
+          "not_listed"
+        ],
+        [
+          "F",
+          "too_short"
+        ],
+        [
+          "T",
+          "too_short"
+        ]
+      ],
+      "direction": "bull",
+      "extract": [],
+      "id": "not_listed_and_too_short",
+      "mode": "whitelist",
+      "text": "BUY F and T shares"
+    },
+    {
+      "classify": [
+        [
+          "F",
+          "cashtag"
+        ],
+        [
+          "T",
+          "cashtag"
+        ]
+      ],
+      "direction": "bull",
+      "extract": [
+        "F",
+        "T"
+      ],
+      "id": "single_letters_via_cashtag",
+      "mode": "whitelist",
+      "text": "$F $T leaps"
+    },
+    {
+      "classify": [
+        [
+          "ALL",
+          "stop"
+        ],
+        [
+          "IN",
+          "stop"
+        ],
+        [
+          "ON",
+          "ambig_no_context"
+        ],
+        [
+          "SOFI",
+          "not_listed"
+        ]
+      ],
+      "direction": "neutral",
+      "extract": [],
+      "id": "stop_notlisted_ambig_mix",
+      "mode": "whitelist",
+      "text": "ALL IN ON SOFI"
+    },
+    {
+      "classify": [
+        [
+          "TSLA",
+          "whitelist_ok"
+        ],
+        [
+          "AMD",
+          "whitelist_ok"
+        ]
+      ],
+      "direction": "bear",
+      "extract": [
+        "TSLA",
+        "AMD"
+      ],
+      "id": "multi_ticker_bearish",
+      "mode": "whitelist",
+      "text": "puts on TSLA, short AMD"
+    },
+    {
+      "classify": [
+        [
+          "DRAM",
+          "open_ok"
+        ]
+      ],
+      "direction": "bull",
+      "extract": [
+        "DRAM"
+      ],
+      "id": "open_mode_ambiguous_context",
+      "mode": "open",
+      "text": "DRAM moon"
+    },
+    {
+      "classify": [
+        [
+          "XYZ",
+          "open_ok"
+        ]
+      ],
+      "direction": "neutral",
+      "extract": [
+        "XYZ"
+      ],
+      "id": "open_mode_unknown_and_six_letter_boundary",
+      "mode": "open",
+      "text": "RANDOM ticker XYZ"
+    }
+  ],
+  "regex": "(?<![A-Za-z0-9])(\\$)?([A-Z]{1,5})(?![A-Za-z0-9])",
+  "wordsets": {
+    "ambiguous": [
+      "ALL",
+      "ANY",
+      "DRAM",
+      "IT",
+      "ON",
+      "OPEN",
+      "REAL",
+      "SO"
+    ],
+    "stoplist": [
+      "A",
+      "ALL",
+      "AND",
+      "CEO",
+      "DD",
+      "FD",
+      "I",
+      "IMO",
+      "IN",
+      "THE",
+      "USA",
+      "YOLO"
+    ],
+    "whitelist": [
+      "AMC",
+      "AMD",
+      "BABA",
+      "DRAM",
+      "F",
+      "GME",
+      "NVDA",
+      "ON",
+      "PLTR",
+      "SO",
+      "T",
+      "TSLA"
+    ]
+  }
+}

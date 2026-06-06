@@ -1,0 +1,900 @@
+{
+  "features": [
+    {
+      "accel": 6.0,
+      "authors": 6,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 3}",
+      "h_e": 0.85,
+      "mentions": 7,
+      "net_dir": -1.0,
+      "sov": 0.20588235294117646,
+      "ticker": "HHH",
+      "velocity": 7.0,
+      "window_start": 1704607200,
+      "z": null
+    },
+    {
+      "accel": 0.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1, \"Gain\": 2}",
+      "h_e": 0.6499999999999999,
+      "mentions": 6,
+      "net_dir": -1.0,
+      "sov": 0.17647058823529413,
+      "ticker": "GGG",
+      "velocity": 3.0,
+      "window_start": 1704607200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 4,
+      "baseline_status": "ready",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.55,
+      "mentions": 6,
+      "net_dir": -0.5,
+      "sov": 0.17647058823529413,
+      "ticker": "TSLA",
+      "velocity": 6.0,
+      "window_start": 1704607200,
+      "z": -0.10183967214216193
+    },
+    {
+      "accel": 0.0,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"YOLO\": 1}",
+      "h_e": 0.42499999999999993,
+      "mentions": 3,
+      "net_dir": 1.0,
+      "sov": 0.08823529411764706,
+      "ticker": "EEE",
+      "velocity": 3.0,
+      "window_start": 1704607200,
+      "z": null
+    },
+    {
+      "accel": -3.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1, \"Gain\": 1}",
+      "h_e": 0.3,
+      "mentions": 4,
+      "net_dir": 0.0,
+      "sov": 0.11764705882352941,
+      "ticker": "FFF",
+      "velocity": -2.0,
+      "window_start": 1704607200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 1}",
+      "h_e": 0.2333333333333333,
+      "mentions": 2,
+      "net_dir": 1.0,
+      "sov": 0.058823529411764705,
+      "ticker": "BBB",
+      "velocity": -2.0,
+      "window_start": 1704607200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "ready",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.16666666666666666,
+      "mentions": 2,
+      "net_dir": 0.0,
+      "sov": 0.058823529411764705,
+      "ticker": "QQQ",
+      "velocity": 2.0,
+      "window_start": 1704607200,
+      "z": -0.6015108780921786
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 1}",
+      "h_e": 0.10833333333333331,
+      "mentions": 2,
+      "net_dir": -1.0,
+      "sov": 0.058823529411764705,
+      "ticker": "GME",
+      "velocity": 0.0,
+      "window_start": 1704607200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.09999999999999999,
+      "mentions": 2,
+      "net_dir": 0.0,
+      "sov": 0.058823529411764705,
+      "ticker": "AAA",
+      "velocity": 2.0,
+      "window_start": 1704607200,
+      "z": null
+    }
+  ],
+  "generated_at": 1704607450,
+  "inputs": {
+    "feature_history": [
+      [
+        "BBB",
+        1704603600,
+        4
+      ],
+      [
+        "BBB",
+        1704002400,
+        5
+      ],
+      [
+        "BBB",
+        1703397600,
+        6
+      ],
+      [
+        "BBB",
+        1702792800,
+        4
+      ],
+      [
+        "BBB",
+        1702188000,
+        6
+      ],
+      [
+        "BBB",
+        1701583200,
+        2
+      ],
+      [
+        "BBB",
+        1700978400,
+        6
+      ],
+      [
+        "BBB",
+        1700373600,
+        7
+      ],
+      [
+        "HHH",
+        1704603600,
+        0
+      ],
+      [
+        "HHH",
+        1704002400,
+        5
+      ],
+      [
+        "HHH",
+        1703397600,
+        2
+      ],
+      [
+        "HHH",
+        1702792800,
+        5
+      ],
+      [
+        "HHH",
+        1702188000,
+        3
+      ],
+      [
+        "HHH",
+        1701583200,
+        9
+      ],
+      [
+        "QQQ",
+        1704002400,
+        1
+      ],
+      [
+        "QQQ",
+        1703397600,
+        7
+      ],
+      [
+        "QQQ",
+        1702792800,
+        1
+      ],
+      [
+        "QQQ",
+        1702188000,
+        7
+      ],
+      [
+        "QQQ",
+        1701583200,
+        4
+      ],
+      [
+        "QQQ",
+        1700978400,
+        9
+      ],
+      [
+        "QQQ",
+        1700373600,
+        1
+      ],
+      [
+        "QQQ",
+        1699768800,
+        1
+      ],
+      [
+        "QQQ",
+        1699164000,
+        4
+      ],
+      [
+        "EEE",
+        1704603600,
+        0
+      ],
+      [
+        "EEE",
+        1704002400,
+        9
+      ],
+      [
+        "EEE",
+        1703397600,
+        4
+      ],
+      [
+        "EEE",
+        1702792800,
+        3
+      ],
+      [
+        "EEE",
+        1702188000,
+        8
+      ],
+      [
+        "TSLA",
+        1704002400,
+        8
+      ],
+      [
+        "TSLA",
+        1703397600,
+        7
+      ],
+      [
+        "TSLA",
+        1702792800,
+        9
+      ],
+      [
+        "TSLA",
+        1702188000,
+        7
+      ],
+      [
+        "TSLA",
+        1701583200,
+        7
+      ],
+      [
+        "TSLA",
+        1700978400,
+        6
+      ],
+      [
+        "TSLA",
+        1700373600,
+        9
+      ],
+      [
+        "TSLA",
+        1699768800,
+        8
+      ],
+      [
+        "TSLA",
+        1699164000,
+        1
+      ],
+      [
+        "TSLA",
+        1698559200,
+        1
+      ],
+      [
+        "FFF",
+        1704603600,
+        6
+      ],
+      [
+        "FFF",
+        1704002400,
+        1
+      ],
+      [
+        "GME",
+        1704603600,
+        2
+      ],
+      [
+        "GME",
+        1704002400,
+        7
+      ],
+      [
+        "GME",
+        1703397600,
+        8
+      ],
+      [
+        "GGG",
+        1704603600,
+        3
+      ],
+      [
+        "GGG",
+        1704002400,
+        8
+      ],
+      [
+        "GGG",
+        1703397600,
+        8
+      ],
+      [
+        "GGG",
+        1702792800,
+        6
+      ],
+      [
+        "GGG",
+        1702188000,
+        8
+      ],
+      [
+        "GGG",
+        1701583200,
+        5
+      ],
+      [
+        "GGG",
+        1700978400,
+        1
+      ]
+    ],
+    "hour_of_week": 150,
+    "mentions_in_window": [
+      [
+        "BBB",
+        "t1",
+        "post",
+        "u6",
+        "Gain",
+        "bull"
+      ],
+      [
+        "AAA",
+        "t10",
+        "comment",
+        "u1",
+        "DD",
+        "bear"
+      ],
+      [
+        "AAA",
+        "t11",
+        "post",
+        "u3",
+        null,
+        "bull"
+      ],
+      [
+        "QQQ",
+        "t12",
+        "post",
+        "u6",
+        "DD",
+        "bull"
+      ],
+      [
+        "QQQ",
+        "t13",
+        "comment",
+        "u4",
+        null,
+        "bear"
+      ],
+      [
+        "EEE",
+        "t14",
+        "post",
+        "u4",
+        "DD",
+        "bull"
+      ],
+      [
+        "EEE",
+        "t15",
+        "post",
+        "u5",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "EEE",
+        "t16",
+        "comment",
+        "u7",
+        null,
+        "bull"
+      ],
+      [
+        "TSLA",
+        "t17",
+        "post",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "TSLA",
+        "t18",
+        "post",
+        "u3",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "TSLA",
+        "t19",
+        "post",
+        "u1",
+        "Gain",
+        "bear"
+      ],
+      [
+        "BBB",
+        "t2",
+        "post",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "TSLA",
+        "t20",
+        "post",
+        "u5",
+        "DD",
+        "neutral"
+      ],
+      [
+        "TSLA",
+        "t21",
+        "comment",
+        "u5",
+        null,
+        "bull"
+      ],
+      [
+        "TSLA",
+        "t22",
+        "post",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t23",
+        "post",
+        "u5",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t24",
+        "post",
+        "u4",
+        null,
+        "neutral"
+      ],
+      [
+        "FFF",
+        "t25",
+        "post",
+        "u6",
+        "Gain",
+        "bull"
+      ],
+      [
+        "FFF",
+        "t26",
+        "comment",
+        "u7",
+        null,
+        "bear"
+      ],
+      [
+        "GME",
+        "t27",
+        "post",
+        "u6",
+        "DD",
+        "neutral"
+      ],
+      [
+        "GME",
+        "t28",
+        "comment",
+        "u6",
+        "Gain",
+        "bear"
+      ],
+      [
+        "GGG",
+        "t29",
+        "post",
+        "u4",
+        "Discussion",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t3",
+        "post",
+        "u4",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "GGG",
+        "t30",
+        "comment",
+        "u3",
+        "Gain",
+        "bear"
+      ],
+      [
+        "GGG",
+        "t31",
+        "post",
+        "u4",
+        null,
+        "bear"
+      ],
+      [
+        "GGG",
+        "t32",
+        "comment",
+        "u2",
+        null,
+        "bear"
+      ],
+      [
+        "GGG",
+        "t33",
+        "comment",
+        "u0",
+        null,
+        "bear"
+      ],
+      [
+        "GGG",
+        "t34",
+        "comment",
+        "u0",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t4",
+        "post",
+        "u2",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t5",
+        "comment",
+        "u7",
+        "DD",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t6",
+        "post",
+        "u7",
+        null,
+        "bear"
+      ],
+      [
+        "HHH",
+        "t7",
+        "post",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t8",
+        "post",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t9",
+        "post",
+        "u3",
+        "Gain",
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "BBB": {
+        "mentions": 4,
+        "velocity": null
+      },
+      "EEE": {
+        "mentions": 0,
+        "velocity": 3.0
+      },
+      "FFF": {
+        "mentions": 6,
+        "velocity": 1.0
+      },
+      "GGG": {
+        "mentions": 3,
+        "velocity": 3.0
+      },
+      "GME": {
+        "mentions": 2,
+        "velocity": null
+      },
+      "HHH": {
+        "mentions": 0,
+        "velocity": 1.0
+      }
+    },
+    "prior_sov_ranks": {
+      "BBB": 6,
+      "EEE": 1,
+      "FFF": 4,
+      "GGG": 5,
+      "GME": 2,
+      "HHH": 3
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.15
+    },
+    "window_seconds": 3600,
+    "window_start": 1704607200
+  },
+  "name": "random/012",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704607450,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": 6.0,
+        "authors": 6,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.85,
+        "h_m": null,
+        "mentions": 7,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.2059,
+        "ticker": "HHH",
+        "velocity": 7.0,
+        "z": null
+      },
+      {
+        "accel": 0.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.65,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1765,
+        "ticker": "GGG",
+        "velocity": 3.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 4,
+        "baseline_status": "ready",
+        "dd_count": 1,
+        "h_e": 0.55,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": -0.5,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1765,
+        "ticker": "TSLA",
+        "velocity": 6.0,
+        "z": -0.102
+      },
+      {
+        "accel": 0.0,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.425,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0882,
+        "ticker": "EEE",
+        "velocity": 3.0,
+        "z": null
+      },
+      {
+        "accel": -3.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.3,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1176,
+        "ticker": "FFF",
+        "velocity": -2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.2333,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0588,
+        "ticker": "BBB",
+        "velocity": -2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "ready",
+        "dd_count": 1,
+        "h_e": 0.1667,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0588,
+        "ticker": "QQQ",
+        "velocity": 2.0,
+        "z": -0.602
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.1083,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 8,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0588,
+        "ticker": "GME",
+        "velocity": 0.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.1,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 9,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0588,
+        "ticker": "AAA",
+        "velocity": 2.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 34,
+    "window_end": 1704610800,
+    "window_seconds": 3600,
+    "window_start": 1704607200
+  }
+}

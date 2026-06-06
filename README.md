@@ -8,8 +8,11 @@ show whether the market is **confirming** the chatter or **diverging** from it.
 > `uv run wsb run` polls Arctic-Shift every 5 min, computes the SoV-primary, baseline-gated **`H_e`**
 > leaderboard, overlays Alpaca market data (`ret`/`rvol` → **`H_m`**) for the hot list, and captures
 > the free screeners → DuckDB + a JSON snapshot; `uv run wsb dashboard` shows it in Streamlit.
-> **Milestones:** `v0.0.1 = Phase 0→2` (radar + overlay; **options enrich `H_m`** to finish);
-> `v0.0.2 = Phase 3` (divergence quadrants + STEALTH + lead-lag). See [`ROADMAP.md`](./ROADMAP.md).
+> **Now → next:** **v0.0.1 is FROZEN** (tagged, stable — the Python/DuckDB/Streamlit stack described
+> here). **Active development is v2 — a full-stack TypeScript rewrite**: the whole worker re-implemented
+> in TS + a Nuxt 4 SSR frontend + Postgres, in a pnpm monorepo. See [`design/v2-plan.md`](./design/v2-plan.md)
+> + [`design/v2-porting-spec.md`](./design/v2-porting-spec.md). v0.0.1 = Phase 0→2 (radar + overlay); the
+> v0.0.2 product (divergence/quadrants/STEALTH/lead-lag) is built **within v2**. See [`ROADMAP.md`](./ROADMAP.md).
 >
 > **This is observational/correlational research, not financial advice.** WSB *moves* the names it
 > discusses (reflexivity), gain-posts are survivorship-biased, and the sub is a manipulation-prone
@@ -139,11 +142,13 @@ resuming, and don't publish stale signals. Threshold: `heartbeat.max_staleness_s
   method works per source).
 
 **`design/`** — how the system works:
+- [`v2-plan.md`](./design/v2-plan.md) — **the v2 plan** (full-stack TypeScript; active development).
+- [`v2-porting-spec.md`](./design/v2-porting-spec.md) — the Python→TS **parity contract** for v2.
 - [`signal-framework.md`](./design/signal-framework.md) — the two-family model, normalization,
-  `H_e`/`H_m`, divergence quadrants, lead-lag. **Start here for the concept.**
-- [`architecture.md`](./design/architecture.md) — pipeline, components, schema, cadence, stack.
+  `H_e`/`H_m`, divergence quadrants, lead-lag (version-agnostic concept). **Start here for the concept.**
+- [`architecture.md`](./design/architecture.md) — pipeline, components, schema, cadence, stack (v0.0.1).
 
-[`ROADMAP.md`](./ROADMAP.md) — phased build plan (v0.0.1 = Phase 0→2; v0.0.2 = Phase 3).
+[`ROADMAP.md`](./ROADMAP.md) — phased build history (v0.0.1 = Phase 0→2, **frozen**; v2 = full-stack TS).
 
 ## Glossary
 

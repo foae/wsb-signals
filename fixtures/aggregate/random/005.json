@@ -1,0 +1,477 @@
+{
+  "features": [
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 2, \"Gain\": 1}",
+      "h_e": 0.7541666666666667,
+      "mentions": 5,
+      "net_dir": -1.0,
+      "sov": 0.3333333333333333,
+      "ticker": "SPY",
+      "velocity": 1.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": 0.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 2}",
+      "h_e": 0.52,
+      "mentions": 6,
+      "net_dir": 0.2,
+      "sov": 0.4,
+      "ticker": "QQQ",
+      "velocity": 4.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1}",
+      "h_e": 0.12777777777777777,
+      "mentions": 2,
+      "net_dir": 0.0,
+      "sov": 0.13333333333333333,
+      "ticker": "HHH",
+      "velocity": 2.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"YOLO\": 1}",
+      "h_e": 0.06527777777777777,
+      "mentions": 1,
+      "net_dir": 1.0,
+      "sov": 0.06666666666666667,
+      "ticker": "AMD",
+      "velocity": 1.0,
+      "window_start": 1705543200,
+      "z": null
+    },
+    {
+      "accel": -6.0,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.06527777777777777,
+      "mentions": 1,
+      "net_dir": -1.0,
+      "sov": 0.06666666666666667,
+      "ticker": "EEE",
+      "velocity": -7.0,
+      "window_start": 1705543200,
+      "z": null
+    }
+  ],
+  "generated_at": 1705543450,
+  "inputs": {
+    "feature_history": [
+      [
+        "AMD",
+        1704938400,
+        6
+      ],
+      [
+        "AMD",
+        1704333600,
+        2
+      ],
+      [
+        "AMD",
+        1703728800,
+        7
+      ],
+      [
+        "AMD",
+        1703124000,
+        7
+      ],
+      [
+        "AMD",
+        1702519200,
+        4
+      ],
+      [
+        "SPY",
+        1705539600,
+        4
+      ],
+      [
+        "SPY",
+        1704938400,
+        7
+      ],
+      [
+        "SPY",
+        1704333600,
+        9
+      ],
+      [
+        "QQQ",
+        1705539600,
+        2
+      ],
+      [
+        "QQQ",
+        1704938400,
+        9
+      ],
+      [
+        "QQQ",
+        1704333600,
+        5
+      ],
+      [
+        "QQQ",
+        1703728800,
+        1
+      ],
+      [
+        "QQQ",
+        1703124000,
+        1
+      ],
+      [
+        "QQQ",
+        1702519200,
+        9
+      ],
+      [
+        "QQQ",
+        1701914400,
+        6
+      ],
+      [
+        "QQQ",
+        1701309600,
+        8
+      ],
+      [
+        "HHH",
+        1705539600,
+        0
+      ],
+      [
+        "HHH",
+        1704938400,
+        5
+      ],
+      [
+        "HHH",
+        1704333600,
+        1
+      ],
+      [
+        "HHH",
+        1703728800,
+        5
+      ],
+      [
+        "EEE",
+        1705539600,
+        8
+      ],
+      [
+        "EEE",
+        1704938400,
+        8
+      ],
+      [
+        "EEE",
+        1704333600,
+        4
+      ],
+      [
+        "EEE",
+        1703728800,
+        2
+      ],
+      [
+        "EEE",
+        1703124000,
+        2
+      ]
+    ],
+    "hour_of_week": 74,
+    "mentions_in_window": [
+      [
+        "AMD",
+        "t1",
+        "post",
+        "u6",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "QQQ",
+        "t10",
+        "post",
+        "u2",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "QQQ",
+        "t11",
+        "comment",
+        "u3",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "QQQ",
+        "t12",
+        "post",
+        "u1",
+        null,
+        "bear"
+      ],
+      [
+        "HHH",
+        "t13",
+        "post",
+        "u0",
+        null,
+        "bear"
+      ],
+      [
+        "HHH",
+        "t14",
+        "post",
+        "u1",
+        "Discussion",
+        "bull"
+      ],
+      [
+        "EEE",
+        "t15",
+        "post",
+        "u7",
+        null,
+        "bear"
+      ],
+      [
+        "SPY",
+        "t2",
+        "post",
+        "u1",
+        "DD",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t3",
+        "comment",
+        "u4",
+        "DD",
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t4",
+        "post",
+        "u4",
+        null,
+        "neutral"
+      ],
+      [
+        "SPY",
+        "t5",
+        "post",
+        "u6",
+        "Gain",
+        "bear"
+      ],
+      [
+        "SPY",
+        "t6",
+        "post",
+        "u4",
+        null,
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t7",
+        "comment",
+        "u5",
+        "DD",
+        "bull"
+      ],
+      [
+        "QQQ",
+        "t8",
+        "post",
+        "u2",
+        null,
+        "neutral"
+      ],
+      [
+        "QQQ",
+        "t9",
+        "post",
+        "u2",
+        null,
+        "bull"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "EEE": {
+        "mentions": 8,
+        "velocity": -1.0
+      },
+      "HHH": {
+        "mentions": 0,
+        "velocity": null
+      },
+      "QQQ": {
+        "mentions": 2,
+        "velocity": 4.0
+      },
+      "SPY": {
+        "mentions": 4,
+        "velocity": null
+      }
+    },
+    "prior_sov_ranks": {
+      "EEE": 4,
+      "HHH": 2,
+      "QQQ": 1,
+      "SPY": 3
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1705543200
+  },
+  "name": "random/005",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1705543450,
+    "quiet": true,
+    "rows": [
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.7542,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.3333,
+        "ticker": "SPY",
+        "velocity": 1.0,
+        "z": null
+      },
+      {
+        "accel": 0.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.52,
+        "h_m": null,
+        "mentions": 6,
+        "name": "",
+        "net_dir": 0.2,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.4,
+        "ticker": "QQQ",
+        "velocity": 4.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.1278,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1333,
+        "ticker": "HHH",
+        "velocity": 2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.0653,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": 1.0,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0667,
+        "ticker": "AMD",
+        "velocity": 1.0,
+        "z": null
+      },
+      {
+        "accel": -6.0,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.0653,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0667,
+        "ticker": "EEE",
+        "velocity": -7.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 15,
+    "window_end": 1705546800,
+    "window_seconds": 3600,
+    "window_start": 1705543200
+  }
+}

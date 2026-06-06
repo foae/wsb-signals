@@ -1,0 +1,712 @@
+{
+  "features": [
+    {
+      "accel": 0.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"YOLO\": 1}",
+      "h_e": 0.7833333333333333,
+      "mentions": 5,
+      "net_dir": -0.3333333333333333,
+      "sov": 0.23809523809523808,
+      "ticker": "HHH",
+      "velocity": 1.0,
+      "window_start": 1704711600,
+      "z": null
+    },
+    {
+      "accel": -8.0,
+      "authors": 4,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Discussion\": 1, \"Gain\": 1, \"YOLO\": 1}",
+      "h_e": 0.5299999999999999,
+      "mentions": 4,
+      "net_dir": 0.0,
+      "sov": 0.19047619047619047,
+      "ticker": "NVDA",
+      "velocity": -4.0,
+      "window_start": 1704711600,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{\"Discussion\": 1}",
+      "h_e": 0.4258333333333333,
+      "mentions": 4,
+      "net_dir": -0.3333333333333333,
+      "sov": 0.19047619047619047,
+      "ticker": "EEE",
+      "velocity": 4.0,
+      "window_start": 1704711600,
+      "z": -0.40933261718236147
+    },
+    {
+      "accel": null,
+      "authors": 3,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{\"YOLO\": 1}",
+      "h_e": 0.3225,
+      "mentions": 3,
+      "net_dir": 0.0,
+      "sov": 0.14285714285714285,
+      "ticker": "PLTR",
+      "velocity": -4.0,
+      "window_start": 1704711600,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 2,
+      "baseline_status": "warming",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1, \"Gain\": 1}",
+      "h_e": 0.20999999999999996,
+      "mentions": 2,
+      "net_dir": 0.0,
+      "sov": 0.09523809523809523,
+      "ticker": "DDD",
+      "velocity": 2.0,
+      "window_start": 1704711600,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "ready",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.06916666666666665,
+      "mentions": 1,
+      "net_dir": -1.0,
+      "sov": 0.047619047619047616,
+      "ticker": "BBB",
+      "velocity": 0.0,
+      "window_start": 1704711600,
+      "z": -2.4879944290672693
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.06916666666666665,
+      "mentions": 1,
+      "net_dir": -1.0,
+      "sov": 0.047619047619047616,
+      "ticker": "GGG",
+      "velocity": 1.0,
+      "window_start": 1704711600,
+      "z": null
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "warming",
+      "dd_count": 0,
+      "flair_counts": "{\"Gain\": 1}",
+      "h_e": 0.03583333333333333,
+      "mentions": 1,
+      "net_dir": 0.0,
+      "sov": 0.047619047619047616,
+      "ticker": "SPY",
+      "velocity": 1.0,
+      "window_start": 1704711600,
+      "z": null
+    }
+  ],
+  "generated_at": 1704711850,
+  "inputs": {
+    "feature_history": [
+      [
+        "EEE",
+        1704106800,
+        4
+      ],
+      [
+        "EEE",
+        1703502000,
+        4
+      ],
+      [
+        "EEE",
+        1702897200,
+        6
+      ],
+      [
+        "EEE",
+        1702292400,
+        5
+      ],
+      [
+        "EEE",
+        1701687600,
+        5
+      ],
+      [
+        "EEE",
+        1701082800,
+        7
+      ],
+      [
+        "EEE",
+        1700478000,
+        6
+      ],
+      [
+        "EEE",
+        1699873200,
+        1
+      ],
+      [
+        "BBB",
+        1704708000,
+        1
+      ],
+      [
+        "BBB",
+        1704106800,
+        9
+      ],
+      [
+        "BBB",
+        1703502000,
+        5
+      ],
+      [
+        "BBB",
+        1702897200,
+        5
+      ],
+      [
+        "BBB",
+        1702292400,
+        3
+      ],
+      [
+        "BBB",
+        1701687600,
+        8
+      ],
+      [
+        "BBB",
+        1701082800,
+        5
+      ],
+      [
+        "BBB",
+        1700478000,
+        5
+      ],
+      [
+        "BBB",
+        1699873200,
+        7
+      ],
+      [
+        "PLTR",
+        1704708000,
+        7
+      ],
+      [
+        "GGG",
+        1704106800,
+        5
+      ],
+      [
+        "GGG",
+        1703502000,
+        7
+      ],
+      [
+        "NVDA",
+        1704708000,
+        8
+      ],
+      [
+        "NVDA",
+        1704106800,
+        1
+      ],
+      [
+        "NVDA",
+        1703502000,
+        3
+      ],
+      [
+        "NVDA",
+        1702897200,
+        8
+      ],
+      [
+        "NVDA",
+        1702292400,
+        5
+      ],
+      [
+        "NVDA",
+        1701687600,
+        6
+      ],
+      [
+        "NVDA",
+        1701082800,
+        3
+      ],
+      [
+        "SPY",
+        1704106800,
+        2
+      ],
+      [
+        "SPY",
+        1703502000,
+        1
+      ],
+      [
+        "SPY",
+        1702897200,
+        3
+      ],
+      [
+        "SPY",
+        1702292400,
+        7
+      ],
+      [
+        "SPY",
+        1701687600,
+        6
+      ],
+      [
+        "SPY",
+        1701082800,
+        6
+      ],
+      [
+        "HHH",
+        1704708000,
+        4
+      ],
+      [
+        "HHH",
+        1704106800,
+        2
+      ],
+      [
+        "HHH",
+        1703502000,
+        3
+      ],
+      [
+        "HHH",
+        1702897200,
+        7
+      ],
+      [
+        "HHH",
+        1702292400,
+        2
+      ],
+      [
+        "DDD",
+        1704106800,
+        8
+      ],
+      [
+        "DDD",
+        1703502000,
+        3
+      ],
+      [
+        "DDD",
+        1702897200,
+        2
+      ],
+      [
+        "DDD",
+        1702292400,
+        4
+      ]
+    ],
+    "hour_of_week": 11,
+    "mentions_in_window": [
+      [
+        "EEE",
+        "t1",
+        "comment",
+        "u0",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t10",
+        "post",
+        "u4",
+        "DD",
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t11",
+        "comment",
+        "u7",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "NVDA",
+        "t12",
+        "post",
+        "u6",
+        "Gain",
+        "bull"
+      ],
+      [
+        "NVDA",
+        "t13",
+        "post",
+        "u3",
+        "YOLO",
+        "bear"
+      ],
+      [
+        "SPY",
+        "t14",
+        "post",
+        "u3",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t15",
+        "comment",
+        "u4",
+        "YOLO",
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t16",
+        "post",
+        "u5",
+        null,
+        "bull"
+      ],
+      [
+        "HHH",
+        "t17",
+        "post",
+        "u2",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "HHH",
+        "t18",
+        "comment",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "HHH",
+        "t19",
+        "post",
+        "u6",
+        "DD",
+        "bear"
+      ],
+      [
+        "EEE",
+        "t2",
+        "post",
+        "u3",
+        null,
+        "bear"
+      ],
+      [
+        "DDD",
+        "t20",
+        "comment",
+        "u1",
+        "Gain",
+        "neutral"
+      ],
+      [
+        "DDD",
+        "t21",
+        "post",
+        "u5",
+        "DD",
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t3",
+        "post",
+        "u6",
+        null,
+        "neutral"
+      ],
+      [
+        "EEE",
+        "t4",
+        "comment",
+        "u0",
+        "Discussion",
+        "bear"
+      ],
+      [
+        "BBB",
+        "t5",
+        "post",
+        "u4",
+        null,
+        "bear"
+      ],
+      [
+        "PLTR",
+        "t6",
+        "post",
+        "u0",
+        null,
+        "neutral"
+      ],
+      [
+        "PLTR",
+        "t7",
+        "post",
+        "u4",
+        "YOLO",
+        "bull"
+      ],
+      [
+        "PLTR",
+        "t8",
+        "post",
+        "u7",
+        null,
+        "bear"
+      ],
+      [
+        "GGG",
+        "t9",
+        "post",
+        "u7",
+        null,
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "BBB": {
+        "mentions": 1,
+        "velocity": null
+      },
+      "HHH": {
+        "mentions": 4,
+        "velocity": 1.0
+      },
+      "NVDA": {
+        "mentions": 8,
+        "velocity": 4.0
+      },
+      "PLTR": {
+        "mentions": 7,
+        "velocity": null
+      }
+    },
+    "prior_sov_ranks": {
+      "BBB": 2,
+      "HHH": 4,
+      "NVDA": 3,
+      "PLTR": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1704711600
+  },
+  "name": "random/007",
+  "names": {},
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704711850,
+    "quiet": false,
+    "rows": [
+      {
+        "accel": 0.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.7833,
+        "h_m": null,
+        "mentions": 5,
+        "name": "",
+        "net_dir": -0.333,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.2381,
+        "ticker": "HHH",
+        "velocity": 1.0,
+        "z": null
+      },
+      {
+        "accel": -8.0,
+        "authors": 4,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.53,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1905,
+        "ticker": "NVDA",
+        "velocity": -4.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.4258,
+        "h_m": null,
+        "mentions": 4,
+        "name": "",
+        "net_dir": -0.333,
+        "rank": 3,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1905,
+        "ticker": "EEE",
+        "velocity": 4.0,
+        "z": -0.409
+      },
+      {
+        "accel": null,
+        "authors": 3,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.3225,
+        "h_m": null,
+        "mentions": 3,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 4,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.1429,
+        "ticker": "PLTR",
+        "velocity": -4.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 2,
+        "baseline_status": "warming",
+        "dd_count": 1,
+        "h_e": 0.21,
+        "h_m": null,
+        "mentions": 2,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 5,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0952,
+        "ticker": "DDD",
+        "velocity": 2.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "ready",
+        "dd_count": 0,
+        "h_e": 0.0692,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 6,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0476,
+        "ticker": "BBB",
+        "velocity": 0.0,
+        "z": -2.488
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.0692,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": -1.0,
+        "rank": 7,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0476,
+        "ticker": "GGG",
+        "velocity": 1.0,
+        "z": null
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "warming",
+        "dd_count": 0,
+        "h_e": 0.0358,
+        "h_m": null,
+        "mentions": 1,
+        "name": "",
+        "net_dir": 0.0,
+        "rank": 8,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.0476,
+        "ticker": "SPY",
+        "velocity": 1.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 21,
+    "window_end": 1704715200,
+    "window_seconds": 3600,
+    "window_start": 1704711600
+  }
+}

@@ -1,0 +1,195 @@
+{
+  "features": [
+    {
+      "accel": -2.0,
+      "authors": 3,
+      "baseline_status": "ready",
+      "dd_count": 1,
+      "flair_counts": "{\"DD\": 1}",
+      "h_e": 0.7,
+      "mentions": 3,
+      "net_dir": 1.0,
+      "sov": 0.75,
+      "ticker": "NVDA",
+      "velocity": -1.0,
+      "window_start": 1704067200,
+      "z": -0.7637626158259734
+    },
+    {
+      "accel": null,
+      "authors": 1,
+      "baseline_status": "cold",
+      "dd_count": 0,
+      "flair_counts": "{}",
+      "h_e": 0.08888888888888888,
+      "mentions": 1,
+      "net_dir": -1.0,
+      "sov": 0.25,
+      "ticker": "AMD",
+      "velocity": 1.0,
+      "window_start": 1704067200,
+      "z": null
+    }
+  ],
+  "generated_at": 1704067450,
+  "inputs": {
+    "feature_history": [
+      [
+        "NVDA",
+        1703462400,
+        3
+      ],
+      [
+        "NVDA",
+        1702857600,
+        5
+      ],
+      [
+        "NVDA",
+        1702252800,
+        2
+      ],
+      [
+        "NVDA",
+        1701648000,
+        4
+      ],
+      [
+        "NVDA",
+        1701043200,
+        6
+      ],
+      [
+        "NVDA",
+        1700438400,
+        3
+      ],
+      [
+        "NVDA",
+        1699833600,
+        5
+      ],
+      [
+        "NVDA",
+        1699228800,
+        4
+      ],
+      [
+        "NVDA",
+        1704063600,
+        4
+      ]
+    ],
+    "hour_of_week": 0,
+    "mentions_in_window": [
+      [
+        "NVDA",
+        "b1",
+        "post",
+        "alice",
+        "DD",
+        "bull"
+      ],
+      [
+        "NVDA",
+        "b2",
+        "comment",
+        "bob",
+        null,
+        "bull"
+      ],
+      [
+        "NVDA",
+        "b3",
+        "comment",
+        "carol",
+        null,
+        "bull"
+      ],
+      [
+        "AMD",
+        "b4",
+        "comment",
+        "dave",
+        null,
+        "bear"
+      ]
+    ],
+    "min_authors_full": 3,
+    "min_samples_ready": 8,
+    "prior_features": {
+      "NVDA": {
+        "mentions": 4,
+        "velocity": 1.0
+      }
+    },
+    "prior_sov_ranks": {
+      "NVDA": 1
+    },
+    "weights": {
+      "accel": 0.15,
+      "authors": 0.15,
+      "conviction": 0.1,
+      "net_dir": 0.1,
+      "rank_delta": 0.15,
+      "sov": 0.35,
+      "z": 0.0
+    },
+    "window_seconds": 3600,
+    "window_start": 1704067200
+  },
+  "name": "baseline_ready",
+  "names": {
+    "AMD": "ADVANCED MICRO DEVICES INC COMMON STOCK",
+    "NVDA": "NVIDIA CORPORATION COMMON STOCK"
+  },
+  "snapshot": {
+    "capped": false,
+    "generated_at": 1704067450,
+    "quiet": true,
+    "rows": [
+      {
+        "accel": -2.0,
+        "authors": 3,
+        "baseline_status": "ready",
+        "dd_count": 1,
+        "h_e": 0.7,
+        "h_m": null,
+        "mentions": 3,
+        "name": "Nvidia Corporation",
+        "net_dir": 1.0,
+        "rank": 1,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.75,
+        "ticker": "NVDA",
+        "velocity": -1.0,
+        "z": -0.764
+      },
+      {
+        "accel": null,
+        "authors": 1,
+        "baseline_status": "cold",
+        "dd_count": 0,
+        "h_e": 0.0889,
+        "h_m": null,
+        "mentions": 1,
+        "name": "Advanced Micro Devices Inc",
+        "net_dir": -1.0,
+        "rank": 2,
+        "ret": null,
+        "rvol": null,
+        "rvol_conf": null,
+        "sov": 0.25,
+        "ticker": "AMD",
+        "velocity": 1.0,
+        "z": null
+      }
+    ],
+    "total_mentions": 4,
+    "window_end": 1704070800,
+    "window_seconds": 3600,
+    "window_start": 1704067200
+  }
+}

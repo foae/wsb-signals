@@ -1,0 +1,52 @@
+{
+  "cassette": {
+    "most_actives": {
+      "json": {
+        "most_actives": [
+          {
+            "symbol": "SPY",
+            "volume": 1
+          },
+          {
+            "volume": 2
+          },
+          {
+            "symbol": "QQQ",
+            "volume": 3
+          }
+        ]
+      },
+      "status": 200
+    },
+    "movers": {
+      "json": {
+        "gainers": [],
+        "losers": []
+      },
+      "status": 200
+    }
+  },
+  "expected": [
+    {
+      "kind": "active",
+      "percent_change": null,
+      "price": null,
+      "rank": 1,
+      "symbol": "SPY",
+      "ts": 1704070800,
+      "volume": 1
+    },
+    {
+      "kind": "active",
+      "percent_change": null,
+      "price": null,
+      "rank": 3,
+      "symbol": "QQQ",
+      "ts": 1704070800,
+      "volume": 3
+    }
+  ],
+  "name": "symbolless_gap",
+  "now": 1704070800,
+  "top": 10
+}

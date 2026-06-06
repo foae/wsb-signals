@@ -19,3 +19,17 @@ data/
 
 # Derived ticker whitelist — refreshable via `wsb build-whitelist` (stoplist.txt is curated, kept)
 whitelist/symbols.txt
+
+# Node / TypeScript (v2 monorepo)
+node_modules/
+.pnpm-store/
+*.tsbuildinfo
+packages/*/dist/
+packages/*/.nuxt/
+packages/*/.output/
+packages/*/.nitro/
+
+# Golden parity fixtures (fixtures/) ARE committed — they are the v0.0.1→v2 parity contract
+# (v2-plan.md §2, v2-porting-spec.md §1). Only scratch/regenerated scratch is ignored.
+fixtures/tmp/
+*.tmp.json

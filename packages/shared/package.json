@@ -1,0 +1,25 @@
+{
+  "name": "@wsb/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts",
+    "./migrations": "./src/migrations.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.0",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3"
+  }
+}

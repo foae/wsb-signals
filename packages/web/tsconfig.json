@@ -1,0 +1,10 @@
+{
+  "//": "Nuxt 4 generates the real per-environment tsconfigs in .nuxt/ on `nuxt prepare`. Use `nuxt typecheck`, not bare `tsc`.",
+  "files": [],
+  "references": [
+    { "path": "./.nuxt/tsconfig.app.json" },
+    { "path": "./.nuxt/tsconfig.server.json" },
+    { "path": "./.nuxt/tsconfig.shared.json" },
+    { "path": "./.nuxt/tsconfig.node.json" }
+  ]
+}
