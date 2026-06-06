@@ -117,6 +117,10 @@ describe('runAggregation end-to-end vs the oracle fixtures', () => {
       windowSeconds: fx.inputs.window_seconds,
       weights: fx.inputs.weights,
       minSamplesReady: fx.inputs.min_samples_ready,
+      // Lookback ≥ window_start ⇒ `from ≤ 0`, so the v2 trailing bound is a NO-OP here and the read returns
+      // the oracle's full same-hour-of-week history — keeping exact fixture parity. (The hour-of-week SQL
+      // scoping IS exercised: the seeded history spans buckets, so this also checks the SQL/JS bucket math.)
+      baselineLookbackSeconds: fx.inputs.window_start,
       minAuthorsFull: fx.inputs.min_authors_full,
     }, { persist: true })
 
@@ -126,5 +130,39 @@ describe('runAggregation end-to-end vs the oracle fixtures', () => {
     const persisted = await pg.db.select().from(empiricalFeatures)
       .where(eq(empiricalFeatures.windowStart, fx.inputs.window_start))
     expect(persisted).toHaveLength(fx.features.length)
+  })
+})
+
+// The fixture replays above set baselineLookbackSeconds ≥ window_start (bound = no-op) to preserve oracle
+// parity. THIS block exercises the bound for real — proving runAggregation wires `from = windowStart −
+// baselineLookbackSeconds` so an over-bound actually excludes old same-bucket samples (a from/before swap
+// or sign error would pass everything above but fail here). Porting-spec §2.7.
+describe('runAggregation honors the trailing baseline bound (porting-spec §2.7)', () => {
+  const W0 = 1_704_067_200 // 2024-01-01 00:00 UTC (Monday) → hour_of_week 0
+  const HOUR = 3600
+  const WEEK = 604_800
+  const ZERO_W = { sov: 1, accel: 0, rank_delta: 0, authors: 0, conviction: 0, net_dir: 0, z: 0 }
+
+  it('an over-tight lookback drops ready → warming by excluding old same-bucket samples', async () => {
+    // Current window [W0, W0+1h): 8 distinct things/authors for ZZZ so it produces a board row.
+    await upsertMentions(pg.db, Array.from({ length: 8 }, (_, k) => ({
+      ticker: 'ZZZ', thingId: `c${k}`, thingType: 'comment', createdUtc: W0 + 1,
+      author: `u${k}`, flair: null, direction: 'bull',
+    })))
+    // 10 weekly same-hour-of-week (bucket 0) history samples W0−1wk … W0−10wk (varied so sd>0).
+    await pg.db.insert(empiricalFeatures).values(
+      Array.from({ length: 10 }, (_, k) => ({
+        ticker: 'ZZZ', windowStart: W0 - (k + 1) * WEEK, mentions: 3 + (k % 4), sov: 0, velocity: null,
+      })),
+    )
+    const base = { windowSeconds: HOUR, weights: ZERO_W, minSamplesReady: 8, minAuthorsFull: 3 }
+
+    // Lookback 100wk ⇒ all 10 samples in-window ⇒ n=10 ≥ 8 ⇒ ready.
+    const ready = await runAggregation(pg.db, W0, { ...base, baselineLookbackSeconds: 100 * WEEK }, { persist: false })
+    expect(ready.find((r) => r.ticker === 'ZZZ')!.baselineStatus).toBe('ready')
+
+    // Lookback 4wk ⇒ only W0−1wk…W0−4wk survive (n=4 < 8) ⇒ warming. Proves the bound is wired through.
+    const warming = await runAggregation(pg.db, W0, { ...base, baselineLookbackSeconds: 4 * WEEK }, { persist: false })
+    expect(warming.find((r) => r.ticker === 'ZZZ')!.baselineStatus).toBe('warming')
   })
 })

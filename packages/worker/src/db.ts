@@ -247,12 +247,33 @@ export async function readFeaturesAt(db: Db, windowStart: number): Promise<Prior
   return out
 }
 
-/** Every (ticker, window_start, mentions) with `window_start < before` (`feature_history`) — baselines.
- *  Ordered for determinism; the baseline mean/variance are order-independent sums so it doesn't change z. */
-export async function readFeatureHistory(db: Db, before: number): Promise<HistoryRow[]> {
+/**
+ * The z-baseline read (`feature_history`) — every `(ticker, window_start, mentions)` in the SAME
+ * hour-of-week bucket as the window being scored, within `[from, before)`.
+ *
+ * v2 BOUNDED + SCOPED (deliberate divergence from the frozen oracle — porting-spec §2.7). The oracle
+ * reads ALL history unbounded and lets `aggregate_window` filter to the hour-of-week bucket in memory; on a
+ * long-running worker that read grows without limit and pulls ~168× the rows it uses. Here the read is:
+ *  - **bounded** to the trailing `[from, before)` window (`from = window_start − baseline.lookback_seconds`)
+ *    — the only behavioral change vs the oracle: the baseline becomes a rolling window, not all-time. With
+ *    `weights.z = 0` it has ZERO effect on `H_e`; it only changes the persisted `z` field once a deploy
+ *    exceeds the lookback. The shadow gate stays green (replay consumes this captured, already-bounded set).
+ *  - **scoped** to `hour_of_week(window_start) = how` in SQL — a parity-preserving optimization: it returns
+ *    exactly the subset `aggregate_window` would keep, so its in-memory hour-of-week filter is a redundant
+ *    safety net (and the golden fixtures, which feed `aggregate_window` directly, are untouched). The SQL
+ *    expression mirrors `aggregate.hourOfWeek` operation-for-operation — Postgres `dow` is Sun=0..Sat=6,
+ *    identical to JS `getUTCDay()` — and `reads.it.test` pins the two to agree.
+ * Ordered for determinism (baseline mean/variance are order-independent sums, so order doesn't change z).
+ */
+export async function readFeatureHistory(
+  db: Db, before: number, from: number, how: number,
+): Promise<HistoryRow[]> {
+  // hour_of_week(window_start), UTC, Monday=0 — mirrors aggregate.hourOfWeek: ((getUTCDay()+6)%7)*24 + hour.
+  const howExpr = sql`(((extract(dow from (to_timestamp(${empiricalFeatures.windowStart}) at time zone 'UTC'))::int + 6) % 7) * 24 + extract(hour from (to_timestamp(${empiricalFeatures.windowStart}) at time zone 'UTC'))::int)`
   const rows = await db.select({
     ticker: empiricalFeatures.ticker, windowStart: empiricalFeatures.windowStart, mentions: empiricalFeatures.mentions,
-  }).from(empiricalFeatures).where(lt(empiricalFeatures.windowStart, before))
+  }).from(empiricalFeatures)
+    .where(and(gte(empiricalFeatures.windowStart, from), lt(empiricalFeatures.windowStart, before), sql`${howExpr} = ${how}`))
     .orderBy(asc(empiricalFeatures.windowStart), sql`${empiricalFeatures.ticker} collate "C"`)
   return rows.map((r) => [r.ticker, r.windowStart, r.mentions ?? 0] as const)
 }

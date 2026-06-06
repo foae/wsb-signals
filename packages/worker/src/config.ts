@@ -5,7 +5,7 @@
  * `os.environ` overlay). Nothing here is on the scoring hot path; it just assembles the worker.
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { parse as parseToml } from 'smol-toml'
 
@@ -38,7 +38,7 @@ interface RawConfig {
     bots: string[]
   }
   heat: { min_authors_full: number; min_window_mentions: number; weights: HeatWeights }
-  baseline: { min_samples_ready: number }
+  baseline: { min_samples_ready: number; lookback_seconds: number }
   market: { feed: string; top_n: number; screener_top: number; weights: MarketWeights }
   signals: {
     median_lookback_seconds: number
@@ -90,6 +90,28 @@ function readDotenv(root: string): Record<string, string> {
   return out
 }
 
+/**
+ * Resolve the project root (the dir holding `config.toml`) independent of the invocation cwd. Necessary
+ * because the documented run commands and the container both start the worker with cwd =
+ * `packages/worker` (`pnpm -C packages/worker …` runs scripts there; the image runs from
+ * `/app/packages/worker`), neither of which holds `config.toml`/`whitelist/` — those live at the repo
+ * root. Honors an explicit `WSB_ROOT` override (set in the image), else walks up from `start` to the first
+ * dir containing `config.toml`, else returns `start` (loadConfig then surfaces a clear ENOENT).
+ */
+export function findRoot(start: string = process.cwd()): string {
+  // WSB_ROOT is a hint, honored ONLY if it actually holds config.toml — a stale or relative override
+  // shouldn't silently break resolution; fall through to the walk-up instead.
+  const override = process.env.WSB_ROOT
+  if (override && existsSync(join(override, 'config.toml'))) return override
+  let dir = start
+  for (;;) {
+    if (existsSync(join(dir, 'config.toml'))) return dir
+    const parent = dirname(dir)
+    if (parent === dir) return start // reached the filesystem root without finding it
+    dir = parent
+  }
+}
+
 export function loadConfig(root: string): LoadedConfig {
   const raw = parseToml(readFileSync(join(root, 'config.toml'), 'utf8')) as unknown as RawConfig
   // Real env vars WIN over the .env file (container-native secrets — Python overlays os.environ).
@@ -108,6 +130,7 @@ export function loadConfig(root: string): LoadedConfig {
       windowSeconds: raw.ingest.window_seconds,
       weights: raw.heat.weights,
       minSamplesReady: raw.baseline.min_samples_ready,
+      baselineLookbackSeconds: raw.baseline.lookback_seconds,
       minAuthorsFull: raw.heat.min_authors_full,
     },
     market: {

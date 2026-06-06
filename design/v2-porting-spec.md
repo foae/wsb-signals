@@ -113,6 +113,39 @@ Reproduce `aggregate_window` exactly. Reference: `wsb_signals/aggregate.py` @ `v
   1-ULP order flip, put the tolerance in the **shadow-diff comparison** (treat sub-ε `h_e` rows as
   tie-equivalent), never in the production sort.
 
+### 2.7 Bounded z-baseline read (v2 DELIBERATE DIVERGENCE — slice 10 / M5)
+The oracle's `db.feature_history(before)` reads **all** prior `empirical_features` and lets `aggregate_window`
+filter to the `hour_of_week` bucket in memory. On a long-running v2 worker that read grows without bound and
+pulls ~168× the rows it uses each cycle. The v2 read (`db.readFeatureHistory`) therefore differs from the
+oracle in two ways:
+- **Scoped (parity-preserving):** the `hour_of_week` filter is pushed into SQL, so the read returns exactly
+  the subset the scorer keeps. The SQL expression mirrors `aggregate.hourOfWeek` op-for-op — Postgres
+  `extract(dow …)` is Sun=0..Sat=6, identical to JS `getUTCDay()`, so `(((dow+6)%7)*24 + hour)`. The scorer's
+  in-memory bucket filter stays as a redundant safety net, and `reads.it.test` pins the SQL and JS to agree.
+  Because the golden fixtures feed `aggregate_window` directly (bypassing the read), they are **unaffected**.
+- **Bounded (the only behavioral change):** the read is limited to the trailing `[ws − baseline.lookback_seconds, ws)`
+  window (default **26 weeks**; must exceed `min_samples_ready` weeks or buckets never reach `ready`). The
+  baseline becomes a **rolling ~6-month** window instead of all-time. With `heat.weights.z = 0` this has
+  **zero** effect on `h_e` — it changes only the persisted `z` field, and only once a deploy accumulates
+  >lookback of history. **The shadow gate stays green:** the worker captures the (already-bounded)
+  `feature_history` it read, and `oracle/replay.py` replays *that* captured input, so both sides score the
+  same population — no DRIFT. (The trade-off: the live shadow no longer re-checks the oracle's in-memory
+  bucket filter across multiple buckets, since the capture is pre-scoped; the fixtures cover that path.)
+
+**Consequences when `z` is eventually weighted (currently `z=0`, so none today):**
+- The rolling window makes `baseline_status` **non-monotonic**: a (ticker, hour-of-week) that was `ready`
+  can fall back to `warming` once its active weeks age past the lookback, and a sparse pair with <
+  `min_samples_ready` mentions in any trailing window stays `warming` forever (the oracle's all-time read
+  would eventually promote it). This is the intended "recent regime" behavior, not a bug — but it means z
+  participation flickers for low-volume tickers. Before flipping `heat.weights.z` non-zero, run a shadow
+  pass with `baseline.lookback_seconds` set very large to confirm z-parity on a real window first (a manual
+  step — the gate cannot detect input-population divergence, see above).
+- **Why bound now rather than defer** (the reviewers' main objection — bound only when z is enabled):
+  bound-now was a deliberate call. The bound is also what makes the read **indexable** — the hour-of-week
+  filter is a computed expression a plain B-tree can't serve, so without the `window_start >= from` range
+  the query degrades to a growing seq-scan; with it, the existing `empirical_features_window_start_idx`
+  range-scans only the trailing window. So the bound earns its keep on performance even while `z=0`.
+
 ## 3. Extraction & classification
 
 ### 3.1 Extractor (`extract.py`) — decision precedence (exact)
@@ -289,6 +322,18 @@ Beyond the loop: `build-whitelist`/`assets.py` (writes `whitelist/symbols.txt` t
 match the file format), `heartbeat` (exit codes 0/1/2), structured logging with matching field names,
 TOML/config loading (the `config.toml` tunables in §2–§5 above), and the `pretty_name` company-name
 formatting (`db.pretty_name`).
+
+**Status (slice 10 / M5):**
+- ✅ **`build-whitelist`** — `worker/src/assets.ts` (`fetchAlpacaAssets`/`buildWhitelist`) + the
+  `build-whitelist` CLI entry. Fetches Alpaca `/v2/assets` (via `ALPACA_ENDPOINT_URL`, default the paper
+  host — distinct from the data host), writes `symbols.txt`, upserts `ticker_names`.
+- ✅ **`heartbeat`** — `worker/src/heartbeat.ts` (pure `heartbeatVerdict` + `ArcticShiftSource.newestItemLag`),
+  exit `0`/`1`/`2`. It is the worker container's Docker healthcheck.
+- ✅ **Config root resolution** — `config.findRoot()` walks up to `config.toml` (or honors `WSB_ROOT`), so the
+  worker finds its config + wordlists regardless of cwd. The documented `pnpm -C packages/worker …`
+  commands and the container both run with cwd=`packages/worker`, which holds no `config.toml`; the prior
+  `process.cwd()` assumption would have thrown ENOENT on the first real run.
+- ⏳ **`pretty_name`** — deferred with the web (slice 8); display-only, not on the headless data path.
 
 ## 11. Signals — Attention × Action (slice 7) — NEW, **no oracle**
 
