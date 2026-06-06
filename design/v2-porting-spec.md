@@ -334,6 +334,16 @@ formatting (`db.pretty_name`).
   commands and the container both run with cwd=`packages/worker`, which holds no `config.toml`; the prior
   `process.cwd()` assumption would have thrown ENOENT on the first real run.
 - ⏳ **`pretty_name`** — deferred with the web (slice 8); display-only, not on the headless data path.
+- ⤬ **Diagnostic/ops CLIs intentionally NOT ported** (decision 2026-06-06): `eval-extractor`, `poll-once`,
+  and the one-shot `aggregate`/`market` wrappers. All are off the data path and either redundant with
+  `start --once [--no-market]` (aggregate/market) or low-value next to the `heartbeat` probe + per-cycle
+  logs (poll-once); `eval-extractor` (extractor precision proxy) is the only one with distinct value and can
+  be ported later if extractor tuning needs it. `init-db` is superseded by migrate-on-boot;
+  `aggregate.write_snapshot` is the v0.0.1 JSON/Parquet workaround, replaced by the Postgres atomic publish.
+
+**→ The headless Python→TS migration is functionally COMPLETE** (data path fully ported + parity-gated;
+248 tests). The only remaining work is the Nuxt web (slice 8), deferred by plan — a Streamlit→SSR reframe,
+not a port.
 
 ## 11. Signals — Attention × Action (slice 7) — NEW, **no oracle**
 
