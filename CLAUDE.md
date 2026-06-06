@@ -89,7 +89,12 @@ pnpm -r --if-present run test         # all unit tests
 pnpm -C packages/worker test          # unit + PARITY tests (vs fixtures/), Docker-free
 pnpm -C packages/worker test:it       # testcontainers Postgres integration — NEEDS Docker
 pnpm -C packages/worker typecheck
-pnpm -C packages/worker dev           # run the worker entry (tsx; the 5-min loop lands in slice 6)
+pnpm -C packages/worker dev           # run the worker entry (tsx; the 5-min poll loop)
+
+# live shadow (slice 9) — the deterministic replay-vs-oracle parity GATE (porting-spec §12)
+pnpm -C packages/worker start --shadow                            # worker dumps data/shadow/cycle-*.json
+uv run python oracle/replay.py data/shadow data/shadow-oracle     # frozen oracle replays the SAME inputs
+pnpm -C packages/worker shadow-diff data/shadow data/shadow-oracle # diff; exit non-zero on DRIFT — see oracle/README.md
 
 # web (@wsb/web) — Nuxt 4 SSR (read-only)
 pnpm -C packages/web dev              # dev server
@@ -100,7 +105,7 @@ pnpm -C packages/web typecheck        # nuxt typecheck (vue-tsc)
 pnpm -C packages/shared db:generate   # regenerate the Postgres migration from src/schema.ts
 
 # parity oracle — regenerate golden fixtures from the FROZEN v0.0.1 code (run in the uv env)
-uv run python oracle/dump_fixtures.py # → fixtures/*.json (the COMMITTED parity contract)
+uv run python oracle/dump_fixtures.py # → fixtures/*.json (the COMMITTED parity contract; see oracle/README.md)
 ```
 
 The v2 worker writes Postgres directly (no DuckDB lock / no JSON-snapshot workaround); the web reads it

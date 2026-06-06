@@ -25,6 +25,7 @@ import { migrationsFolder } from '@wsb/shared/migrations'
 
 import { compareBoard, type EmpiricalFeature, type HistoryRow, type MentionRow, type PriorFeatures } from './aggregate'
 import type { SeriesPoint } from './analytics'
+import type { Readback, ReadbackDiff } from './shadow'
 
 export type Db = NodePgDatabase
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
@@ -356,6 +357,104 @@ export async function readSignalSeries(
   const out = new Map<string, SeriesPoint[]>()
   for (const [t, m] of byTicker) out.set(t, [...m.values()])
   return out
+}
+
+// --- live-shadow read-back (slice 9, M4 review) ---------------------------------------------------
+
+/** Canonical sorted-key JSON of a flair_counts object, so an in-memory object and a PG jsonb (which does
+ *  NOT preserve key order) compare equal on counts regardless of serialization order. */
+function canonFlairs(v: unknown): string {
+  if (v == null) return '{}'
+  const o = v as Record<string, number>
+  return JSON.stringify(Object.fromEntries(Object.keys(o).sort().map((k) => [k, o[k]])))
+}
+
+/** True when two persisted-vs-in-memory scalars are bit-equal (same engine — no ε; null-aware). */
+function sameVal(a: unknown, b: unknown): boolean {
+  if (a == null || b == null) return a == null && b == null
+  return Object.is(a, b)
+}
+
+/** Diff one table's rows (keyed by ticker) field-by-field; append any divergence to `diffs`. */
+function diffTable(
+  table: ReadbackDiff['table'],
+  inMem: Map<string, Record<string, unknown>>,
+  persisted: Map<string, Record<string, unknown>>,
+  diffs: ReadbackDiff[],
+): void {
+  for (const t of inMem.keys()) if (!persisted.has(t)) diffs.push({ table, ticker: t, field: '(row)', in_memory: 'present', persisted: null })
+  for (const t of persisted.keys()) if (!inMem.has(t)) diffs.push({ table, ticker: t, field: '(row)', in_memory: null, persisted: 'present' })
+  for (const [t, mem] of inMem) {
+    const pers = persisted.get(t)
+    if (!pers) continue
+    for (const f of Object.keys(mem)) {
+      if (!sameVal(mem[f], pers[f])) diffs.push({ table, ticker: t, field: f, in_memory: mem[f], persisted: pers[f] })
+    }
+  }
+}
+
+/**
+ * Post-publish read-back (M4 review): re-read the window's persisted board from Postgres and diff it
+ * EXACTLY against the in-memory rows the gate just verified. Same engine ⇒ bit-equal is required; any
+ * difference is a write/coercion bug (e.g. h_e stored NULL, a JSONB flair round-trip, a BIGINT epoch
+ * coercion) or a missing `cycle_runs` marker — none of which the replay-vs-oracle diff can see (it consumes
+ * the worker's READS, not its WRITES). Closes that seam: the web reads exactly what this re-reads.
+ */
+export async function verifyPublished(
+  db: Db,
+  windowStart: number,
+  inMem: {
+    features: readonly EmpiricalFeature[]
+    analytical: readonly AnalyticalFeatureInsert[] | undefined
+    signals: readonly SignalInsert[]
+  },
+): Promise<Readback> {
+  const diffs: ReadbackDiff[] = []
+
+  // empirical_features — the crown jewel the web reads.
+  const empRows = await db.select().from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, windowStart))
+  diffTable('empirical',
+    new Map(inMem.features.map((f) => [f.ticker, {
+      mentions: f.mentions, authors: f.authors, sov: f.sov, velocity: f.velocity, accel: f.accel,
+      z: f.z, net_dir: f.netDir, dd_count: f.ddCount, flair_counts: canonFlairs(f.flairCounts),
+      baseline_status: f.baselineStatus, h_e: f.hE,
+    }])),
+    new Map(empRows.map((r) => [r.ticker, {
+      mentions: r.mentions, authors: r.authors, sov: r.sov, velocity: r.velocity, accel: r.accel,
+      z: r.z, net_dir: r.netDir, dd_count: r.ddCount, flair_counts: canonFlairs(r.flairCounts),
+      baseline_status: r.baselineStatus, h_e: r.hE,
+    }])),
+    diffs)
+
+  // analytical_features — only when a FRESH overlay was published this cycle (a preserved/absent overlay
+  // leaves the prior rows in place, which the in-memory set doesn't represent, so there's nothing to diff).
+  if (inMem.analytical && inMem.analytical.length) {
+    const anaRows = await db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, windowStart))
+    diffTable('analytical',
+      new Map(inMem.analytical.map((a) => [a.ticker, { ret: a.ret ?? null, rvol: a.rvol ?? null, rvol_conf: a.rvolConf ?? null, h_m: a.hM ?? null }])),
+      new Map(anaRows.map((r) => [r.ticker, { ret: r.ret, rvol: r.rvol, rvol_conf: r.rvolConf, h_m: r.hM }])),
+      diffs)
+  }
+
+  // signals
+  const sigRows = await db.select().from(signals).where(eq(signals.windowStart, windowStart))
+  diffTable('signals',
+    new Map(inMem.signals.map((s) => [s.ticker, {
+      h_e: s.hE ?? null, h_m: s.hM ?? null, divergence: s.divergence ?? null, quadrant: s.quadrant ?? null,
+      rank: s.rank ?? null, rank_delta: s.rankDelta ?? null, lead_lag_hrs: s.leadLagHrs ?? null,
+    }])),
+    new Map(sigRows.map((r) => [r.ticker, {
+      h_e: r.hE, h_m: r.hM, divergence: r.divergence, quadrant: r.quadrant,
+      rank: r.rank, rank_delta: r.rankDelta, lead_lag_hrs: r.leadLagHrs,
+    }])),
+    diffs)
+
+  // cycle_runs publish marker — its existence == the cycle committed; the reader gates on status 'complete'.
+  const cr = await db.select().from(cycleRuns).where(eq(cycleRuns.windowStart, windowStart)).limit(1)
+  const cycleRun = cr.length === 1 && cr[0]!.status === 'complete'
+  if (!cycleRun) diffs.push({ table: 'cycle_runs', ticker: null, field: 'marker', in_memory: 'complete', persisted: cr[0]?.status ?? null })
+
+  return { ok: diffs.length === 0 && cycleRun, cycle_run: cycleRun, diffs }
 }
 
 /**

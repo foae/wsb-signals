@@ -68,6 +68,12 @@ export class TickerExtractor {
     return new TickerExtractor(stop, { regex: opts.regex, whitelist: new Set() })
   }
 
+  /** The loaded wordsets — for the live-shadow fingerprint (slice 9), so replay can verify B3 parity used
+   *  the same lists. `whitelist` is null in open mode (vs an empty set in cashtag-only fail-closed). */
+  get wordsets(): { whitelist: ReadonlySet<string> | null; stop: ReadonlySet<string>; ambiguous: ReadonlySet<string> } {
+    return { whitelist: this.whitelist, stop: this.stop, ambiguous: this.ambiguous }
+  }
+
   /** Per candidate token, return [symbol, decision] in left-to-right match order. */
   classify(text: string | null | undefined): Array<[string, Decision]> {
     const out: Array<[string, Decision]> = []
