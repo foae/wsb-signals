@@ -1,6 +1,7 @@
 # v2 — Full-stack TypeScript Plan
 
-> **Status:** authoritative blueprint for v2 (not yet built). Supersedes the hybrid
+> **Status:** v2 is **BUILT — all slices (0–10) complete**, including the slice-8 Nuxt web. This doc is
+> the blueprint + the as-built record. Supersedes the hybrid
 > `nuxt-migration.md`. Parity details live in [`v2-porting-spec.md`](./v2-porting-spec.md); the
 > concept/math/non-negotiables remain [`signal-framework.md`](./signal-framework.md) +
 > [`architecture.md`](./architecture.md). Frozen reference = `git tag v0.0.1`.
@@ -79,18 +80,18 @@ and types are defined; worker and web both import it (the single-language payoff
 > **Verify-on-implement:** ~~Nuxt 4 + Nuxt UI + pnpm settings~~ **VERIFIED in slice 0** — Nuxt 4.4.7 +
 > Nuxt UI 4.8.2 (note: **v4**, not the v3 the earlier draft assumed) install, `nuxt prepare`, typecheck,
 > and a full SSR build are green under pnpm 11 (the native builds it needs are approved in
-> `pnpm-workspace.yaml`). Still open: `@nuxtjs/html-validator` compatibility (slice 8) and Drizzle's
-> batch-insert param handling under the 65535 cap (slice 3, porting-spec §6).
+> `pnpm-workspace.yaml`). `@nuxtjs/html-validator` **VERIFIED compatible** with Nuxt 4 + Nuxt UI v4 in
+> slice 8 (full SSR build green with it enabled). Drizzle's batch-insert param handling under the 65535
+> cap was resolved in slice 3 (≤1000-row chunking, porting-spec §6).
 
 ## 4. Build order (pure-logic-first, each slice gated on the oracle)
 
 Reordered per the review — port the cheap, deterministic, no-I/O logic first so the scoring is proven
 before live data flows; the riskiest I/O comes last, when any anomaly is isolated to it.
 
-> **Near-term focus (current):** the **headless data pipeline — process + insert into Postgres — is the
-> deliverable.** The **Nuxt web (slice 8) is DEFERRED to much later**; nothing on the data path depends
-> on it. Active track: **2 → 3 → 4 → 5 → 6 → 7**, then **9 (live shadow, DB-table diff)** and a
-> **worker-only deploy**. Milestones:
+> **Status: ALL SLICES COMPLETE (0–10).** The headless data pipeline shipped first (M1–M5); the Nuxt
+> web (slice 8) — the last slice — is now **DONE** (M6 below). The full stack (db + worker + web) is
+> built and deployable. Milestones:
 > - **M1 — process + insert (slices 2–3):** mentions → `H_e` features **written to Postgres**,
 >   oracle-gated, round-tripped on testcontainers. The empirical path is computable **and** persistable.
 > - **M2 — live + automated (slices 4–6):** Arctic-Shift ingest, Alpaca `H_m` overlay, the 5-min loop
@@ -107,9 +108,17 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 >   image): a Node/tsx worker image (migrates on boot, advisory lock, `heartbeat` healthcheck) + pinned
 >   Postgres. Ported the two remaining `also-port` CLIs — `build-whitelist` (`assets.ts`) and `heartbeat`
 >   (exit 0/1/2) — and bounded the z-baseline read to a trailing window (porting-spec §2.7) so a
->   long-running worker's `feature_history` read stays O(lookback). Web + cutover UI land later with slice 8.
+>   long-running worker's `feature_history` read stays O(lookback).
+> - **M6 — web board (slice 8): DONE.** Nuxt 4 SSR read-only board: `GET /api/board` reads the latest
+>   COMPLETE cycle in ONE read-only REPEATABLE READ transaction (snapshot-isolated against the worker's
+>   per-window republish), LEFT-joins empirical⋈signals⋈analytical⋈ticker_names, sorts in JS via the
+>   hoisted `@wsb/shared` `compareBoard` (H_m/divergence/quadrant sourced from `signals`, not analytical).
+>   Leaderboard + movers + quiet/capped/stale/empty/no-data banners + methodology copy. Read-only PG role
+>   provisioned idempotently on **worker boot** (`ensure-read-role.ts`; initdb can't fix the existing
+>   volume). `deploy/v2/` now ships **db + worker + web** (3 services). Gated by a testcontainers read-path
+>   IT (`packages/web/test/board.it.test.ts`) + the worker role-provisioning IT. Cross-model review-gated.
 >
-> **Review gate (mandatory):** at the end of each milestone (M1–M5), run a cross-model review
+> **Review gate (mandatory):** at the end of each milestone (M1–M6), run a cross-model review
 > (`/second-opinion` or `/multi-llm-review`) over the work since the last gate — catch parity/
 > architecture drift before building further. Synthesize, fix real findings, then advance.
 
@@ -132,18 +141,22 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
    `H_e − H_m`; quadrant split = **global rolling median** of H_e/H_m over the trailing overlaid cells
    (strictly-above = hot); lead-lag = argmax normalized cross-correlation (k>0 ⇒ WSB leads). Screener-
    movers ∖ WSB-hot STEALTH discovery deferred (stays captured in `market_movers`).
-8. **Web — DEFERRED (much later).** Nuxt SSR leaderboard + history **tables** + banners
-   (quiet/capped/stale); Nitro read routes (Zod-validated, complete-window reads); route caching;
-   `@nuxtjs/html-validator` green. Parked until the headless pipeline ships; the web skeleton stays
-   scaffolded but untouched (so the monorepo keeps building).
+8. **Web — DONE (board-only).** Nuxt 4 SSR read-only leaderboard + movers + quiet/capped/stale/empty/
+   no-data banners + methodology copy. `GET /api/board` (Zod-validated) reads the latest COMPLETE cycle
+   in ONE read-only REPEATABLE READ transaction (snapshot-isolated), LEFT-joins
+   empirical⋈signals⋈analytical⋈ticker_names, sorts in JS via `@wsb/shared` `compareBoard`
+   (H_m/divergence/quadrant from `signals`, ret/rvol from analytical). Route-cached (60s SWR). Read-only
+   PG role provisioned on worker boot (`ensure-read-role.ts`). `@nuxtjs/html-validator` green under Nuxt
+   4. Gated by a testcontainers read-path IT. **History tables / trends / lead-lag display were scoped
+   OUT** (board-only); they can land as a follow-up if wanted.
 9. **Live shadow → cutover — DONE.** Deterministic **replay-vs-oracle** (porting-spec §12): the live TS
    worker `--shadow`-dumps each cycle's exact scorer inputs + board (B3+B4); `oracle/replay.py` replays
    them through the frozen oracle; `shadow-diff` asserts value+order parity (MATCH/NEAR/DRIFT, exit
    non-zero on DRIFT) — **needs no web, no second live poller, no DB-row diff**. Cut over only when no
    DRIFT holds over a sustained window. (The earlier "beside the radar into separate tables" framing is
    superseded — independent live polls fetch different data, so they can't gate exact parity.)
-10. **Deploy (interim, headless) — DONE.** **db + worker** — 2 services, 1 image (`deploy/v2/`). Ships the
-    pipeline without a UI; the web service is added when slice 8 lands.
+10. **Deploy — DONE.** `deploy/v2/` now ships **db + worker + web** (3 services). The headless db+worker
+    shipped first (interim M5); the `web` service (Nuxt SSR, read-only role) landed with slice 8 (M6).
 
 ## 5. Data flow & publication
 
@@ -181,8 +194,13 @@ Carry over the Incus host-networking note (worker needs egress to Arctic-Shift/A
 ## 8. Open items (verify on implement)
 
 - ~~Nuxt 4 / Nuxt UI / pnpm settings~~ — **resolved in slice 0** (Nuxt 4.4.7 + Nuxt UI **4.8.2**, SSR
-  build green). `@nuxtjs/html-validator` compatibility still open (slice 8).
-- Drizzle batch-upsert parameter behavior under the 65535 cap (slice 3).
-- The exact `run_status`/publish-marker shape (slice 3).
-- ROADMAP 0.6 (peak-hour DDT pagination/throughput) is still open and **transfers** to the TS ingest —
-  validate during the live shadow (slice 9).
+  build green). ~~`@nuxtjs/html-validator` compatibility~~ — **resolved in slice 8** (green under Nuxt 4).
+- ~~Drizzle batch-upsert parameter behavior under the 65535 cap~~ — **resolved in slice 3** (≤1000-row chunking).
+- ~~The exact `run_status`/publish-marker shape~~ — **resolved in slice 3** (`cycle_runs`, status='complete').
+- **Still open:** ROADMAP 0.6 (peak-hour DDT pagination/throughput) **transfers** to the TS ingest —
+  validate on a sustained live shadow run.
+- **Still open (deferred from slice 8):** history/trends/daily-rollup views and lead-lag display were
+  scoped out of the board-only web; a `cycle_runs.window_seconds` column would make the web self-
+  configuring (vs the current shared-constants↔config.toml env coupling) if that drift ever bites.
+- **Shadow-diff caveat:** lead-lag persists null by default (`lead_lag.enabled=false`) until `H_m` is
+  window-aligned (intraday bars) — porting-spec §11; the web omits the lead-lag column accordingly.

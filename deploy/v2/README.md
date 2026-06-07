@@ -1,7 +1,7 @@
-# Deploy — v2 interim headless (db + worker)
+# Deploy — v2 (db + worker + web)
 
-This ships the v2 TypeScript pipeline as **2 services**: a Postgres database and the worker.
-The web frontend (Nuxt SSR, slice 8) is deferred and will be added here when it lands.
+This ships the v2 TypeScript pipeline as **3 services**: a Postgres database, the worker, and the
+Nuxt 4 SSR web board.
 
 The **frozen Python radar is not deployed here** — it is the parity oracle only (see the root
 `docker-compose.yml` and `deploy/README.md` if you need to run it).
@@ -112,6 +112,43 @@ not do this unless you intend to start from scratch).
 The worker's healthcheck runs `pnpm -C packages/worker heartbeat` every 10 minutes. This is the
 same Arctic-Shift freshness probe as the frozen radar. When the container shows `unhealthy` in
 `docker compose ps`, follow the runbook in [deploy/README.md §Runbook](../README.md#runbook--arctic-shift-staledown).
+
+---
+
+## Web service (Nuxt 4 SSR read-only board)
+
+The `web` service serves the read-only leaderboard at **http://localhost:3000** (host networking)
+or via the configured port mapping on a normal bridge host.
+
+### Read-only role model
+
+The web never connects as the writer role and never migrates. Instead:
+
+1. The **worker** provisions a read-only Postgres role on boot (`ensure-read-role.ts`), using the
+   credentials in `WEB_RO_USER` and `WEB_RO_PASSWORD`. It grants `SELECT` on all current and future
+   public-schema tables.
+2. The **web** connects via `NUXT_DATABASE_URL`, which must use those same credentials.
+
+**Implication:** the web service requires the worker to have run at least once. On a brand-new
+deployment, bring up the worker first (or let `depends_on: db: healthy` order sort it — the worker
+will provision the role before the web's first request arrives, since `start_period: 20s` on the web
+healthcheck gives the worker time to boot).
+
+### Config coupling — window and staleness constants
+
+The web UI uses `NUXT_WINDOW_SECONDS` and `NUXT_MAX_STALENESS_SECONDS` to display the correct
+aggregation window and flag stale data. These **must stay in sync** with the matching tunables in
+`config.toml` (`window_seconds` and `max_staleness_seconds`). If you change either value in
+`config.toml`, set the corresponding `NUXT_*` env var in `.env` to match. Drift here is a display
+bug — the board will show an incorrect window label or flag data as stale at the wrong threshold.
+
+### Accessing the board
+
+- **Host networking (Incus/LXC default):** http://localhost:3000 — reachable from the host directly;
+  no port mapping needed.
+- **Normal bridge networking:** add `ports: ["3000:3000"]` to the `web` service in `compose.yml` and
+  update `NUXT_DATABASE_URL` to use the `db` service name (see `.env.example` comment and the
+  [Networking section](#networking--incuslxc-host) above).
 
 ---
 

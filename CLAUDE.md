@@ -109,7 +109,9 @@ uv run python oracle/dump_fixtures.py # → fixtures/*.json (the COMMITTED parit
 ```
 
 The v2 worker writes Postgres directly (no DuckDB lock / no JSON-snapshot workaround); the web reads it
-read-only. **No lint config yet** — `@nuxt/eslint` lands with the web slice (slice 8). Build order and
+read-only via a **read-only PG role the worker provisions on boot** (`packages/worker/src/ensure-read-role.ts`).
+Lint is `@nuxt/eslint` (flat) in `packages/web` (`pnpm -C packages/web lint`); shared/worker have no lint
+config. **All v2 slices (0–10) are complete**, including the slice-8 Nuxt web board; build order and
 slice status live in `design/v2-plan.md` §4.
 
 ## Pipeline (data flow)

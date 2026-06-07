@@ -1,13 +1,23 @@
-// Nuxt 4 SSR config (skeleton — slice 0). The leaderboard/history pages + Nitro read routes land in
-// slice 8 (v2-plan.md §4): SSR, route-cached to the ~5-min cadence, reading complete windows only from
-// a read-only Postgres role. For now this proves Nuxt 4 + Nuxt UI v4 install, prepare, and build.
+import { MAX_STALENESS_SECONDS, WINDOW_SECONDS } from '@wsb/shared'
+
+// Nuxt 4 SSR config (slice 8). Read-only board: an SSR page + a Nitro read route over a READ-ONLY
+// Postgres role. The worker owns DDL/migrations; the web never writes (v2-plan §1, porting-spec §6).
 export default defineNuxtConfig({
   compatibilityDate: '2026-06-01',
-  modules: ['@nuxt/ui'],
+  modules: ['@nuxt/ui', '@nuxt/eslint', '@nuxtjs/html-validator'],
   css: ['~/assets/css/main.css'],
-  // The web is read-only; the writer (worker) owns DDL/migrations. DATABASE_URL is a read-only role
-  // wired in slice 8 — declared here so the shape is visible, populated from env at runtime.
   runtimeConfig: {
-    databaseUrl: '', // NUXT_DATABASE_URL (read-only role)
+    // read-only Postgres role — NUXT_DATABASE_URL. Empty in source; populated from env at runtime.
+    databaseUrl: '',
+    // Display tunables. Defaults mirror config.toml; override via NUXT_MAX_STALENESS_SECONDS /
+    // NUXT_WINDOW_SECONDS if the worker's config.toml changes (shared-constants coupling, v2-plan §7).
+    maxStalenessSeconds: MAX_STALENESS_SECONDS,
+    windowSeconds: WINDOW_SECONDS,
+  },
+  // The board is near-live (~5-min cadence) and immutable per window. Cache the read route briefly with
+  // stale-while-revalidate so reloads are cheap without pinning a dead cycle; the snapshot-isolation read
+  // (server/utils/board.ts) keeps each cached response internally consistent. Thrown errors aren't cached.
+  routeRules: {
+    '/api/board': { cache: { maxAge: 60, swr: true } },
   },
 })

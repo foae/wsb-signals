@@ -16,11 +16,20 @@
  *  - the blend is evaluated in the SAME operation order as Python so equal-input H_e is bit-identical,
  *    making the canonical tie-break (h_e→sov→authors→mentions→ticker) reproduce the oracle's order.
  *
- * NOTE (scope): `write_snapshot`/`pretty_name` are NOT ported here. The leaderboard.json snapshot is a
- * v0.0.1 presentation/locking workaround; in v2 the "publish" is a Postgres write + a freshness marker
- * (slice 3), and row rounding/pretty-names belong with the reader. `flairCounts` is an object (→ JSONB),
- * not Python's sorted json STRING — parity is on the COUNTS, not the serialization.
+ * NOTE (scope): `write_snapshot` is NOT ported here. The leaderboard.json snapshot is a v0.0.1
+ * presentation/locking workaround; in v2 the "publish" is a Postgres write + a freshness marker
+ * (slice 3), and row rounding belongs with the reader. `pretty_name` IS ported (slice 8) but lives in
+ * `@wsb/shared` (`prettyName`) — it's a display helper the WEB applies, not aggregation. `flairCounts` is
+ * an object (→ JSONB), not Python's sorted json STRING — parity is on the COUNTS, not the serialization.
+ *
+ * The canonical board total order (`compareBoard`/`cmpStr`/`BoardRow`) also moved to `@wsb/shared` (slice
+ * 8) so the web's read-side board sort uses the SAME definition; re-exported below so this module's public
+ * surface (db.ts + tests import `compareBoard`/`BoardRow` from here) is unchanged.
  */
+import { compareBoard, cmpStr, type BoardRow } from '@wsb/shared'
+
+export { compareBoard }
+export type { BoardRow }
 
 /** A mention row as captured from `db.mentions_in_window`: [ticker, thingId, thingType, author, flair, direction]. */
 export type MentionRow = readonly [
@@ -282,21 +291,4 @@ export function aggregateWindow(inp: AggregateInputs): EmpiricalFeature[] {
   // not in the production sort. (Spec §2.6 corrected to match.)
   out.sort(compareBoard)
   return out
-}
-
-/** A row carrying the canonical-sort keys — the structural shape `compareBoard` orders on. */
-export type BoardRow = Pick<EmpiricalFeature, 'hE' | 'sov' | 'authors' | 'mentions' | 'ticker'>
-
-/**
- * The canonical leaderboard total order — `h_e→sov→authors→mentions→ticker`, on RAW floats (see the
- * call-site note above). Exported so the rank/rank_delta reads (db.readHeRanksAt) order identically to
- * `aggregateWindow`'s board — one definition, no drift between the live board and the persisted ranks.
- */
-export function compareBoard(a: BoardRow, b: BoardRow): number {
-  return b.hE - a.hE || b.sov - a.sov || b.authors - a.authors || b.mentions - a.mentions || cmpStr(a.ticker, b.ticker)
-}
-
-/** Ascending string compare matching Python's `<` on str (code-point order for the ASCII tickers here). */
-function cmpStr(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0
 }

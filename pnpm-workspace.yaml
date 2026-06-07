@@ -10,5 +10,7 @@ allowBuilds:
   ssh2: false
   cpu-features: false
   protobufjs: false
+  # Build: @nuxt/eslint's native (oxc-based) import resolver.
+  unrs-resolver: true
 minimumReleaseAgeExclude:
   - '@nuxt/ui@4.8.2'
