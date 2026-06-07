@@ -20,17 +20,17 @@ import type { Pool } from 'pg'
 
 import { log } from './logger'
 
-const SAFE_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/
-
-/** Double-quote a SQL identifier, rejecting anything that isn't a plain identifier (DDL can't be parameterized). */
+/**
+ * Standard SQL identifier quoting — double the interior double-quotes (SQL-92). Injection-safe for ANY
+ * identifier, and unlike a strict whitelist it supports cloud DB/role names with hyphens or dots
+ * (`wsb-signals`, `postgres-admin`) instead of crashing the worker on boot.
+ */
 function quoteIdent(name: string): string {
-  if (!SAFE_IDENT.test(name)) {
-    throw new Error(`unsafe SQL identifier ${JSON.stringify(name)} — expected /^[A-Za-z_][A-Za-z0-9_]*$/`)
-  }
-  return `"${name}"`
+  return `"${name.replace(/"/g, '""')}"`
 }
 
-/** Single-quote a SQL string literal (only the password reaches this — DDL can't bind it). */
+/** Single-quote a SQL string literal — double the interior single-quotes. Used ONLY in plain statements
+ *  (never inside a dollar-quoted body), so a value containing `$$` is just literal characters. */
 function quoteLiteral(val: string): string {
   return `'${val.replace(/'/g, "''")}'`
 }
@@ -46,7 +46,6 @@ export async function ensureReadRole(
   }
   const ro = quoteIdent(roUser)
   const pw = quoteLiteral(roPassword)
-  const roLit = quoteLiteral(roUser)
 
   const client = await pool.connect()
   try {
@@ -57,21 +56,21 @@ export async function ensureReadRole(
     const db = quoteIdent(rows[0]!.db)
 
     // Create-or-reset the login role (password kept in sync with env so a rotation lands on next boot).
-    await client.query(
-      `DO $$ BEGIN
-         IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = ${roLit}) THEN
-           CREATE ROLE ${ro} LOGIN PASSWORD ${pw};
-         ELSE
-           ALTER ROLE ${ro} WITH LOGIN PASSWORD ${pw};
-         END IF;
-       END $$;`,
-    )
-    await client.query(`GRANT CONNECT ON DATABASE ${db} TO ${ro};`)
-    await client.query(`GRANT USAGE ON SCHEMA public TO ${ro};`)
-    await client.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${ro};`)
+    // The existence check uses a BOUND parameter; CREATE/ALTER run as plain statements so the password
+    // literal is never inside a dollar-quoted `DO $$ … $$` body (a `$$` in the password would otherwise
+    // terminate that body early — a provisioning-break / injection vector).
+    const existing = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [roUser])
+    if ((existing.rowCount ?? 0) === 0) {
+      await client.query(`CREATE ROLE ${ro} LOGIN PASSWORD ${pw}`)
+    } else {
+      await client.query(`ALTER ROLE ${ro} WITH LOGIN PASSWORD ${pw}`)
+    }
+    await client.query(`GRANT CONNECT ON DATABASE ${db} TO ${ro}`)
+    await client.query(`GRANT USAGE ON SCHEMA public TO ${ro}`)
+    await client.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${ro}`)
     // Future tables the worker migrates get SELECT automatically — scoped to the CREATING role (writer).
     await client.query(
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${writer} IN SCHEMA public GRANT SELECT ON TABLES TO ${ro};`,
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${writer} IN SCHEMA public GRANT SELECT ON TABLES TO ${ro}`,
     )
     log.info({ role: roUser }, 'read-only role ensured (SELECT on public + default privileges for future tables)')
   } finally {

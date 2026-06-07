@@ -5,8 +5,13 @@
  */
 import { z } from 'zod'
 
-/** Attention×Action quadrant (analytics.ts `Quadrant`). Unknown/missing → null (never 503 the board). */
-export const QuadrantSchema = z.enum(['CONFIRMED', 'HYPE', 'STEALTH', 'QUIET']).nullable().catch(null)
+/** Attention×Action quadrant (analytics.ts `Quadrant`). Unknown/missing → null so one bad value can't
+ *  503 the whole board — but LOG it server-side so a worker regression writing a junk quadrant is visible
+ *  (not silently swallowed). */
+export const QuadrantSchema = z.enum(['CONFIRMED', 'HYPE', 'STEALTH', 'QUIET']).nullable().catch(() => {
+  console.warn('[board] signals.quadrant out of enum — coerced to null (the worker may be writing a bad quadrant)')
+  return null
+})
 
 export const BoardRowSchema = z.object({
   rank: z.number().int(), // 1-based, from the canonical JS sort position (matches signals.rank)

@@ -17,22 +17,35 @@ beforeEach(async () => { await pg.reset() })
 
 const RO_USER = 'wsb_web_ro'
 const RO_PW = 'ro_secret_pw'
+const TEST_ROLES = ['wsb_web_ro', 'wsb-web-ro'] // every role any test may create — all dropped in afterEach
 
-function roUri(): string {
-  return `postgres://${RO_USER}:${RO_PW}@${pg.container.getHost()}:${pg.container.getPort()}/${pg.container.getDatabase()}`
+function qIdent(n: string): string {
+  return `"${n.replace(/"/g, '""')}"`
 }
 
-// Clean up the role between tests so each run starts from a known state (TRUNCATE doesn't drop roles).
+/** A read-only Pool via a config object (avoids URI-encoding passwords with special chars). */
+function roPool(user: string, password: string): Pool {
+  return new Pool({
+    host: pg.container.getHost(),
+    port: pg.container.getPort(),
+    database: pg.container.getDatabase(),
+    user,
+    password,
+  })
+}
+
+// Clean up roles between tests so each run starts from a known state (TRUNCATE doesn't drop roles).
 afterEach(async () => {
-  await pg.pool.query(`DROP TABLE IF EXISTS future_t`)
-  await pg.pool.query(`
-    DO $$ BEGIN
-      IF EXISTS (SELECT FROM pg_roles WHERE rolname = '${RO_USER}') THEN
-        EXECUTE 'REASSIGN OWNED BY ${RO_USER} TO ' || current_user;
-        EXECUTE 'DROP OWNED BY ${RO_USER}';
-        DROP ROLE ${RO_USER};
-      END IF;
-    END $$;`)
+  await pg.pool.query('DROP TABLE IF EXISTS future_t')
+  for (const r of TEST_ROLES) {
+    const exists = await pg.pool.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [r])
+    if ((exists.rowCount ?? 0) > 0) {
+      const q = qIdent(r)
+      await pg.pool.query(`REASSIGN OWNED BY ${q} TO CURRENT_USER`)
+      await pg.pool.query(`DROP OWNED BY ${q}`)
+      await pg.pool.query(`DROP ROLE ${q}`)
+    }
+  }
 })
 
 describe('ensureReadRole', () => {
@@ -44,7 +57,7 @@ describe('ensureReadRole', () => {
 
   it('creates a role that can SELECT existing tables but cannot write', async () => {
     await ensureReadRole(pg.pool, RO_USER, RO_PW)
-    const ro = new Pool({ connectionString: roUri() })
+    const ro = roPool(RO_USER, RO_PW)
     try {
       // can read a migrated table
       await expect(ro.query('SELECT * FROM cycle_runs')).resolves.toBeDefined()
@@ -60,7 +73,7 @@ describe('ensureReadRole', () => {
     await ensureReadRole(pg.pool, RO_USER, RO_PW)
     // A table created by the writer AFTER provisioning — exactly the "worker migrates new tables later" case.
     await pg.pool.query('CREATE TABLE future_t (id int)')
-    const ro = new Pool({ connectionString: roUri() })
+    const ro = roPool(RO_USER, RO_PW)
     try {
       await expect(ro.query('SELECT * FROM future_t')).resolves.toBeDefined()
     } finally {
@@ -71,7 +84,7 @@ describe('ensureReadRole', () => {
   it('is idempotent and updates the password on re-run', async () => {
     await ensureReadRole(pg.pool, RO_USER, RO_PW)
     await expect(ensureReadRole(pg.pool, RO_USER, 'rotated_pw')).resolves.toBeUndefined()
-    const ro = new Pool({ connectionString: `postgres://${RO_USER}:rotated_pw@${pg.container.getHost()}:${pg.container.getPort()}/${pg.container.getDatabase()}` })
+    const ro = roPool(RO_USER, 'rotated_pw')
     try {
       await expect(ro.query('SELECT 1')).resolves.toBeDefined()
     } finally {
@@ -79,7 +92,26 @@ describe('ensureReadRole', () => {
     }
   })
 
-  it('rejects an unsafe role identifier rather than building injectable SQL', async () => {
-    await expect(ensureReadRole(pg.pool, 'bad name; DROP', RO_PW)).rejects.toThrow(/unsafe SQL identifier/)
+  it('supports a hyphenated role name via standard identifier quoting (no whitelist crash)', async () => {
+    // A cloud-style role/db name with a hyphen must NOT crash provisioning (review-gate HIGH).
+    await expect(ensureReadRole(pg.pool, 'wsb-web-ro', RO_PW)).resolves.toBeUndefined()
+    const ro = roPool('wsb-web-ro', RO_PW)
+    try {
+      await expect(ro.query('SELECT * FROM cycle_runs')).resolves.toBeDefined()
+    } finally {
+      await ro.end()
+    }
+  })
+
+  it('handles a password containing $$ and a quote without breaking provisioning (no dollar-quoted body)', async () => {
+    // A `$$` in the password would terminate a `DO $$ … $$` block early — the provisioner must not use one.
+    const weird = 'p$$a\'b"c'
+    await expect(ensureReadRole(pg.pool, RO_USER, weird)).resolves.toBeUndefined()
+    const ro = roPool(RO_USER, weird)
+    try {
+      await expect(ro.query('SELECT 1')).resolves.toBeDefined()
+    } finally {
+      await ro.end()
+    }
   })
 })

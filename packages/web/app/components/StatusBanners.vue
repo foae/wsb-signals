@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BoardWindow } from '~/types/board'
 import { fmtAgo } from '~/composables/useFormat'
+import { useNow } from '~/composables/useNow'
 
 const props = defineProps<{
   state: 'ok' | 'empty' | 'no-data'
@@ -8,12 +9,9 @@ const props = defineProps<{
   thresholds: { windowSeconds: number; maxStalenessSeconds: number }
 }>()
 
-// Client-side now — computed on mount to avoid SSR/hydration mismatch.
-const nowSeconds = ref(0)
-
-onMounted(() => {
-  nowSeconds.value = Date.now() / 1000
-})
+// Client-side now (0 during SSR, then ticking) — avoids hydration mismatch AND keeps the stale check
+// live so a long-open page flips to "stale" correctly instead of freezing the mount-time clock.
+const nowSeconds = useNow()
 
 const isStale = computed(() => {
   if (!nowSeconds.value) return false

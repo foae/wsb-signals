@@ -132,7 +132,20 @@ The web never connects as the writer role and never migrates. Instead:
 **Implication:** the web service requires the worker to have run at least once. On a brand-new
 deployment, bring up the worker first (or let `depends_on: db: healthy` order sort it — the worker
 will provision the role before the web's first request arrives, since `start_period: 20s` on the web
-healthcheck gives the worker time to boot).
+healthcheck gives the worker time to boot). Until the role exists the web `/api/board` returns a
+transient `503` and the **healthcheck** (`/api/health`, which runs a real `SELECT 1` over the read-only
+pool) reports the container `unhealthy` — both self-heal the moment the worker finishes provisioning.
+
+### Degraded behavior (near-live, "stale > nothing")
+
+`/api/board` is route-cached **60s with stale-while-revalidate**. Two consequences worth knowing:
+
+- During a **sustained DB outage** *after* a good response is cached, Nitro keeps serving the last good
+  board (revalidation fails in the background) rather than erroring. This is intentional for a near-live
+  observational board — but it means the board can age silently. The **stale-data banner** surfaces it
+  once `now − newest_utc` crosses `max_staleness_seconds`; the `/api/health` probe will already be
+  `unhealthy` (it hits the DB), so rely on container health, not the board, to detect an outage.
+- A cold cache + DB down returns the `503` error banner (no cached payload to fall back to).
 
 ### Config coupling — window and staleness constants
 

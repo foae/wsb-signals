@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { fmtUtc, fmtAgo } from '~/composables/useFormat'
+import { useNow } from '~/composables/useNow'
 
 const { data, error } = await useFetch('/api/board')
 
-// Client-side now for relative timestamps — avoids hydration mismatch.
-const nowSeconds = ref(0)
-onMounted(() => {
-  nowSeconds.value = Date.now() / 1000
-})
+// Client-side now (0 during SSR, then ticking) for relative timestamps — avoids hydration mismatch and
+// keeps "ago" / staleness honest on a long-open page.
+const nowSeconds = useNow()
 
 const windowHeader = computed(() => {
   const w = data.value?.window

@@ -1,9 +1,22 @@
 <script setup lang="ts">
 import type { Mover } from '~/types/board'
+import { fmtAgo, fmtUtc } from '~/composables/useFormat'
+import { useNow } from '~/composables/useNow'
 
 const props = defineProps<{
   movers: Mover[]
 }>()
+
+const nowSeconds = useNow()
+
+// The screener is captured INDEPENDENTLY of the WSB window (porting-spec §11) — surface its capture time
+// so an hours-old screener (market source down) reads as old, not as current (review-gate finding).
+const captureTs = computed(() => props.movers[0]?.ts ?? null)
+const captureLabel = computed(() => {
+  if (captureTs.value == null) return ''
+  const ago = nowSeconds.value ? ` · ${fmtAgo(captureTs.value, nowSeconds.value)}` : ''
+  return `Screener as of ${fmtUtc(captureTs.value)} UTC${ago}`
+})
 
 const numericClass = 'text-right tabular-nums'
 
@@ -35,13 +48,16 @@ function fmtVolume(v: number | null | undefined): string {
 
 <template>
   <div v-if="props.movers.length > 0" class="mt-8">
-    <h2 class="text-base font-semibold mb-1">
-      Market movers (free screener — STEALTH candidates)
-    </h2>
+    <div class="flex items-baseline gap-3 mb-1">
+      <h2 class="text-base font-semibold">
+        Market movers (free screener — STEALTH candidates)
+      </h2>
+      <span v-if="captureLabel" class="text-xs text-muted">{{ captureLabel }}</span>
+    </div>
     <p class="text-xs text-muted mb-3">
       Market-wide screener snapshot (<code>kind</code>: <code>active</code> / <code>gainer</code> / <code>loser</code>).
       These are STEALTH candidates: names the market is moving that WSB may not have noticed yet.
-      Captured independently of the WSB window; timestamps reflect screener poll time.
+      Captured independently of the WSB window; the timestamp above reflects screener poll time.
     </p>
     <div class="overflow-x-auto">
       <UTable :data="props.movers" :columns="columns">
