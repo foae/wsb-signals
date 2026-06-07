@@ -19,6 +19,7 @@ import {
   acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, upsertComments,
   upsertMentions, upsertPosts, verifyPublished, type Db,
 } from './db'
+import { ensureReadRole } from './ensure-read-role'
 import type { TickerExtractor } from './extract'
 import type { Source } from './ingest'
 import { log } from './logger'
@@ -328,6 +329,9 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
   if (!dbUrl) throw new Error('DATABASE_URL is required (the Postgres connection string)')
   const handle = createDb(dbUrl)
   await migrateToLatest(handle.db)
+  // Self-healing read-only role for the web (no-op unless WEB_RO_* set). Must run after migrations so the
+  // GRANT SELECT covers all current tables; ALTER DEFAULT PRIVILEGES covers future ones (ensure-read-role.ts).
+  await ensureReadRole(handle.pool, env.WEB_RO_USER, env.WEB_RO_PASSWORD)
 
   const lockClient = await acquireAdvisoryLock(handle.pool, WORKER_LOCK_KEY)
   if (!lockClient) {

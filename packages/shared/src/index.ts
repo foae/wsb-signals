@@ -1,4 +1,6 @@
 export * from './schema'
+export * from './helpers'
+export * from './constants'
 
 import {
   rawPosts, rawComments, mentions, empiricalFeatures, analyticalFeatures,

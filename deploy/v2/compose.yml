@@ -1,22 +1,26 @@
-# WSB Signals v2 — interim headless deploy: db + worker (2 services, 1 image).
-# The web service (Nuxt SSR, slice 8) is not yet deployed; it will be added here when it lands.
+# WSB Signals v2 — full deploy: db + worker + web (3 services).
 # The frozen Python radar is NOT deployed — it is the parity oracle only.
 #
 #   docker compose -f deploy/v2/compose.yml up -d --build
 #   docker compose -f deploy/v2/compose.yml logs -f worker
+#   docker compose -f deploy/v2/compose.yml logs -f web
 #   docker compose -f deploy/v2/compose.yml ps
 #   docker compose -f deploy/v2/compose.yml down            # volumes (PG data + worker data dir) survive
 #   docker compose -f deploy/v2/compose.yml down -v         # WIPES all volumes (loses history)
 #
 # NETWORKING — this host is Docker-inside-Incus/LXC, where the default docker bridge has NO egress
-# (NAT through the nested netns fails), so both services use `network_mode: host` and the build uses
+# (NAT through the nested netns fails), so all services use `network_mode: host` and the build uses
 # `network: host`. The worker MUST have egress (Arctic-Shift + Alpaca + heartbeat).
 # With host networking Postgres is reachable at localhost:5432, so DATABASE_URL must use localhost.
+# The web board is reachable at http://localhost:3000 (no port mapping needed with host networking).
 #
-# ON A NORMAL DOCKER HOST: drop `network_mode: host` from both services and `network: host` from the
-# worker build, put both on the default bridge, and set DATABASE_URL to use the service name:
+# ON A NORMAL DOCKER HOST: drop `network_mode: host` from all services and `network: host` from the
+# builds, put all services on the default bridge, and use service names in connection URLs:
 #   DATABASE_URL=postgres://<user>:<pw>@db:5432/<dbname>
-# Then also add explicit port mappings if you want the dashboard reachable externally.
+#   NUXT_DATABASE_URL=postgres://<web_ro_user>:<web_ro_pw>@db:5432/<dbname>
+# Add explicit port mappings to expose services externally:
+#   db:     ports: ["5432:5432"]    (if external DB access is needed)
+#   web:    ports: ["3000:3000"]    (to reach the board from outside the host)
 name: wsb-signals-v2
 
 services:
@@ -70,6 +74,36 @@ services:
       timeout: 90s
       retries: 2
       start_period: 3m
+
+  # ── Web ──────────────────────────────────────────────────────────────────────
+  # Nuxt 4 SSR read-only board. Connects to Postgres via the read-only role
+  # provisioned by the worker on boot (WEB_RO_USER / WEB_RO_PASSWORD). The worker
+  # must have run at least once before the web service is meaningful (the role is
+  # created by the worker's ensure-read-role boot step, not by an init script).
+  # NUXT_DATABASE_URL is set in .env; it must reference the same credentials as
+  # WEB_RO_USER / WEB_RO_PASSWORD and the same POSTGRES_DB.
+  # The board is available at http://localhost:3000 (host networking) once healthy.
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/v2/web.Dockerfile
+      network: host          # build-time egress to npmjs.com (nested-bridge has none); harmless elsewhere
+    image: wsb-web:latest
+    restart: unless-stopped
+    network_mode: host       # runtime: web binds :3000 on the host; reaches Postgres at localhost:5432
+    env_file: .env           # provides NUXT_DATABASE_URL (see .env.example)
+    environment:
+      NITRO_PORT: 3000
+      HOST: 0.0.0.0
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 volumes:
   # wsb-v2-pg: Postgres data — persists across restarts/recreates; only `down -v` wipes it.

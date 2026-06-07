@@ -3,24 +3,36 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "WSB Signals v2 web — Nuxt 4 SSR leaderboard + history tables. Read-only Postgres. See design/v2-plan.md §1.",
+  "description": "WSB Signals v2 web — Nuxt 4 SSR read-only board. Reads Postgres (read-only role). See design/v2-plan.md §1.",
   "scripts": {
     "build": "nuxt build",
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:it": "vitest run --config vitest.integration.config.ts",
     "typecheck": "nuxt typecheck"
   },
   "dependencies": {
     "@nuxt/ui": "^4.8.2",
     "@wsb/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "nuxt": "^4.4.7",
-    "vue": "^3.5.35"
+    "pg": "^8.13.1",
+    "vue": "^3.5.35",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@nuxt/eslint": "^1.9.0",
+    "@nuxtjs/html-validator": "^2.1.0",
+    "@testcontainers/postgresql": "^11.0.3",
     "@types/node": "^24.13.0",
+    "@types/pg": "^8.11.10",
+    "eslint": "^9.18.0",
     "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
     "vue-tsc": "^3.3.3"
   }
 }

@@ -1,0 +1,53 @@
+# Per-Dockerfile .dockerignore for deploy/v2/web.Dockerfile (BuildKit reads <dockerfile>.dockerignore).
+# This replaces the root .dockerignore for this build. The Dockerfile uses explicit COPY paths, so only
+# the files actually COPYed are baked in — but we still exclude large/irrelevant trees to keep the
+# context transfer fast.
+
+# Secrets — never baked in; arrive via compose env_file at runtime
+.env
+.env.*
+
+# Local Python env + caches
+.venv/
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.egg-info/
+
+# Git history
+.git/
+
+# Local data stores (not needed for the web build)
+data/
+whitelist/
+
+# node_modules at all levels — the builder stage installs fresh from the lockfile
+node_modules/
+packages/shared/node_modules/
+packages/worker/node_modules/
+packages/web/node_modules/
+
+# Nuxt dev/build artifacts that must NOT bleed into the builder layer
+# (.output is the goal, not an input; .nuxt is generated during build)
+packages/web/.nuxt/
+packages/web/.output/
+
+# Worker source — web build doesn't need it
+packages/worker/src/
+
+# Heavy trees the web image does not need
+**.duckdb
+oracle/
+design/
+tests/
+wsb_signals/
+fixtures/
+scripts/
+sources/
+.firecrawl/
+
+# deploy/ is intentionally NOT excluded — BuildKit context may reference it,
+# and excluding it wholesale would break any future COPY of deploy/ assets.
+# The Dockerfile does not COPY from deploy/ in the web image, but keeping it
+# reachable is harmless (its content is small).
