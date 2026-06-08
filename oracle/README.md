@@ -54,6 +54,10 @@ window, **(1) no DRIFT**, **(2) every cycle's read-back is OK**, **and (3) the t
 (`pnpm -C packages/worker test:it`). See `design/v2-porting-spec.md` §12 for exactly what each layer covers.
 
 **Notes**
+- **Paths resolve against the repo root.** All three commands take `data/shadow` / `data/shadow-oracle`:
+  the worker writes them via `findRoot()` and `replay.py` runs from root, and `shadow-diff` (invoked with
+  `pnpm -C packages/worker …`, so cwd = `packages/worker`) likewise resolves relative dir args against the
+  project root. So the relative paths above work from any cwd; absolute paths pass through unchanged.
 - **B4 (scoring) parity is wordset-independent** — it replays the captured mention rows directly, so it
   holds regardless of the whitelist.
 - **B3 (mention) parity needs the SAME wordsets** the worker used: run `replay.py` against the **same repo

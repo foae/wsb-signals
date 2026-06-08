@@ -9,8 +9,9 @@
  * `oracleDir` = `oracle/replay.py`'s output over that same tsDir
  */
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
+import { findRoot } from './config'
 import { diffCycle, summarize, type CycleDiff, type OracleDump } from './shadow-diff'
 import type { CycleDump } from './shadow'
 
@@ -64,8 +65,18 @@ function main(): void {
     process.exit(2)
   }
 
-  const tsCycles = loadDir<CycleDump>(tsDir)
-  const orCycles = loadDir<OracleDump>(oracleDir)
+  // Resolve relative dirs against the project root — where `start --shadow` (via findRoot) and
+  // `oracle/replay.py` (run from root) write their dumps. pnpm runs this script with cwd =
+  // packages/worker, so the documented `shadow-diff data/shadow data/shadow-oracle` would otherwise
+  // resolve to packages/worker/data/* and ENOENT. Absolute paths pass through unchanged.
+  const root = findRoot()
+  const resolveDir = (p: string): string => (isAbsolute(p) ? p : join(root, p))
+  const tsPath = resolveDir(tsDir)
+  const orPath = resolveDir(oracleDir)
+  const jsonPath = jsonOut ? resolveDir(jsonOut) : undefined
+
+  const tsCycles = loadDir<CycleDump>(tsPath)
+  const orCycles = loadDir<OracleDump>(orPath)
   const onlyTs = [...tsCycles.keys()].filter((k) => !orCycles.has(k)).sort((a, b) => a - b)
   const onlyOr = [...orCycles.keys()].filter((k) => !tsCycles.has(k)).sort((a, b) => a - b)
   const shared = [...tsCycles.keys()].filter((k) => orCycles.has(k)).sort((a, b) => a - b)
@@ -84,7 +95,7 @@ function main(): void {
   if (wordsetMismatches > 0) setupErrors.push(`${wordsetMismatches} cycle(s) had a WORDSET MISMATCH — re-build symbols.txt so replay uses the worker's wordlists`)
 
   if (!quiet) {
-    console.log(`\nshadow-diff: ${tsDir} ⟷ ${oracleDir}`)
+    console.log(`\nshadow-diff: ${tsPath} ⟷ ${orPath}`)
     console.log(`  paired ${shared.length} cycle(s); ts-only ${onlyTs.length}, oracle-only ${onlyOr.length}`)
     for (const d of diffs) console.log(fmtCycle(d))
     console.log(
@@ -95,7 +106,7 @@ function main(): void {
     const overall = setupErrors.length ? 'SETUP-ERROR' : report.verdict
     console.log(`  VERDICT: ${overall}\n`)
   }
-  if (jsonOut) writeFileSync(jsonOut, `${JSON.stringify({ ...report, onlyTs, onlyOr, setupErrors }, null, 2)}\n`)
+  if (jsonPath) writeFileSync(jsonPath, `${JSON.stringify({ ...report, onlyTs, onlyOr, setupErrors }, null, 2)}\n`)
 
   // Exit codes: 1 = DRIFT (a real parity failure), 2 = SETUP error (gate couldn't certify), 0 = parity holds.
   if (report.verdict === 'DRIFT') process.exit(1)
