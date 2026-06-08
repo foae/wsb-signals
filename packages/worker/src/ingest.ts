@@ -11,6 +11,16 @@
  *    DISCARDS an `ok=false` poll whole (slice 6) — it would undercount the SoV denominator.
  *  - `capped` (page cap hit) is the BENIGN undercount: persisted but low-trust — the OPPOSITE persistence
  *    of `ok=false`. Don't conflate them.
+ *
+ * DELIBERATE DIVERGENCE from the oracle's §4 contract (gate-safe — porting-spec §4): the oracle gives up
+ * the whole poll on the FIRST transient page failure. Live, the heavy 1h comment backfill reliably trips
+ * Arctic-Shift's `422 "Timeout. Maybe slow down a bit"` throttle and intermittent 5xx, so a no-retry
+ * client discards most cycles (board gaps; can't accumulate the shadow window). So a transient page failure
+ * (throttle / 5xx / network / non-JSON) is RETRIED with bounded exponential backoff before declaring
+ * `ok=false`; a genuine non-retryable 4xx (400/401/403/404…) still fails immediately. This is upstream of
+ * the parity boundary — the shadow replay consumes the CAPTURED mentions, and §12 assigns live-I/O
+ * robustness to the worker's own loop + these fault tests, NOT to replay — so it does not affect scoring
+ * parity. Disable (`maxRetries: 0`) to get the exact oracle no-retry semantics (the parity test does).
  *  - rate-limit: honor `X-RateLimit-Remaining`; back off 2s only when it parses as a STRICT integer < 50.
  *    Python `int()` raises on non-numeric (→ ignore); JS `parseInt` is lenient and WOULD mis-trigger, so
  *    we gate on a strict integer regex (the garbage-header landmine — porting-spec §9 fault test).
@@ -57,6 +67,16 @@ export interface Source {
 /** Injectable so tests record/zero the inter-page (0.3s) and rate-limit (2s) backoffs without real waits. */
 export type Sleeper = (ms: number) => Promise<void>
 const realSleep: Sleeper = (ms) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * HTTP statuses worth retrying (transient/server-side), per the DELIBERATE DIVERGENCE above. `422` is here
+ * because Arctic-Shift returns it as its THROTTLE signal ("Timeout. Maybe slow down a bit"), not as a
+ * genuine Unprocessable-Entity — and this client's query is fixed/templated, so a "real" 422 never occurs.
+ * Excludes the mock's off-the-end sentinel (598) and genuine client errors (400/401/403/404), which fail fast.
+ */
+const RETRYABLE_STATUS = new Set([408, 422, 425, 429, 500, 502, 503, 504])
+/** Cap on the exponential retry backoff — bounds the worst-case shutdown delay during a backoff sleep. */
+const RETRY_BACKOFF_CAP_MS = 5000
 
 // --- Python value-coercion parity ------------------------------------------------------------------
 
@@ -119,6 +139,10 @@ export interface ArcticShiftOptions {
   userAgent?: string
   timeoutMs?: number
   sleep?: Sleeper
+  /** Retries for a transient page failure before discarding the poll (0 = oracle-exact no-retry). Default 3. */
+  maxRetries?: number
+  /** Base exponential backoff between retries (1s → 2s → 4s …, capped at RETRY_BACKOFF_CAP_MS). Default 1000. */
+  retryBackoffMs?: number
 }
 
 export class ArcticShiftSource implements Source {
@@ -130,6 +154,8 @@ export class ArcticShiftSource implements Source {
   private readonly userAgent: string
   private readonly timeoutMs: number
   private readonly sleep: Sleeper
+  private readonly maxRetries: number
+  private readonly retryBackoffMs: number
 
   constructor(baseUrl: string, subreddit: string, opts: ArcticShiftOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '') // Python `base_url.rstrip("/")`
@@ -139,6 +165,8 @@ export class ArcticShiftSource implements Source {
     this.userAgent = opts.userAgent ?? 'wsb-signals/0.0.1'
     this.timeoutMs = opts.timeoutMs ?? 60_000
     this.sleep = opts.sleep ?? realSleep
+    this.maxRetries = opts.maxRetries ?? 3
+    this.retryBackoffMs = opts.retryBackoffMs ?? 1000
   }
 
   /** undici `fetch` holds no per-client connection to release (global dispatcher) — a no-op for symmetry. */
@@ -184,8 +212,63 @@ export class ArcticShiftSource implements Source {
   }
 
   /**
+   * Fetch ONE page (cursor `before`), retrying transient failures (throttle / 5xx / network / non-JSON)
+   * with bounded exponential backoff per the DELIBERATE DIVERGENCE in the file header. Returns the page's
+   * `data` on success, or `{ ok: false }` once a non-retryable failure occurs or retries are exhausted.
+   * The rate-limit courtesy backoff is honored on a 200 BEFORE the body is parsed (Python order), so the
+   * §4 timing parity holds. A shutdown abort (external signal) is NEVER retried — it bails immediately.
+   */
+  private async fetchPage(
+    kind: string,
+    cutoff: number,
+    before: number,
+    sleep: Sleeper,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true; data: RawThing[] } | { ok: false }> {
+    for (let attempt = 0; ; attempt++) {
+      let retryable = false
+      let detail = ''
+      try {
+        const res = await this.get(kind, cutoff, before, signal)
+        if (res.status === 200) {
+          await this.respectRateLimit(res, sleep) // honored BEFORE parsing the body (Python order)
+          try {
+            const json = (await res.json()) as { data?: RawThing[] }
+            return { ok: true, data: json.data ?? [] }
+          } catch {
+            retryable = true // a 200 with a non-JSON body (e.g. a Cloudflare interstitial) — likely transient
+            detail = 'non-JSON body'
+          }
+        } else {
+          const body = await res.text().catch(() => '')
+          retryable = RETRYABLE_STATUS.has(res.status)
+          detail = `status ${res.status} ${body.slice(0, 140)}`.trim()
+        }
+      } catch (e) {
+        // A shutdown (external abort) must NOT be retried — it's an intentional stop, not a transient fault.
+        if (signal?.aborted) {
+          log.warn({ kind }, 'poll aborted (shutdown) mid-fetch — partial this cycle')
+          return { ok: false }
+        }
+        retryable = true // network error / request timeout — transient
+        detail = String(e)
+      }
+
+      if (!retryable || attempt >= this.maxRetries) {
+        log.warn({ kind, attempt, detail }, 'page failed — poll is partial this cycle')
+        return { ok: false }
+      }
+      const backoff = Math.min(this.retryBackoffMs * 2 ** attempt, RETRY_BACKOFF_CAP_MS)
+      log.warn({ kind, attempt: attempt + 1, maxRetries: this.maxRetries, backoffMs: backoff, detail },
+        'transient page failure — backing off then retrying (Arctic-Shift throttle/5xx/network)')
+      await sleep(backoff)
+      if (signal?.aborted) return { ok: false } // shutdown requested during the backoff
+    }
+  }
+
+  /**
    * Walk pages from `now` back to `cutoff`; return the in-window RAW things plus `(capped, ok)`.
-   * `ok=false` ⇒ a request errored / returned non-200 / non-JSON mid-walk (partial). `capped` ⇒ the
+   * `ok=false` ⇒ a page failed and retries (if any) couldn't recover it mid-walk (partial). `capped` ⇒ the
    * `for…else`: ran every page without a natural stop (genuine overflow, benign).
    */
   private async fetchKind(
@@ -200,30 +283,12 @@ export class ArcticShiftSource implements Source {
     let ok = true
     let page = 0
     for (; page < this.maxPages; page++) {
-      let res: Response
-      try {
-        res = await this.get(kind, cutoff, before, signal)
-      } catch (e) {
-        log.warn({ kind, err: String(e) }, 'page request failed — poll is partial this cycle')
+      const r = await this.fetchPage(kind, cutoff, before, sleep, signal)
+      if (!r.ok) {
         ok = false
         break
       }
-      if (res.status !== 200) {
-        const body = await res.text().catch(() => '')
-        log.warn({ kind, status: res.status, body: body.slice(0, 140) }, 'page failed — poll is partial this cycle')
-        ok = false
-        break
-      }
-      await this.respectRateLimit(res, sleep) // honored BEFORE parsing the body (Python order)
-      let data: RawThing[]
-      try {
-        const json = (await res.json()) as { data?: RawThing[] }
-        data = json.data ?? []
-      } catch {
-        log.warn({ kind }, 'page returned a non-JSON body — poll is partial this cycle')
-        ok = false
-        break
-      }
+      const data = r.data
       if (data.length === 0) break // exhausted
       for (const x of data) items.push(x)
       const oldest = Math.min(...data.map((x) => createdUtcRaw(x, now))) // missing ts ⇒ `now` (won't pull down)

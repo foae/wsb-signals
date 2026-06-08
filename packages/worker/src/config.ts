@@ -27,6 +27,8 @@ interface RawConfig {
     max_pages: number
     page_limit: number
     request_timeout: number
+    max_retries?: number
+    retry_backoff_ms?: number
     user_agent: string
   }
   sources: { arctic_shift: { base_url: string } }
@@ -183,6 +185,8 @@ export function buildSource(raw: RawConfig): ArcticShiftSource {
     maxPages: ing.max_pages,
     userAgent: ing.user_agent,
     timeoutMs: ing.request_timeout * 1000,
+    maxRetries: ing.max_retries,
+    retryBackoffMs: ing.retry_backoff_ms,
   })
 }
 

@@ -198,6 +198,31 @@ Reproduce `_fetch` + `poll` exactly:
   `status != 200`). Use **`undici`/`fetch` with a manual `res.ok`/status check** — do **NOT** use a
   client that throws on non-2xx (e.g. `ofetch` default), which would invert the `ok` logic.
 
+### 4.1 Transient-page RETRY (v2 DELIBERATE DIVERGENCE — gate-safe)
+The oracle's `_fetch` abandons the **whole** poll on the FIRST page failure (the `ok` semantics above).
+Observed live during the slice-9 cutover gate: the heavy 1-hour comment backfill (≈16+ pages, 0.3s apart)
+**reliably** trips Arctic-Shift's `422 "Timeout. Maybe slow down a bit"` throttle and intermittent `502`s —
+while a single-request `heartbeat` stays green (so the API is up; it's the heavy paginated walk that's
+throttled — the long-open ROADMAP 0.6 throughput risk, now confirmed on v2). With no retry, ~most cycles
+get discarded: the shadow window can't accumulate, and in production the live board silently gaps during
+any throttle/5xx spell.
+
+So the v2 client (`ingest.ts` `fetchPage`) **retries a TRANSIENT page failure** — a retryable HTTP status
+(`408/422/425/429/500/502/503/504`; `422` is Arctic-Shift's throttle code, not a real Unprocessable-Entity),
+a network error/timeout, or a 200 with a non-JSON body — with **bounded exponential backoff**
+(`ingest.retry_backoff_ms` base, ×2 per attempt, capped 5s; `ingest.max_retries` attempts, default 3)
+before declaring `ok=false`. A genuine **non-retryable 4xx** (400/401/403/404…) still fails fast, and a
+**shutdown abort never retries**. `max_retries = 0` reproduces the oracle's exact no-retry semantics.
+
+**Why this is gate-safe (does not weaken the parity contract):** retry is upstream of the parity boundary
+(§1) — the shadow replay consumes the **captured mentions**, not a re-poll, and §12 explicitly assigns
+live-I/O robustness (rate-limit/backoff/`ok`/`capped`/pagination) to "the worker's own live loop + the §4
+fault-injection suites," **not** to replay. The `ingest.parity.test.ts` golden-cassette gate pins the
+oracle path by constructing the client with `maxRetries: 0`; the retry behavior is covered separately by
+`ingest.faults.test.ts` (422/502/network retry-then-succeed, exhaust→`ok=false`, non-retryable-4xx fail-fast,
+abort-during-backoff). Config keys `ingest.max_retries` / `ingest.retry_backoff_ms` are **inert for the
+frozen oracle** (its `config.py` reads only the keys it knows).
+
 ## 5. Market I/O contract (`market/alpaca.py`)
 
 - Auth headers: `APCA-API-KEY-ID`, `APCA-API-SECRET-KEY`. Base `https://data.alpaca.markets`. `feed=iex`.

@@ -98,3 +98,108 @@ describe('ingest fault / timing behavior', () => {
     expect(requests[0]!.url).toContain(`after=${CUTOFF}`)
   })
 })
+
+// --- retry / backoff on transient page failures (the DELIBERATE DIVERGENCE — porting-spec §4) ----------
+// Live, the 1h comment backfill reliably trips Arctic-Shift's `422 "slow down"` throttle + intermittent
+// 5xx; the oracle's no-retry contract would discard those whole cycles. These assert the v2 retry layer:
+// a transient page failure is retried (bounded, exponential backoff) before the poll is declared partial;
+// a genuine non-retryable 4xx still fails fast; a shutdown abort never retries.
+
+/** Poll with a recording sleep, returning the PollResult too (so we can assert ok / items / request count). */
+async function pollWith(
+  cassette: Cassette,
+  opts: { maxRetries?: number; retryBackoffMs?: number; signal?: AbortSignal; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<{ res: Awaited<ReturnType<ArcticShiftSource['poll']>>; sleeps: number[]; requests: Array<{ kind: string; url: string }> }> {
+  const sleeps: number[] = []
+  const sleep = opts.sleep ?? ((ms: number): Promise<void> => { sleeps.push(ms); return Promise.resolve() })
+  const mock = await startMockArctic(cassette)
+  try {
+    const src = new ArcticShiftSource(mock.baseUrl, 'wallstreetbets', {
+      pageLimit: 2,
+      maxPages: 10,
+      maxRetries: opts.maxRetries ?? 3,
+      retryBackoffMs: opts.retryBackoffMs ?? 1000,
+      sleep,
+    })
+    const res = await src.poll(WINDOW, { now: NOW, signal: opts.signal })
+    return { res, sleeps, requests: mock.requests }
+  } finally {
+    await mock.close()
+  }
+}
+
+const fail = (status: number, body = ''): CassettePage => ({ status, body })
+
+describe('ingest retry / backoff (transient page failures)', () => {
+  it('retries a 422 "slow down" throttle, then succeeds (poll stays ok)', async () => {
+    const { res, sleeps, requests } = await pollWith({
+      posts: [fail(422, '{"error":"Timeout. Maybe slow down a bit"}'), page(post('a', NOW - 10))],
+      comments: [empty],
+    })
+    expect(res.ok).toBe(true)
+    expect(res.posts.map((p) => p.id)).toEqual(['a'])
+    expect(sleeps[0]).toBe(1000) // one retry backoff before the (short) success page → no inter-page delay
+    expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(2) // original + 1 retry
+  })
+
+  it('retries a 502, then succeeds', async () => {
+    const { res } = await pollWith({
+      posts: [fail(502, '<html>bad gateway</html>'), page(post('a', NOW - 10))],
+      comments: [empty],
+    })
+    expect(res.ok).toBe(true)
+    expect(res.posts.map((p) => p.id)).toEqual(['a'])
+  })
+
+  it('retries a network error (connection reset), then succeeds', async () => {
+    const { res, requests } = await pollWith({
+      posts: [{ error: 'network' }, page(post('a', NOW - 10))],
+      comments: [empty],
+    })
+    expect(res.ok).toBe(true)
+    expect(res.posts.map((p) => p.id)).toEqual(['a'])
+    expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(2)
+  })
+
+  it('gives up (ok=false) after exhausting maxRetries, with exponential backoff', async () => {
+    const { res, sleeps, requests } = await pollWith({
+      posts: [fail(503), fail(503), fail(503), fail(503)], // 1 original + 3 retries, all transient
+      comments: [empty],
+    })
+    expect(res.ok).toBe(false)
+    expect(sleeps).toEqual([1000, 2000, 4000]) // exponential, capped at 5s (4000 < cap)
+    expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(4) // original + 3 retries, then give up
+  })
+
+  it('does NOT retry a non-retryable 4xx (404) — fails fast', async () => {
+    const { res, sleeps, requests } = await pollWith({
+      posts: [fail(404, 'not found'), page(post('a', NOW - 10))], // second page must NEVER be reached
+      comments: [empty],
+    })
+    expect(res.ok).toBe(false)
+    expect(sleeps).toEqual([]) // no retry backoff
+    expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(1) // single attempt, no retry
+  })
+
+  it('maxRetries:0 reproduces the oracle no-retry semantics exactly', async () => {
+    const { res, sleeps, requests } = await pollWith({
+      posts: [fail(503), page(post('a', NOW - 10))],
+      comments: [empty],
+    }, { maxRetries: 0 })
+    expect(res.ok).toBe(false)
+    expect(sleeps).toEqual([])
+    expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(1)
+  })
+
+  it('a shutdown abort during the backoff stops retrying immediately', async () => {
+    const ac = new AbortController()
+    // Abort on the first backoff sleep — the client must bail without issuing the retry request.
+    const sleep = (): Promise<void> => { ac.abort(); return Promise.resolve() }
+    const { res, requests } = await pollWith({
+      posts: [fail(503), page(post('a', NOW - 10))],
+      comments: [empty],
+    }, { signal: ac.signal, sleep })
+    expect(res.ok).toBe(false)
+    expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(1) // failed once, aborted before retry
+  })
+})

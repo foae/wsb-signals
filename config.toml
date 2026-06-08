@@ -9,6 +9,10 @@ window_seconds  = 3600       # 1h primary window (signal-framework §7)
 max_pages       = 60         # pagination safety cap (×page_limit items)
 page_limit      = 100
 request_timeout = 60
+max_retries      = 3         # v2-only: retry a transient page (Arctic-Shift 422 throttle / 5xx / network)
+                             # this many times before discarding the poll (deliberate divergence; porting-spec
+                             # §4). Inert for the frozen oracle, which reads only the keys it knows.
+retry_backoff_ms = 1000      # v2-only: base exponential backoff between retries (1s → 2s → 4s …, capped at 5s)
 user_agent      = "wsb-signals/0.0.1 (research; contributors@example.invalid)"
 
 [sources.arctic_shift]

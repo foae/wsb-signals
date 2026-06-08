@@ -73,6 +73,10 @@ describe('ingest poll parity (cassette dual-run)', () => {
         pageLimit: fx.page_limit,
         maxPages: fx.max_pages,
         sleep: noop,
+        // Pin the EXACT oracle no-retry semantics: the §4 contract is "first transient failure ⇒ ok=false".
+        // The live worker's retry layer (default 3) is an additive divergence verified in ingest.faults.test.ts;
+        // disabling it here keeps this gate testing precisely what the frozen oracle does.
+        maxRetries: 0,
       })
       const res = await src.poll(fx.window_seconds, { now: fx.now })
 
