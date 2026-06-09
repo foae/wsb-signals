@@ -99,10 +99,13 @@ before live data flows; the riskiest I/O comes last, when any anomaly is isolate
 > - **M3 — new signals (slice 7): DONE.** divergence / quadrants / lead-lag computed + persisted to
 >   `signals` each cycle (atomic publish). NEW code, no oracle — gated by its own unit + integration tests
 >   (see porting-spec §11 for the fixed semantics).
-> - **M4 — live parity (slice 9): DONE.** Deterministic **replay-vs-oracle** shadow: the live TS worker
->   (`--shadow`) captures each cycle's exact scorer inputs + board; `oracle/replay.py` replays them through
->   the frozen `aggregate_window`; `shadow-diff` asserts value+order parity (exit non-zero on DRIFT) — the
->   cutover gate. Supersedes the "two live pollers into separate tables" framing (independent polls fetch
+> - **M4 — live parity (slice 9): DONE + GATE PASSED (2026-06-08/09).** Deterministic **replay-vs-oracle**
+>   shadow: the live TS worker (`--shadow`) captures each cycle's exact scorer inputs + board;
+>   `oracle/replay.py` replays them through the frozen `aggregate_window`; `shadow-diff` asserts value+order
+>   parity (exit non-zero on DRIFT) — the cutover gate. **Ran it live: 4 hourly windows all `MATCH`, 0
+>   DRIFT, all read-backs ok, ITs 70/70** — all three §12 legs met, and the §4.1 ingest retry handled a real
+>   422-throttle + overnight network outage cleanly. **v2 is cutover-approved as the radar** (porting-spec
+>   §12 "EXECUTED"). Supersedes the "two live pollers into separate tables" framing (independent polls fetch
 >   different data ⇒ un-gateable). Semantics authoritative in porting-spec **§12**.
 > - **M5 — ship headless (slice 10, interim): DONE.** `deploy/v2/` ships **db + worker** (2 services, 1
 >   image): a Node/tsx worker image (migrates on boot, advisory lock, `heartbeat` healthcheck) + pinned
@@ -197,8 +200,12 @@ Carry over the Incus host-networking note (worker needs egress to Arctic-Shift/A
   build green). ~~`@nuxtjs/html-validator` compatibility~~ — **resolved in slice 8** (green under Nuxt 4).
 - ~~Drizzle batch-upsert parameter behavior under the 65535 cap~~ — **resolved in slice 3** (≤1000-row chunking).
 - ~~The exact `run_status`/publish-marker shape~~ — **resolved in slice 3** (`cycle_runs`, status='complete').
-- **Still open:** ROADMAP 0.6 (peak-hour DDT pagination/throughput) **transfers** to the TS ingest —
-  validate on a sustained live shadow run.
+- ~~**Still open:** ROADMAP 0.6 (peak-hour DDT pagination/throughput) transfers to the TS ingest~~ —
+  **RESOLVED (2026-06-08/09).** The cutover-gate run confirmed the risk live: the heavy 1h comment backfill
+  reliably trips Arctic-Shift's `422 "slow down"` throttle (heartbeat stays green ⇒ it's the heavy walk, not
+  an outage). Mitigated by the **§4.1 ingest retry** (bounded backoff on transient failures), which also
+  rode out an overnight network outage cleanly. `capped` was never hit (the 60-page cap is ample); the live
+  failure mode was throttle/5xx, now retried.
 - **Still open (deferred from slice 8):** history/trends/daily-rollup views and lead-lag display were
   scoped out of the board-only web; a `cycle_runs.window_seconds` column would make the web self-
   configuring (vs the current shared-constants↔config.toml env coupling) if that drift ever bites.

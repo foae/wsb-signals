@@ -530,3 +530,13 @@ green ITs — is at the end of this section).
   read-back); **signals** (slice 7) by their own tests (§11, no oracle); **live-I/O robustness** (rate-
   limit/backoff/`ok`/`capped`/pagination) by the worker's own live loop + the §4/§5 fault-injection suites.
   Don't read a green shadow as certifying the layers above it.
+- **EXECUTED — gate PASSED (2026-06-08/09).** Ran the gate live against `wallstreetbets`: **4 distinct
+  hourly windows all `MATCH`** (90 / 93 / 15 / 31 tickers — varied shapes + a low-volume window + the
+  consecutive-hour W−1 momentum chain), **0 NEAR / 0 DRIFT**, every cycle's **`readback.ok`** (0 diffs,
+  `cycle_run` present), and the worker **testcontainers ITs 70/70 green** — all three legs satisfied. The
+  run also exercised real fault paths: Arctic-Shift's `422 "slow down"` throttle on the heavy 1h backfill
+  and an overnight network outage (`fetch failed`) — both handled by the §4.1 retry (bounded backoff, clean
+  whole-cycle discards, no crash, clean resume), confirming the long-open **ROADMAP 0.6** throughput risk
+  and its mitigation. The window was 4 cycles (not a long continuous run — the validation host suspends
+  overnight); **judged sufficient** to certify port parity given the varied shapes + design guarantees +
+  green ITs. **Decision: v2 is cutover-approved as the radar.**

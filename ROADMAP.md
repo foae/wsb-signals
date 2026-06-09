@@ -46,9 +46,12 @@ The cheap experiments that decide whether the design holds. **Run before writing
   (posts + comments) and **exits non-zero** when staleness exceeds `heartbeat.max_staleness_seconds`
   (1 = stale, 2 = tap returned nothing → likely down) — cron/monitoring-friendly. Runbook in the
   README: on alarm the radar stops (no free fallback). The Phase-1 daemon will call it each cycle.
-- **0.6 — DDT throughput spike.** Confirm a 5-min paginated poll captures the **full** peak-hour
-  Daily-Discussion-Thread comment volume within rate limits (the PoC's `[CAP]` warning is the
-  canary) — incomplete ingestion silently biases `sov` and per-post counts.
+- **0.6 — DDT throughput spike. ✅ RESOLVED on v2 (2026-06-08/09).** The v2 cutover-gate run confirmed the
+  risk live: the heavy 1h comment backfill reliably trips Arctic-Shift's `422 "Timeout. Maybe slow down a
+  bit"` throttle (a single-request `heartbeat` stays green → it's the heavy paginated walk, not an outage).
+  Mitigated in the TS ingest by bounded **retry-with-backoff** on transient failures (`v2-porting-spec.md`
+  §4.1); the 60-page cap (`capped`) was never reached. (The frozen v0.0.1 radar's `[CAP]` canary still
+  stands for that stack; this resolution is for the v2 ingest that ships.)
 
 **Exit:** ✅ latency (0.1), ✅ scaffold (0.3), ◑ whitelist + extractor eval (0.4 core), ✅ heartbeat
 (0.5), ✅ Alpaca endpoints (0.2) **done**. Remaining before v0.0.1 ships: throughput spike (0.6) +
