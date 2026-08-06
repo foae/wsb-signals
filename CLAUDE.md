@@ -1,6 +1,6 @@
-# CLAUDE.md
+# WSB Signals
 
-Contributor guidance for working with this repository.
+Guidance for AI coding agents working with code in this repository.
 
 WSB Signals is a near-live r/wallstreetbets "trending radar": poll Reddit, rank tickers by
 **share-of-voice → WSB Heat `H_e`**, overlay Alpaca market data → **Market Heat `H_m`**, and
