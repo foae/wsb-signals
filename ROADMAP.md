@@ -15,7 +15,9 @@
 > to a data subsystem (herd/trend evidence) and keeps running. Design approved, build not started.
 > Authoritative: [`design/plays-product.md`](./design/plays-product.md) +
 > [`design/plays-plan.md`](./design/plays-plan.md) (slices P0–P6; P0 prunes the frozen Python tree
-> from `main` — recoverable at tag `v0.0.1`).
+> from `main` — recoverable at tag `v0.0.1`). The unbuilt Phase-3 remainder below (STEALTH
+> detection, alerts) is **parked indefinitely** (decided 2026-08-18) — kept as recorded thinking,
+> not tracked as work. Plays work is tracked as GitHub Issues under milestone "WSB Plays v1".
 
 ## Phase 0 — Feasibility & scaffolding ⛔ (gating)
 

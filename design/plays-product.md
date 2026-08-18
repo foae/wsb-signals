@@ -50,6 +50,11 @@ The heat board stays as a secondary page in the web app; the plays browser becom
 | Audience | **Private / home-LAN**, same deploy model as today. No auth, no hardening for public exposure. |
 | Enrichment | **Free sources only**: Alpaca (already integrated) + radar data. No paid APIs; anything else is best-effort. |
 | Outcomes | **Track in v1**: daily mark-to-market for open positions + author-followup resolution linking. |
+| Slice order | **P0 (prune + Dependabot cleanup) leads** — confirmed after review pushback (GPT-5.6 objected, Kimi endorsed; owner decided 2026-08-18). |
+| Topology | **Plays loops in the same worker process** (dedicated pool + §1 isolation rules); a second process is the documented escape hatch, not the default. |
+| LLM budget/model | **Deferred to P2.** The shipped fail-closed price placeholders and `$5/day` default stand until the P2 eval; not a locked decision. |
+| Old radar roadmap | Phase-3 remnants (STEALTH detection, alerts) **parked indefinitely** — not tracked, not deleted. |
+| Work tracking | **GitHub Issues**: one issue per slice (P0–P6) with its checklist + gate, under milestone "WSB Plays v1". |
 
 ## 3. What counts as a play (capture contract)
 
