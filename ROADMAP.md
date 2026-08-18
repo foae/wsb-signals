@@ -17,8 +17,8 @@
 > [`design/plays-plan.md`](./design/plays-plan.md) (slices P0–P6). **P0 landed (2026-08-18)**: the
 > frozen Python tree + the retired shadow gate are pruned from `main` — recoverable at tag `v0.0.1`
 > (the radar) / `oracle-final` (radar + fixture-dump harness; see `fixtures/README.md`).
-> **P1 (capture & media) code landed 2026-08-18** — gate pending: live capture run + the
-> gallery-prevalence / Reddit-JSON success-rate measurement. The
+> **P1 (capture & media) landed, gate passed 2026-08-18** (live run; findings on issue #2 —
+> galleries resolve locally from the archived raw, Reddit post-JSON 403s as fallback-only). The
 > unbuilt Phase-3 remainder below (STEALTH detection, alerts) is **parked indefinitely** (decided
 > 2026-08-18) — kept as recorded thinking, not tracked as work. Plays work is tracked as GitHub
 > Issues under milestone "WSB Plays v1".

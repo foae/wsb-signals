@@ -15,9 +15,11 @@ in any user-facing copy.
 - **WSB Plays — the product; IN BUILD.** Design approved 2026-08-18; work is sliced **P0–P6** and
   tracked as GitHub Issues under milestone **"WSB Plays v1"** (one issue per slice, with the
   checklist + gate). **Slice P0 (repo repositioning) has landed**: the frozen v0.0.1 Python oracle
-  tree and the retired shadow gate are pruned from `main`. **Slice P1 (capture & media) code has
-  landed** — flair-matched capture, media archive, plays queue skeleton, bare `/plays` web list; its
-  gate (live capture run + gallery-prevalence / Reddit-JSON success-rate measurement) is pending.
+  tree and the retired shadow gate are pruned from `main`. **Slice P1 (capture & media) LANDED,
+  gate passed 2026-08-18** (issue #2) — flair-matched capture, media archive, plays queue skeleton,
+  bare `/plays` web list, all verified live. Gate findings: galleries resolve **locally from the
+  archived raw** (Reddit's post-JSON endpoint 403s non-browser clients — fallback only); the stack
+  runs in the dedicated `wsb-signals` incus CT. **P2 (LLM seam & extraction, issue #3) is next.**
 - **The radar — v2 full-stack TypeScript; BUILT, cutover-approved (2026-06-09), running.** Node
   worker + Nuxt 4 SSR web + Postgres in a pnpm monorepo (`packages/{shared,worker,web}`); deploy is
   `deploy/v2/` (db + worker + web). The radar's behavior is **stable** — Plays adds beside it, and
