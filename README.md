@@ -4,15 +4,19 @@ A near-live **"trending radar"** for r/wallstreetbets: surface which stock ticke
 community is piling into *right now*, and overlay real market data (price, volume, options) to
 show whether the market is **confirming** the chatter or **diverging** from it.
 
-> **Status:** v0.0.1 — **radar + market overlay run end-to-end (Phase 0–2 stock overlay done).**
-> `uv run wsb run` polls Arctic-Shift every 5 min, computes the SoV-primary, baseline-gated **`H_e`**
-> leaderboard, overlays Alpaca market data (`ret`/`rvol` → **`H_m`**) for the hot list, and captures
-> the free screeners → DuckDB + a JSON snapshot; `uv run wsb dashboard` shows it in Streamlit.
-> **Now → next:** **v0.0.1 is FROZEN** (tagged, stable — the Python/DuckDB/Streamlit stack described
-> here). **Active development is v2 — a full-stack TypeScript rewrite**: the whole worker re-implemented
-> in TS + a Nuxt 4 SSR frontend + Postgres, in a pnpm monorepo. See [`design/v2-plan.md`](./design/v2-plan.md)
-> + [`design/v2-porting-spec.md`](./design/v2-porting-spec.md). v0.0.1 = Phase 0→2 (radar + overlay); the
-> v0.0.2 product (divergence/quadrants/STEALTH/lead-lag) is built **within v2**. See [`ROADMAP.md`](./ROADMAP.md).
+> **Status: v2 — the full-stack TypeScript radar is BUILT and cutover-approved (2026-06-09).**
+> A standalone Node **worker** (`packages/worker`) polls Arctic-Shift every 5 min, computes the
+> SoV-primary, baseline-gated **`H_e`** leaderboard, overlays Alpaca market data (`ret`/`rvol` →
+> **`H_m`**), computes the **divergence / quadrant** signals, and publishes atomically to
+> **Postgres**; a read-only **Nuxt 4 SSR board** (`packages/web`) serves it. All port slices (0–10)
+> are complete and the live replay-vs-oracle parity gate **passed** (see
+> [`design/v2-plan.md`](./design/v2-plan.md) + [`design/v2-porting-spec.md`](./design/v2-porting-spec.md)).
+> Deploy is [`deploy/v2/`](./deploy/v2/README.md) (db + worker + web).
+>
+> **v0.0.1 (Python + DuckDB + Streamlit, tagged `v0.0.1`) is FROZEN** — kept in-tree at the root as
+> the **parity oracle** the TS port is diffed against, not as a thing to run or extend. v0.0.1 =
+> Phase 0→2 (radar + overlay); the v0.0.2 product (divergence/quadrants/STEALTH/lead-lag) is built
+> **within v2**. See [`ROADMAP.md`](./ROADMAP.md).
 >
 > **This is observational/correlational research, not financial advice.** WSB *moves* the names it
 > discusses (reflexivity), gain-posts are survivorship-biased, and the sub is a manipulation-prone
@@ -61,49 +65,71 @@ The product is **Attention × Action**: a leaderboard of hot tickers, each badge
                                           H_e × H_m → divergence · quadrant · lead-lag → RADAR
 ```
 
-Architecture, schema, cadence, tech stack: [`design/architecture.md`](./design/architecture.md).
+v2 topology, stack, build order: [`design/v2-plan.md`](./design/v2-plan.md). The concept-level
+pipeline, schema and cadence (written for v0.0.1; §5 invariants carry to v2):
+[`design/architecture.md`](./design/architecture.md).
 
-## Running the scaffold (v0.0.1)
+## Running it (v2 — the radar)
 
-Tooling is **[uv](https://docs.astral.sh/uv/)** — no manual venv, no `pip install`. Install it once
-(`curl -LsSf https://astral.sh/uv/install.sh | sh` — note `pip install uv` is blocked by PEP 668 on
-the brew Python; ensure `~/.local/bin` is on `PATH`), then from `_random/wsb-signals/`:
+**Node 24 LTS + [pnpm](https://pnpm.io/)** (pinned via `.nvmrc` + `packageManager`), in a pnpm
+monorepo: `packages/shared` (Drizzle schema + types), `packages/worker` (the radar), `packages/web`
+(the board).
 
-```bash
-uv sync                       # build the managed env from pyproject.toml + uv.lock
-cp .env.example .env          # then fill ALPACA_API_KEY / ALPACA_API_SECRET (gitignored)
-uv run wsb init-db            # create the DuckDB schema at data/wsb.duckdb
-uv run wsb build-whitelist    # fetch the Alpaca ticker universe → whitelist/symbols.txt (refresh weekly)
-uv run wsb run                # the radar: 5-min loop (poll → H_e → market overlay → snapshot + heartbeat)
-uv run wsb aggregate          # one-shot: current window from stored mentions → H_e board (no market)
-uv run wsb market             # one-shot: aggregate + Alpaca overlay (ret/rvol/H_m) + screeners
-uv run wsb dashboard          # Streamlit board: Live leaderboard + history tabs (drill-down/trends/daily)
-uv run wsb poll-once          # single poll → raw smoke count (no aggregation)
-uv run wsb eval-extractor     # extractor decision mix over a live window (precision proxy)
-```
-
-`poll-once`'s leaderboard ranks by **raw mention count** — a smoke check, *not* the product signal
-(the SoV/`z` ranker is the Phase-1 aggregator). Tunables (cadence, regex, `H_e` weights) live in
-`config.toml`; secrets only in `.env`.
-
-**Run it for real → Docker Compose.** For unattended, always-on operation (the only way baselines
-warm and the radar is genuinely "near-live"), run the **containerized** stack — one image, a `radar`
-writer + a `dashboard` reader, and a persisted named volume:
+**Run it for real → Docker Compose (3 services: db + worker + web):**
 
 ```bash
-cp .env.example .env            # fill ALPACA_API_KEY / ALPACA_API_SECRET
-docker compose up -d --build    # radar (healthcheck = wsb heartbeat) + dashboard on :8501
-docker compose logs -f radar    # live cycle logs   ·   docker compose ps   # health
+cp deploy/v2/.env.example deploy/v2/.env               # set POSTGRES_PASSWORD + ALPACA_API_KEY/SECRET
+docker compose -f deploy/v2/compose.yml up -d --build  # Postgres + worker (migrates on boot) + web on :3000
+docker compose -f deploy/v2/compose.yml logs -f worker # live cycle logs
 ```
 
-Data (DB + snapshot) lives in the `wsb-data` volume and survives `down`/`up`. Full deployment notes
-— Docker **and** the bare-metal systemd alternative — are in [`deploy/README.md`](./deploy/README.md).
+The worker is the single Postgres writer (atomic per-cycle publish, advisory lock, heartbeat
+healthcheck) and provisions the **read-only** role the web uses. Full notes:
+[`deploy/v2/README.md`](./deploy/v2/README.md).
+
+**Develop locally:**
+
+```bash
+pnpm install                          # workspace install (Node 24; native builds pre-approved)
+pnpm -r --if-present run typecheck    # tsc (shared/worker) + nuxt typecheck (web)
+pnpm -r --if-present run test         # unit + parity tests (vs fixtures/), Docker-free
+pnpm -C packages/worker test:it       # testcontainers Postgres integration tests — needs Docker
+pnpm -C packages/worker dev           # the 5-min poll loop (needs DATABASE_URL + ALPACA_*)
+pnpm -C packages/worker build-whitelist  # Alpaca ticker universe → whitelist/symbols.txt (refresh weekly)
+pnpm -C packages/worker heartbeat     # Arctic-Shift freshness probe; exits 0 OK / 1 stale / 2 down
+pnpm -C packages/web dev              # the Nuxt board against the same Postgres (read-only)
+```
+
+Tunables (cadence, regex, `H_e`/`H_m` weights) live in `config.toml`; secrets only in env / the
+gitignored `.env` files.
 
 **Operations (single-tap safety).** Arctic-Shift is the *only* live source (PullPush frozen, Reddit
-API excluded), so `uv run wsb heartbeat` probes newest-item lag and **exits non-zero when the tap is
-stale (1) or down (2)** — wire it into cron/monitoring. On alarm the runbook is simple: the radar
-**stops** (there is no free fallback); re-test the tap (and PullPush, in case it un-freezes) before
-resuming, and don't publish stale signals. Threshold: `heartbeat.max_staleness_seconds`.
+API excluded), so the `heartbeat` CLI probes newest-item lag and **exits non-zero when the tap is
+stale (1) or down (2)** — it doubles as the worker container's healthcheck. On alarm the runbook is
+simple: the radar **stops** (there is no free fallback); re-test the tap (and PullPush, in case it
+un-freezes) before resuming, and don't publish stale signals. Threshold:
+`heartbeat.max_staleness_seconds`. Transient Arctic-Shift throttling (`422 "slow down"`/5xx) is
+absorbed by bounded retry-with-backoff in the ingest.
+
+## The frozen v0.0.1 oracle (Python)
+
+The original Python + DuckDB + Streamlit radar stays in-tree (`wsb_signals/`, tagged `v0.0.1`) as
+the **parity oracle**: golden fixtures in `fixtures/` are dumped from it, and the live shadow gate
+replays the TS worker's inputs through it (`oracle/README.md`). It is feature-frozen and not
+deployed. Tooling is **[uv](https://docs.astral.sh/uv/)**
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`):
+
+```bash
+uv sync                              # build the managed env from pyproject.toml + uv.lock
+uv run --extra dev pytest            # the oracle's own test suite
+uv run python oracle/dump_fixtures.py   # regenerate the committed golden parity fixtures
+uv run wsb run --once --no-market    # single empirical-only cycle (needs init-db first; see CLAUDE.md)
+```
+
+The full `wsb` CLI (`init-db`, `run`, `aggregate`, `market`, `dashboard`, `poll-once`,
+`eval-extractor`, `heartbeat`) still works and is documented in [`CLAUDE.md`](./CLAUDE.md); the root
+`docker-compose.yml` + [`deploy/README.md`](./deploy/README.md) describe its (now-retired)
+radar + dashboard deployment.
 
 ## Honest caveats
 
@@ -142,8 +168,10 @@ resuming, and don't publish stale signals. Threshold: `heartbeat.max_staleness_s
   method works per source).
 
 **`design/`** — how the system works:
-- [`v2-plan.md`](./design/v2-plan.md) — **the v2 plan** (full-stack TypeScript; active development).
-- [`v2-porting-spec.md`](./design/v2-porting-spec.md) — the Python→TS **parity contract** for v2.
+- [`v2-plan.md`](./design/v2-plan.md) — **the v2 blueprint + as-built record** (full-stack TypeScript;
+  all slices complete, cutover-approved).
+- [`v2-porting-spec.md`](./design/v2-porting-spec.md) — the Python→TS **parity contract** for v2
+  (gate executed + passed, §12).
 - [`signal-framework.md`](./design/signal-framework.md) — the two-family model, normalization,
   `H_e`/`H_m`, divergence quadrants, lead-lag (version-agnostic concept). **Start here for the concept.**
 - [`architecture.md`](./design/architecture.md) — pipeline, components, schema, cadence, stack (v0.0.1).

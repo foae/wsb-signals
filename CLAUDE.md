@@ -11,13 +11,16 @@ WSB Signals is a near-live r/wallstreetbets "trending radar": poll Reddit, rank 
 
 **Two versions exist. Know which you're working on.**
 
-- **v0.0.1 — FROZEN (everything the rest of this file describes).** The Python + DuckDB + Streamlit
-  radar below is tagged `v0.0.1`, stable, deterministic, and **feature-frozen.** It is now the **parity
+- **v0.0.1 — FROZEN.** The Python + DuckDB + Streamlit radar (tagged `v0.0.1`, at the root:
+  `wsb_signals/`, `tests/`) is stable, deterministic, and **feature-frozen.** It is the **parity
   oracle** for v2 — read it to understand the behavior the rewrite must reproduce, but **do NOT add
-  features to it.**
-- **v2 — ACTIVE development (full-stack TypeScript).** The **entire worker** is being re-implemented in
-  **TypeScript** as a standalone Node process (+ a Nuxt 4 SSR frontend, Postgres, a pnpm monorepo with a
-  shared Drizzle schema). **All new work happens here**, on branch **`feat/v2-fullstack-nuxt`**.
+  features to it.** It is not deployed.
+- **v2 — THE RADAR (full-stack TypeScript; BUILT & cutover-approved).** The entire worker is
+  re-implemented in **TypeScript** as a standalone Node process, plus a Nuxt 4 SSR frontend, Postgres,
+  and a pnpm monorepo with a shared Drizzle schema. **All slices (0–10) are complete** and the
+  replay-vs-oracle cutover gate **PASSED (2026-06-09)** — v2 is the system that ships
+  (`deploy/v2/`: db + worker + web). The `feat/v2-fullstack-nuxt` branch is merged and gone;
+  **all new work happens on `main`.**
 
 **Building v2? Read these two FIRST** — they are authoritative and override the v0.0.1 descriptions
 below wherever they conflict:
@@ -51,9 +54,8 @@ When you change behavior, **keep the doc and the code in sync** — drift here i
 
 ## Commands — v0.0.1 frozen radar (the oracle)
 
-These drive the **frozen Python radar** (the parity oracle); v2 tooling will be **pnpm**-based (see
-`design/v2-plan.md`). Tooling is **uv** (no manual venv / pip). Console entrypoint is `wsb`
-(`pyproject` → `wsb_signals.cli:main`).
+These drive the **frozen Python radar** (the parity oracle only — not deployed). Tooling is **uv**
+(no manual venv / pip). Console entrypoint is `wsb` (`pyproject` → `wsb_signals.cli:main`).
 
 ```bash
 uv sync                              # build env from pyproject + uv.lock
@@ -74,11 +76,12 @@ uv run wsb dashboard                 # Streamlit board on :8501 (reads the JSON/
 There is **no lint config** in-repo (no ruff/flake8), despite `# noqa` comments in the source.
 Run-for-real is Docker Compose (`docker compose up -d --build`); see `deploy/README.md`.
 
-## Commands — v2 (ACTIVE; pnpm monorepo on `feat/v2-fullstack-nuxt`)
+## Commands — v2 (THE RADAR; pnpm monorepo on `main`)
 
 **Node 24 LTS + pnpm** (pinned via `.nvmrc` + `packageManager`). Packages live in
-`packages/{shared,worker,web}`; **each slice of the TS port gates against the golden fixtures in
-`fixtures/`** — the frozen v0.0.1 radar is the parity oracle (`design/v2-porting-spec.md`).
+`packages/{shared,worker,web}`; **the TS port gates against the golden fixtures in `fixtures/`** —
+the frozen v0.0.1 radar is the parity oracle (`design/v2-porting-spec.md`). Deploy is
+`deploy/v2/compose.yml` (db + worker + web; see `deploy/v2/README.md`).
 
 ```bash
 pnpm install                          # build the workspace (native builds pre-approved in pnpm-workspace.yaml)
@@ -90,6 +93,8 @@ pnpm -C packages/worker test          # unit + PARITY tests (vs fixtures/), Dock
 pnpm -C packages/worker test:it       # testcontainers Postgres integration — NEEDS Docker
 pnpm -C packages/worker typecheck
 pnpm -C packages/worker dev           # run the worker entry (tsx; the 5-min poll loop)
+pnpm -C packages/worker build-whitelist  # fetch Alpaca asset universe → whitelist/symbols.txt (ported CLI)
+pnpm -C packages/worker heartbeat     # Arctic-Shift freshness probe; exits 0 OK / 1 stale / 2 down (ported CLI)
 
 # live shadow (slice 9) — the deterministic replay-vs-oracle parity GATE (porting-spec §12)
 pnpm -C packages/worker start --shadow                            # worker dumps data/shadow/cycle-*.json
@@ -117,7 +122,26 @@ slice status live in `design/v2-plan.md` §4.
 ## Pipeline (data flow)
 
 `Reddit tap → extract tickers → classify direction → window-aggregate (H_e) → gate market data to
-top-N hot → overlay (H_m) → JSON snapshot + Parquet → dashboard`. Module map:
+top-N hot → overlay (H_m) → divergence/quadrant signals → atomic publish → web board`.
+
+**v2 module map** (`packages/worker/src/`, plus `packages/{shared,web}`):
+
+| Stage | Module | Notes |
+|---|---|---|
+| Ingest | `ingest.ts` | Arctic-Shift paginated descending poll; bounded retry-with-backoff on throttle/5xx (porting-spec §4.1). |
+| Extract | `extract.ts` | Regex candidates → stoplist → whitelist → ambiguous-context gate (parity port). |
+| Classify | `classify.ts` | Direction (bull/bear) from options/position words (parity port). |
+| Aggregate | `aggregate.ts` | mentions → `(ticker, window)` features + `H_e`; board order via `@wsb/shared` `compareBoard`. |
+| Market | `market.ts` | Alpaca snapshots + screeners → `ret`/`rvol` → `H_m`; gated to top-N by `H_e`. |
+| Signals (new) | `analytics.ts` | divergence / quadrants / lead-lag (v2-only; porting-spec §11). |
+| Orchestrate | `pipeline.ts` + `loop.ts` + `index.ts` | The 5-min cycle; SIGTERM, advisory lock, W−1-before-W. |
+| Store | `db.ts` (+ `@wsb/shared` schema/migrations) | Postgres via Drizzle; atomic per-cycle publish; ≤1000-row upsert chunks. |
+| Shadow gate | `shadow.ts` / `shadow-diff.ts` / `shadow-cli.ts` | Replay-vs-oracle parity gate (porting-spec §12). |
+| Aux CLIs | `build-whitelist.ts` (`assets.ts`), `heartbeat.ts` | Ported from the v0.0.1 `wsb` CLI. |
+| Web | `packages/web` (`server/api/board`) | Read-only Nuxt 4 SSR; one REPEATABLE READ tx over the latest complete cycle. |
+| Config | `config.ts` | `config.toml` (tunables) + env (`DATABASE_URL`, `ALPACA_*`). |
+
+**v0.0.1 oracle module map** (root Python tree — read for parity, don't extend):
 
 | Stage | Module | Notes |
 |---|---|---|
@@ -187,7 +211,11 @@ top-N hot → overlay (H_m) → JSON snapshot + Parquet → dashboard`. Module m
 
 ## Config & secrets
 
-- `config.toml` — committed tunables (cadence, regex, `H_e`/`H_m` weights, thresholds).
-- `.env` — secrets (`ALPACA_*`), **gitignored**. `config.py` overlays `os.environ` `ALPACA_*` so
-  containers/k8s can inject creds without a file. `whitelist/symbols.txt` is **derived** (gitignored);
+- `config.toml` — committed tunables (cadence, regex, `H_e`/`H_m` weights, thresholds). Read by
+  **both** stacks (v2's `packages/worker/src/config.ts` parses the same file).
+- Secrets are env-only, **gitignored**: the v2 worker needs `DATABASE_URL` (writer role) +
+  `ALPACA_*`; the web needs only `DATABASE_URL` (read-only role — provisioned by the worker on
+  boot). Deploy secrets live in `deploy/v2/.env` (from `.env.example`). The v0.0.1 oracle reads
+  `.env` at the root (`config.py` overlays `os.environ` `ALPACA_*`).
+- `whitelist/symbols.txt` is **derived** (gitignored; `pnpm -C packages/worker build-whitelist`);
   `whitelist/stoplist.txt` and `ambiguous.txt` are curated and committed.
