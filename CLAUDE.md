@@ -41,6 +41,13 @@ When you change behavior, **keep the doc and the code in sync** — drift here i
 - `design/v2-plan.md` — the v2 blueprint: topology, pnpm-monorepo layout, stack, build order, deploy.
 - `design/v2-porting-spec.md` — the Python→TS **parity contract**; every port slice gates on it.
 
+**Plays — the next product direction (DESIGN phase, approved 2026-08-18; not yet built):**
+- `design/plays-product.md` — WSB Plays spec: capture Gain/Loss/YOLO posts → vision-LLM position
+  extraction → interpret/categorize → auto-publish to the web board. The radar demotes to a data
+  subsystem (herd/trend evidence) and keeps running.
+- `design/plays-plan.md` — its build plan (slices P0–P6). **P0 prunes the frozen Python oracle tree
+  from `main`** (recoverable at tag `v0.0.1`) — the v0.0.1 sections below describe the tree until P0 lands.
+
 **Concept & math (version-agnostic — carry forward to v2):**
 - `design/signal-framework.md` — two signal families, normalization, `H_e`/`H_m`, divergence quadrants,
   lead-lag. **Read this first to understand *why*.**

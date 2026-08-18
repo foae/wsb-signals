@@ -9,6 +9,13 @@
 > the whole stack; the v0.0.2 product (divergence/quadrants/STEALTH/lead-lag) is built **within v2**.
 > Authoritative: [`design/v2-plan.md`](./design/v2-plan.md) + [`design/v2-porting-spec.md`](./design/v2-porting-spec.md).
 > The phase descriptions below are **build history** for the frozen radar.
+>
+> **Next direction (2026-08-18): WSB Plays** — capture Gain/Loss/YOLO screenshot posts, vision-LLM
+> position extraction, interpretation/categorization, auto-published play browser; the radar demotes
+> to a data subsystem (herd/trend evidence) and keeps running. Design approved, build not started.
+> Authoritative: [`design/plays-product.md`](./design/plays-product.md) +
+> [`design/plays-plan.md`](./design/plays-plan.md) (slices P0–P6; P0 prunes the frozen Python tree
+> from `main` — recoverable at tag `v0.0.1`).
 
 ## Phase 0 — Feasibility & scaffolding ⛔ (gating)
 
