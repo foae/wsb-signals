@@ -96,11 +96,20 @@ export async function claimCaptured(db: Db, config: PlaysConfig, now: number): P
 const ownedBy = (row: PlayRow): ReturnType<typeof and> =>
   and(eq(plays.id, row.id), eq(plays.status, row.status), eq(plays.claimedAt, row.claimedAt!))
 
+/** A fenced update matching no row means THIS claimer lost its lease mid-stage and a re-claimer owns
+ *  the row — the no-op is correct (see `ownedBy`), but without a log line the double-claim is
+ *  invisible when debugging from logs alone. */
+const warnIfFenced = (res: { rowCount: number | null }, row: PlayRow, action: string): boolean => {
+  const fenced = (res.rowCount ?? 0) === 0
+  if (fenced) log.warn({ playId: row.id, action }, 'plays update fenced out — lease lost mid-stage, row re-claimed elsewhere; no-op')
+  return fenced
+}
+
 /** Advance a claimed `captured` row to `media_ready` with its final media verdict. */
 async function advanceToMediaReady(
   db: Db, row: PlayRow, mediaStatus: 'archived' | 'failed' | 'none', items: PlayMediaItem[], now: number,
 ): Promise<void> {
-  await db.update(plays).set({
+  const res = await db.update(plays).set({
     status: 'media_ready',
     mediaStatus,
     media: items.length ? items : null,
@@ -109,6 +118,12 @@ async function advanceToMediaReady(
     attempts: 0, // attempts budget is per stage
     error: null,
   }).where(ownedBy(row))
+  // The one per-play success line: without it the COMMON outcome (clean archive) is invisible in logs
+  // and a play's id can't be traced from capture to media_ready.
+  if (!warnIfFenced(res, row, 'advance')) {
+    log.info({ playId: row.id, mediaStatus, images: items.length, isGallery: row.isGallery === true },
+      'play advanced to media_ready')
+  }
 }
 
 /** Reschedule a transiently-failing media fetch inside its retry window (status stays `captured`).
@@ -117,23 +132,25 @@ async function advanceToMediaReady(
 async function scheduleMediaRetry(
   db: Db, row: PlayRow, retryUntil: number, items: PlayMediaItem[], now: number,
 ): Promise<void> {
-  await db.update(plays).set({
+  const res = await db.update(plays).set({
     mediaRetryUntil: retryUntil,
     nextAttemptAt: now + MEDIA_RETRY_INTERVAL_S,
     claimedAt: null,
     ...(items.length ? { media: items } : {}), // never clobber prior items with an empty attempt
   }).where(ownedBy(row))
+  warnIfFenced(res, row, 'media-retry')
 }
 
 /** Release a shutdown-aborted claim UNCHANGED: not a fault (no attempts, no retry window), just due
  *  again on the next tick after restart. Advancing here would degrade the play to text-only over a
  *  plain deploy (P7); items archived before the abort are persisted for reuse. */
 async function releaseClaim(db: Db, row: PlayRow, items: PlayMediaItem[], now: number): Promise<void> {
-  await db.update(plays).set({
+  const res = await db.update(plays).set({
     claimedAt: null,
     nextAttemptAt: now,
     ...(items.length ? { media: items } : {}),
   }).where(ownedBy(row))
+  warnIfFenced(res, row, 'release')
 }
 
 /** Record a stage crash: bump `attempts`, back off exponentially, and only at `max_attempts` park the
@@ -142,13 +159,14 @@ async function recordStageFailure(db: Db, row: PlayRow, config: PlaysConfig, now
   const attempts = (row.attempts ?? 0) + 1
   const terminal = attempts >= config.maxAttempts
   const backoff = Math.min(FAILURE_BACKOFF_BASE_S * 2 ** (attempts - 1), FAILURE_BACKOFF_CAP_S)
-  await db.update(plays).set({
+  const res = await db.update(plays).set({
     attempts,
     error: String(err).slice(0, 500),
     claimedAt: null,
     nextAttemptAt: now + backoff,
     ...(terminal ? { status: 'failed' as const } : {}),
   }).where(ownedBy(row))
+  warnIfFenced(res, row, 'record-failure')
   return terminal
 }
 
@@ -205,7 +223,7 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
     } catch (e) {
       const terminal = await recordStageFailure(deps.db, row, deps.config, clock(), e)
       if (terminal) stats.failed++
-      log.error({ playId: row.id, err: String(e), terminal }, 'plays stage crashed')
+      log.error({ playId: row.id, err: String(e), attempts: (row.attempts ?? 0) + 1, terminal }, 'plays stage crashed')
     }
   }
   if (stats.claimed > 0) log.info(stats, 'plays queue tick')

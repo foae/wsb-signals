@@ -47,7 +47,12 @@ export function playRowsFromRaw(rawPosts: readonly RawThing[], flairs: ReadonlyS
   for (const d of rawPosts) {
     const flair = typeof d.link_flair_text === 'string' ? d.link_flair_text : null
     if (flair == null || !flairs.has(flair)) continue
-    if (typeof d.id !== 'string' || !PLAY_ID_RE.test(d.id)) continue
+    if (typeof d.id !== 'string' || !PLAY_ID_RE.test(d.id)) {
+      // Anomalous, not routine: a flair-MATCHED post is being dropped. Silent, this looks like a
+      // mysteriously missing play; logged, it names the culprit.
+      log.warn({ id: String(d.id).slice(0, 40), flair }, 'plays capture: dropping matched post with unusable id')
+      continue
+    }
     out.push({
       id: d.id,
       createdUtc: typeof d.created_utc === 'number' ? Math.trunc(d.created_utc) : null,
@@ -98,16 +103,19 @@ export async function capturePlays(
     galleries: rows.filter((r) => r.isGallery).length,
   }
   try {
+    let insertedIds: string[] = []
     if (rows.length > 0) {
       // ~35 posts/cycle — far under the bind-parameter chunking threshold; one statement.
       const inserted = await db.insert(plays).values(rows)
         .onConflictDoNothing({ target: plays.id })
         .returning({ id: plays.id })
       stats.inserted = inserted.length
+      insertedIds = inserted.map((r) => r.id)
     }
     // Logged EVERY cycle, including matched=0 — that silent case IS the flair-rename canary; gating the
-    // log on inserted>0 would mute it exactly when the flair list breaks.
-    log.info(stats, 'plays capture')
+    // log on inserted>0 would mute it exactly when the flair list breaks. New ids are named so a play
+    // can be traced through the logs from this line to its `media_ready` line.
+    log.info({ ...stats, ...(insertedIds.length ? { ids: insertedIds } : {}) }, 'plays capture')
   } catch (e) {
     log.error({ err: String(e) }, 'plays capture insert failed — radar cycle unaffected, will retry next poll')
   }

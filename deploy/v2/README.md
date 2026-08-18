@@ -123,6 +123,70 @@ When the worker shows `unhealthy` in `docker compose ps`, or cycle logs show `ST
 
 ---
 
+## Reading the worker logs
+
+Structured pino JSON, one object per line: `level` (30 info / 40 warn / 50 error), `time` (epoch ms),
+`msg`, plus per-event fields. Everything below is greppable from
+`docker compose -f deploy/v2/compose.yml logs worker`.
+
+### The radar heartbeat
+
+One `cycle complete` line per 5-min cycle is the health signal:
+
+```
+{"posts":5,"comments":1398,"mentions":268,"tickers":34,"priced":25,"capped":false,"top":"RDDT H_e=0.56","lagMin":0,"freshness":"OK","msg":"cycle complete"}
+```
+
+`mentions`/`tickers` near zero with normal `posts`/`comments` ⇒ extraction degraded (check for the
+`CASHTAG-ONLY` warn: missing whitelist). `priced: 0` with `tickers > 0` ⇒ market overlay down (check
+for `market overlay` warns; `market overlay disabled — ALPACA creds missing` at boot means no keys).
+`capped: true` ⇒ undercounted window, low-trust SoV. `freshness` ≠ `OK` ⇒ the runbook above. A
+missing cycle line ⇒ look for `cycle failed — recovering` (self-healed, next interval retries) or
+`poll incomplete … skipping this cycle` (partial polls are discarded whole, by design). Transient
+`transient page failure — backing off` warns around a successful cycle are normal Arctic-Shift
+throttle noise, not a fault.
+
+### Tracing a play (P1: capture → media)
+
+Every play is traceable by grepping its post id through three moments:
+
+1. **Enter**: each cycle logs `plays capture` with `{seen, matched, inserted, galleries}`; newly
+   inserted ids are named in `ids`. `matched: 0` sustained for a day with normal `seen` is the
+   flair-rename canary (check `[plays].flairs` against the sub). A flair-matched post with a
+   malformed id is dropped loudly: `dropping matched post with unusable id`.
+2. **Process**: when the queue claims work it logs `plays queue tick`
+   `{claimed, advanced, retrying, failed}`. No tick line = nothing was due (normal silence).
+3. **Resolve** — exactly one of, always with `playId`:
+   - `play advanced to media_ready` `{mediaStatus, images, isGallery}` — the success line
+     (`mediaStatus: "none"` = text-only by construction, not a failure);
+   - `plays media transient failure — will retry` — retrying inside the `media_retry_until` window;
+   - `plays media partially archived` — advanced with some images missing (`detail` lists which);
+   - `plays media unrecoverable — degrading to text-only` — window exhausted or media gone (P7);
+   - `plays media stage aborted (shutdown) — releasing claim` — deploy/SIGTERM, not a fault; the row
+     is re-processed after restart;
+   - `plays stage crashed` `{err, attempts, terminal}` — a bug or infra fault; `terminal: true`
+     means the row is parked as `failed` after `max_attempts`.
+
+`plays media: gallery post-JSON fetch failed` warns count Reddit-side gallery-resolution failures
+(the P1 gate metric — 403s here mean Reddit is blocking the archive fetch). A
+`plays update fenced out` warn means a lease expired mid-stage and another claimer took the row —
+harmless once, investigate if recurring (stage running longer than `lease_minutes`?). The plays
+loops can never take the radar down: worst case is
+`plays queue DISABLED after repeated tick failures — radar unaffected` (restart the worker to
+resume) or per-cycle `plays capture insert failed — radar cycle unaffected`.
+
+### Useful one-liners
+
+```bash
+logs() { docker compose -f deploy/v2/compose.yml logs worker --no-log-prefix "$@"; }
+logs | grep abc123                       # full life of play abc123
+logs | jq -c 'select(.level >= 40)'      # everything abnormal
+logs | jq -c 'select(.msg == "cycle complete")' | tail -5    # radar cadence + health
+logs | grep -c 'gallery post-JSON fetch failed'              # gallery failure count (gate metric)
+```
+
+---
+
 ## Web service (Nuxt 4 SSR read-only board)
 
 The `web` service serves the read-only leaderboard at **http://localhost:3000** (host networking)
