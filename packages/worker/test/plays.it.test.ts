@@ -337,12 +337,12 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
 
     const row = await getPlay('p1')
     expect(row.status).toBe('extracted')
-    expect(row.currentExtractionAt).toBe(NOW * 1000)
     expect(row.claimedAt).toBeNull()
     expect(row.attempts).toBe(0)
 
     const runs = await pg.db.select().from(playExtractions)
     expect(runs).toHaveLength(1)
+    expect(row.currentExtractionAt).toBe(runs[0]!.runAt) // the pointer names the winning run (wall-clock ms)
     expect(runs[0]).toMatchObject({
       playId: 'p1', model: 'test-model',
       promptVersion: 'extract-prompt-v1/extract-schema-v1',
@@ -384,7 +384,7 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
     expect((await getPlay('p1')).status).toBe('media_ready')
   })
 
-  it('an analyzer crash is a stage fault: attempts bump + backoff, then terminal at max_attempts', async () => {
+  it('an analyzer crash is a stage fault: attempts bump + backoff, then terminal at max_attempts — and every attempt’s RESERVATION stays on the meter (fail-closed)', async () => {
     await seedMediaReady()
     const boom = { extract: async () => { throw new Error('provider 500') } }
     await extractTick(boom)
@@ -400,6 +400,32 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
     row = await getPlay('p1')
     expect(row.status).toBe('failed') // terminal — parked for a human, not retried forever
     expect(row.attempts).toBe(4)
+    // A crash between the billed call and reconciliation must NOT undercount the meter: each
+    // attempt persisted its worst-case reservation row (null promptVersion = the crash marker).
+    const runs = await pg.db.select().from(playExtractions)
+    expect(runs).toHaveLength(4)
+    for (const r of runs) {
+      expect(r.costUsd).toBeGreaterThan(0)
+      expect(r.promptVersion).toBeNull()
+    }
+  })
+
+  it('shutdown mid-LLM-call: claim released unchanged, the unbilled reservation dropped', async () => {
+    await seedMediaReady()
+    const stop = new AbortController()
+    const analyzer = {
+      extract: async (_i: unknown, _t: unknown, opts?: { signal?: AbortSignal }) => {
+        stop.abort() // SIGTERM lands mid-flight
+        throw Object.assign(new Error('aborted'), { name: 'AbortError', cause: opts?.signal })
+      },
+    }
+    const stats = await extractTick(analyzer, { signal: stop.signal })
+    expect(stats).toMatchObject({ retrying: 1, extracted: 0, failed: 0 })
+    const row = await getPlay('p1')
+    expect(row.status).toBe('media_ready')
+    expect(row.attempts).toBe(0) // a deploy is not a fault
+    expect(row.claimedAt).toBeNull()
+    expect(await pg.db.select().from(playExtractions)).toHaveLength(0) // aborted = not billed = not metered
   })
 
   it('no analyzer wired (no OPENAI_API_KEY): media_ready rows rest untouched', async () => {

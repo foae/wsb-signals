@@ -18,9 +18,12 @@ import type { LlmPrices, PlaysLlmConfig } from '../config'
 import type { Db } from '../db'
 
 /** Rough-but-conservative input estimate: OpenAI vision bills detail-high images by 512px tiles;
- *  a ≤1600px screenshot is ≤ ~1105 tokens (base 85 + 6 tiles × 170). Text ≈ chars/4 + prompt. */
-const TOKENS_PER_IMAGE = 1105
-const SYSTEM_PROMPT_TOKENS = 900
+ *  a tall ≤1600px screenshot can hit ~8 tiles (base 85 + 8 × 170 ≈ 1445) — reserve 1600 so the
+ *  "worst case" actually is one. The fixed term covers the system prompt AND the generated JSON
+ *  schema AND the user framing (~4.5k chars combined → ~1.2k tokens; reserve 2500 with headroom).
+ *  Both were under-reserved in the first cut — flagged by review round 1 (invariant P6). */
+const TOKENS_PER_IMAGE = 1600
+const SYSTEM_PROMPT_TOKENS = 2500
 
 export function estimateInputTokens(imageCount: number, textChars: number): number {
   return SYSTEM_PROMPT_TOKENS + imageCount * TOKENS_PER_IMAGE + Math.ceil(textChars / 4)

@@ -240,18 +240,39 @@ async function parkForRefusal(db: Db, row: PlayRow, now: number): Promise<void> 
 
 /**
  * The `media_ready` stage (P2): images + text → LLM extraction → deterministic validation →
- * `play_extractions` row + advance to `extracted`. Money moves here, so the order is deliberate:
- * the fail-closed dispatch gate runs BEFORE anything is sent (invariant P6), and NO transaction
- * spans the LLM call (invariant P9) — the insert and the advance are separate autocommit writes
- * (a crash between them re-runs extraction; the unique `(play_id, run_at)` key keeps rows distinct
- * and `current_extraction_at` points at the winning run).
+ * `play_extractions` row + advance to `extracted`. Money moves here, so the order is deliberate
+ * (tightened in review round 1):
+ *
+ *  1. **Dispatch gate FIRST** (invariant P6), before even image prep — a parked queue must not
+ *     re-encode screenshots every re-check forever. The image count is estimable without prep.
+ *  2. **The reservation is PERSISTED before the call**: the `play_extractions` row is inserted
+ *     with the worst-case `cost_usd` up front and reconciled to real usage after. A crash (or
+ *     SIGKILL) mid-call leaves the reservation row counted by `todaySpendUsd` — the cap
+ *     over-counts instead of reopening, and a concurrent dispatcher sees the reservation too.
+ *  3. **NO transaction spans the LLM call** (invariant P9); the reconcile and the advance are
+ *     separate autocommit writes. A crash between them re-runs extraction: the unique
+ *     `(play_id, run_at)` key keeps runs distinct and `current_extraction_at` names the winner.
+ *  4. **Shutdown aborts the call** (the seam threads the signal); an abort releases the claim
+ *     unchanged and DELETES the unreconciled reservation — the provider does not bill an aborted
+ *     request, and keeping it would leak budget on every deploy.
  */
 async function processMediaReady(
   deps: QueueDeps, analyzer: PlayAnalyzer, row: PlayRow, now: number,
-): Promise<'extracted' | 'parked' | 'fenced'> {
+): Promise<'extracted' | 'parked' | 'aborted' | 'fenced'> {
   const media = Array.isArray(row.media) ? (row.media as PlayMediaItem[]) : []
   const text = { title: row.title, selftext: row.selftext, flair: row.flair }
   const textChars = (row.title?.length ?? 0) + (row.selftext?.length ?? 0)
+  const imageCountEstimate = Math.min(media.length, deps.config.maxImagesLlm)
+
+  const decision = await canDispatch(
+    deps.db, deps.config.llm, deps.config.llm.extractModel,
+    estimateInputTokens(imageCountEstimate, textChars), now * 1000)
+  if (!decision.ok) {
+    log.warn({ playId: row.id, reason: decision.reason, detail: decision.detail },
+      'plays extract dispatch REFUSED — parking the play (fail-closed metering, invariant P6)')
+    await parkForRefusal(deps.db, row, now)
+    return 'parked'
+  }
 
   const prepared = media.length
     ? await preparePlayImages(row.id, media, {
@@ -261,40 +282,55 @@ async function processMediaReady(
     })
     : { images: [], dropped: [], totalBytes: 0 }
 
-  const decision = await canDispatch(
-    deps.db, deps.config.llm, deps.config.llm.extractModel,
-    estimateInputTokens(prepared.images.length, textChars), now * 1000)
-  if (!decision.ok) {
-    log.warn({ playId: row.id, reason: decision.reason, detail: decision.detail },
-      'plays extract dispatch REFUSED — parking the play (fail-closed metering, invariant P6)')
-    await parkForRefusal(deps.db, row, now)
-    return 'parked'
+  // Persist the reservation BEFORE the money moves (see step 2 above). `runAt` is REAL wall-clock
+  // ms, not the logical queue clock: the unique `(play_id, run_at)` key must distinguish two runs
+  // even when retries land inside the same logical second.
+  const runAt = Date.now()
+  const [reserved] = await deps.db.insert(playExtractions).values({
+    playId: row.id,
+    runAt,
+    model: deps.config.llm.extractModel,
+    promptVersion: null, // reconciled on success; a null-prompt row IS the crash marker
+    output: null,
+    tokensIn: null,
+    tokensOut: null,
+    costUsd: decision.reservedUsd,
+  }).returning({ id: playExtractions.id })
+
+  let result
+  try {
+    result = await analyzer.extract(prepared.images, text, { signal: deps.signal })
+  } catch (e) {
+    if (deps.signal?.aborted) {
+      // Aborted before completion: not billed — drop the reservation, release the claim unchanged.
+      await deps.db.delete(playExtractions).where(eq(playExtractions.id, reserved!.id))
+      log.info({ playId: row.id }, 'plays extract aborted (shutdown) — releasing claim, reservation dropped')
+      await releaseClaim(deps.db, row, [], now)
+      return 'aborted'
+    }
+    throw e // a real provider/timeout failure — the reservation row stays (fail-closed), stage crash path
   }
 
-  const result = await analyzer.extract(prepared.images, text)
   const validated = validateExtraction(result.extraction, {
     isListedTicker: deps.isListedTicker ?? (() => false),
     mediaArchived: row.mediaStatus === 'archived' && prepared.images.length > 0,
   })
-  const runAt = now * 1000
   const tokensIn = result.usage.inputTokens
   const tokensOut = result.usage.outputTokens
-  // Reconcile real cost from usage; unreported usage bills the pre-dispatch reservation — the meter
-  // must never undercount to $0 on a provider that omits usage (invariant P6).
+  // Reconcile real cost from usage; unreported usage keeps the reservation — the meter must never
+  // undercount to $0 on a provider that omits usage (invariant P6).
   const cost = tokensIn != null && tokensOut != null
     ? costUsd(decision.prices, tokensIn, tokensOut)
     : decision.reservedUsd
 
-  await deps.db.insert(playExtractions).values({
-    playId: row.id,
-    runAt,
+  await deps.db.update(playExtractions).set({
     model: result.model,
     promptVersion: `${result.promptVersion}/${validated.schema_version}`,
     output: validated,
     tokensIn,
     tokensOut,
     costUsd: cost,
-  })
+  }).where(eq(playExtractions.id, reserved!.id))
 
   const res = await deps.db.update(plays).set({
     status: 'extracted',
@@ -358,6 +394,7 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
         const outcome = await processMediaReady(deps, deps.analyzer, row, clock())
         if (outcome === 'extracted') stats.extracted++
         else if (outcome === 'parked') stats.parked++
+        else if (outcome === 'aborted') stats.retrying++
       } catch (e) {
         const { terminal, fenced } = await recordStageFailure(deps.db, row, deps.config, clock(), e)
         if (terminal) stats.failed++

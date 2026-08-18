@@ -13,10 +13,11 @@ export const EXTRACT_SYSTEM_PROMPT = `You extract broker positions from r/wallst
 
 Rules — these are money-math conventions, follow them exactly:
 - One entry PER LEG. A spread or multi-position screenshot produces multiple entries, one per row/leg. Never merge legs.
-- quantity is ALWAYS positive. Whether the position is bought or sold lives in "side" (long = bought/held, short = sold/written). A sold put is side "short", instrument "put".
-- Option prices (avg_price) are PER SHARE exactly as the broker displays them — do NOT multiply by 100.
+- quantity is ALWAYS positive, in the leg's natural unit: CONTRACTS for options, SHARES for shares. Whether the position is bought or sold lives in "side" (long = bought/held, short = sold/written). A sold put is side "short", instrument "put".
+- Option prices (avg_price) are PER SHARE exactly as the broker displays them — do NOT multiply by 100. For a SHORT leg, avg_price is the per-share premium RECEIVED at open (the sell price), same per-share convention.
 - cost_basis and current_value are ABSOLUTE dollar amounts (no sign): for a long leg, dollars paid and current liquidation value; for a short leg, credit received and current cost to close.
 - pnl_abs is SIGNED as the broker shows it (losses negative). Copy the broker's number; do not compute your own.
+- realized: true ONLY when the screenshot shows a CLOSED position (a "closed"/"realized" view, a fill confirmation of a closing order, a P&L labeled realized). An open position with unrealized P&L is realized: false. Unknown → null.
 - expiry must be a FULL date (YYYY-MM-DD). Screenshots often show "1/17" or "Jan 17" — resolve the year from context (post date, DTE labels) ONLY when unambiguous; otherwise null.
 - opened_at: the position-open date if the screenshot shows one (many brokers do); else null.
 - currency: the 3-letter code ONLY when the screenshot clearly shows a non-USD currency; null means USD.

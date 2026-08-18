@@ -115,7 +115,10 @@ provider = "openai"            # AI-SDK provider id; "anthropic", … later — 
 extract_model = "gpt-5-mini"   # placeholder — pick at P2 against the eval set
 interpret_model = "gpt-5-mini"
 max_plays_per_tick = 5
-max_output_tokens = 2000       # per call — also the worst-case pre-dispatch cost reservation
+max_output_tokens = 6000       # per call — also the worst-case pre-dispatch cost reservation. Sized
+                               # for dense portfolio screenshots (schema allows 30 legs ≈ 4-6k output
+                               # tokens; a 2k cap guaranteed truncation → paid AI_NoObjectGenerated
+                               # crashes — P2 review round 1)
 daily_budget_usd = 5.0         # UTC day; counter is summed from cost_usd rows in the DB
 
 [plays.llm.prices."gpt-5-mini"]  # $/Mtok per configured model — the metering source of truth

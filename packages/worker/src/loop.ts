@@ -322,18 +322,31 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
   // The LLM seam (P2): wired only with a key — without it the queue runs media-only and warns per
   // tick about the resting media_ready backlog. Fail-closed metering sits behind this regardless.
   const openaiKey = env.OPENAI_API_KEY
-  const analyzer = playsHandle && openaiKey
-    ? new AiSdkAnalyzer({
-      provider: worker.plays.llm.provider,
-      model: worker.plays.llm.extractModel,
-      maxOutputTokens: worker.plays.llm.maxOutputTokens,
-      apiKey: openaiKey,
-    })
-    : undefined
+  let analyzer
+  try {
+    analyzer = playsHandle && openaiKey
+      ? new AiSdkAnalyzer({
+        provider: worker.plays.llm.provider,
+        model: worker.plays.llm.extractModel,
+        maxOutputTokens: worker.plays.llm.maxOutputTokens,
+        apiKey: openaiKey,
+      })
+      : undefined
+  } catch (e) {
+    // A plays-only config fault (unknown provider) must not keep the RADAR from starting (P1).
+    log.error({ err: String(e) }, 'plays analyzer construction failed — extraction OFF, radar unaffected')
+    analyzer = undefined
+  }
   if (playsHandle && !openaiKey) {
     log.warn('plays LLM extraction OFF — OPENAI_API_KEY missing; plays rest at media_ready until it is set')
   }
   const whitelistSet = loadWhitelistSet(raw, root)
+  if (playsHandle && !whitelistSet) {
+    // Same failure mode buildExtractor warns about, but for the VALIDATION pass: without the
+    // whitelist every equity ticker validates as `unvalidated` (0.5 confidence) — visibly degraded
+    // output from an invisible cause unless named here.
+    log.warn('plays ticker validation degraded — whitelist missing, every equity will be `unvalidated` (run build-whitelist)')
+  }
   const isListedTicker = (t: string): boolean => whitelistSet?.has(t) ?? false
 
   log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market),

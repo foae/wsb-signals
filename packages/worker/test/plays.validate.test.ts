@@ -29,12 +29,21 @@ describe('assignPositionIds', () => {
 })
 
 describe('tickerOutcome (three outcomes, never two)', () => {
-  it('whitelist hit → validated; SPX/futures/crypto → known_non_equity; junk → unvalidated', () => {
+  it('whitelist hit → validated; index/crypto roots → known_non_equity; junk → unvalidated', () => {
     const isListed = (t: string) => LISTED.has(t)
     expect(tickerOutcome('NVDA', isListed)).toBe('validated')
     expect(tickerOutcome('SPX', isListed)).toBe('known_non_equity')
-    expect(tickerOutcome('ES', isListed)).toBe('known_non_equity') // '/ES' arrives stripped by the schema
+    expect(tickerOutcome('BTC', isListed)).toBe('known_non_equity')
     expect(tickerOutcome('ZZZZQ', isListed)).toBe('unvalidated')
+  })
+
+  it('slash prefix = futures, DEFINITIVELY — /ES never whitelist-validates as Eversource', () => {
+    const listsES = (t: string) => t === 'ES' // Eversource IS a listed equity
+    expect(tickerOutcome('/ES', listsES)).toBe('known_non_equity')
+    // The bare colliding symbol resolves to the equity: deterministic beats clever (invariant P3).
+    expect(tickerOutcome('ES', listsES)).toBe('validated')
+    // Bare futures root without slash and without a listing: unvalidated, not guessed.
+    expect(tickerOutcome('MNQ', () => false)).toBe('unvalidated')
   })
 })
 
@@ -96,5 +105,30 @@ describe('validateExtraction (the full pass)', () => {
     expect(out.model_confidence).toBe(0.8)
     expect(out.confidence).toBeGreaterThan(0.8)
     expect(new Set(out.positions.map((p) => p.position_id)).size).toBe(2)
+  })
+})
+
+describe('arithmeticOk: the synchronized ×100 landmine', () => {
+  it('an option basis matching qty×avg×1 (not ×100) is internally consistent but flagged', () => {
+    // 2 calls @ $3.50: TRUE basis $700; the ×1-error extraction says $7 / $12 / +$5 — coherent, wrong.
+    expect(arithmeticOk(leg({ cost_basis: 7, current_value: 12, pnl_abs: 5 }))).toBe(false)
+    // The correct ×100 figures still pass.
+    expect(arithmeticOk(leg({ cost_basis: 700, current_value: 1200, pnl_abs: 500 }))).toBe(true)
+  })
+  it('penny options are not false-positived (the $1 floor overlaps ×1 and ×100)', () => {
+    expect(arithmeticOk(leg({ quantity: 1, avg_price: 0.01, cost_basis: 1, current_value: 2, pnl_abs: 1 })))
+      .toBe(true)
+  })
+  it('shares are exempt (no multiplier to get wrong)', () => {
+    expect(arithmeticOk(leg({ instrument: 'shares', quantity: 10, avg_price: 0.7, cost_basis: 7, current_value: 12, pnl_abs: 5 })))
+      .toBe(true)
+  })
+})
+
+describe('deriveConfidence: incomplete option legs', () => {
+  it('an option leg with null strike or expiry is penalized — nulls must not read as high confidence', () => {
+    const incomplete = { ...leg({ strike: null, expiry: null, cost_basis: null, current_value: null, pnl_abs: null }),
+      position_id: 'x', ticker_outcome: 'validated' as const, arithmetic_ok: null }
+    expect(deriveConfidence([incomplete], { isListedTicker: () => true, mediaArchived: true }, null)).toBe(0.8)
   })
 })

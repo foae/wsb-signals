@@ -22,6 +22,8 @@ import { findRoot, loadConfig } from '../config'
 import { log } from '../logger'
 import { AiSdkAnalyzer, type PlayText } from './analyzer'
 import { LlmExtractionSchema, type ExtractedPosition, type LlmExtraction } from './extraction'
+import { encodeForLlm } from './images'
+import { costUsd, usablePrices } from './metering'
 
 const MARKING_CRITICAL = ['ticker', 'side', 'quantity', 'strike', 'expiry'] as const
 const SCORED_FIELDS = [
@@ -30,10 +32,12 @@ const SCORED_FIELDS = [
 ] as const
 type ScoredField = (typeof SCORED_FIELDS)[number]
 
-/** Exact match per field; numbers within 0.5 % (broker rounding); null==null is CORRECT. */
+/** Exact match per field; non-integer numbers within 0.5 % (broker rounding — integers like
+ *  quantity are EXACT: 200 vs 201 contracts is a real error); null==null is CORRECT. */
 export function fieldMatches(expected: unknown, actual: unknown): boolean {
   if (expected == null || actual == null) return expected == null && actual == null
   if (typeof expected === 'number' && typeof actual === 'number') {
+    if (Number.isInteger(expected) && Number.isInteger(actual)) return expected === actual
     return expected === actual || Math.abs(expected - actual) <= Math.abs(expected) * 0.005
   }
   return expected === actual
@@ -48,16 +52,26 @@ export interface CaseScore {
   kindOk: boolean
 }
 
-/** Score one case: positions aligned by index (the answer key is labeled in gallery/screen order —
- *  the same order the prompt demands). A missing/extra position counts every field wrong. */
+/** Canonical leg order for scoring: reversed-but-identical spread legs must not score every field
+ *  wrong — the prompt asks for screen order but does not (cannot) guarantee it (review round 1). */
+const canonical = (positions: readonly ExtractedPosition[]): ExtractedPosition[] =>
+  [...positions].sort((a, b) =>
+    a.ticker.localeCompare(b.ticker) || a.instrument.localeCompare(b.instrument)
+    || a.side.localeCompare(b.side) || (a.strike ?? 0) - (b.strike ?? 0)
+    || (a.expiry ?? '').localeCompare(b.expiry ?? ''))
+
+/** Score one case: both sides sorted canonically, then paired. A missing/extra position counts
+ *  every field wrong. */
 export function scoreCase(name: string, expected: LlmExtraction, actual: LlmExtraction): CaseScore {
   const perField = Object.fromEntries(
     SCORED_FIELDS.map((f) => [f, { correct: 0, total: 0 }]),
   ) as CaseScore['perField']
-  const n = Math.max(expected.positions.length, actual.positions.length)
+  const exp = canonical(expected.positions)
+  const act = canonical(actual.positions)
+  const n = Math.max(exp.length, act.length)
   for (let i = 0; i < n; i++) {
-    const e = expected.positions[i]
-    const a = actual.positions[i]
+    const e = exp[i]
+    const a = act[i]
     for (const f of SCORED_FIELDS) {
       perField[f].total++
       if (e && a && fieldMatches(e[f as keyof ExtractedPosition], a[f as keyof ExtractedPosition])) {
@@ -101,6 +115,15 @@ async function main(): Promise<void> {
     process.exitCode = 1
     return
   }
+  // Same fail-closed rule as production dispatch (invariant P6): no usable price, no calls. Eval
+  // spend is deliberately NOT written to the production daily cap (an operator-run gate must not
+  // park the pipeline), so the price + the running total below are its whole meter — keep both.
+  const prices = usablePrices(worker.plays.llm, model)
+  if (!prices) {
+    log.error({ model }, 'no usable price in [plays.llm.prices] — set real prices before running the eval (never free)')
+    process.exitCode = 1
+    return
+  }
   const fixturesDir = join(root, 'fixtures', 'plays')
   let cases: string[]
   try {
@@ -118,21 +141,30 @@ async function main(): Promise<void> {
     provider: worker.plays.llm.provider, model, maxOutputTokens: worker.plays.llm.maxOutputTokens, apiKey,
   })
   const scores: CaseScore[] = []
+  let spentUsd = 0
   for (const name of cases) {
     const dir = join(fixturesDir, name)
     const text = JSON.parse(readFileSync(join(dir, 'post.json'), 'utf8')) as PlayText
     const expected = LlmExtractionSchema.parse(JSON.parse(readFileSync(join(dir, 'expected.json'), 'utf8')))
     const imagesDir = join(dir, 'images')
-    const images = readdirSync(imagesDir).sort().map((f) => ({
-      data: Buffer.from(readFileSync(join(imagesDir, f))),
-      mediaType: f.endsWith('.png') ? 'image/png' : 'image/jpeg',
-    }))
+    // The PRODUCTION encoding (images.ts) — scoring raw fixtures would measure the model on
+    // inputs production never sends.
+    const images = await Promise.all(
+      readdirSync(imagesDir).sort().map(async (f) => encodeForLlm(Buffer.from(readFileSync(join(imagesDir, f))))))
     const result = await analyzer.extract(images, text)
+    const caseCost = result.usage.inputTokens != null && result.usage.outputTokens != null
+      ? costUsd(prices, result.usage.inputTokens, result.usage.outputTokens)
+      : 0
+    spentUsd += caseCost
     const score = scoreCase(name, expected, result.extraction)
     scores.push(score)
-    log.info({ case: name, positions: `${score.positionsActual}/${score.positionsExpected}`, kindOk: score.kindOk }, 'case scored')
+    log.info({
+      case: name, positions: `${score.positionsActual}/${score.positionsExpected}`, kindOk: score.kindOk,
+      costUsd: Number(caseCost.toFixed(5)), spentUsd: Number(spentUsd.toFixed(4)),
+    }, 'case scored')
   }
-  log.info({ model, cases: scores.length, accuracy: summarize(scores) }, 'plays-eval complete')
+  log.info({ model, cases: scores.length, spentUsd: Number(spentUsd.toFixed(4)), accuracy: summarize(scores) },
+    'plays-eval complete')
 }
 
 // Invoked as a CLI (package script `plays-eval`); importable for the scorer unit tests.

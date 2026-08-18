@@ -15,9 +15,9 @@ export const leg = (over: Partial<ExtractedPosition> = {}): ExtractedPosition =>
 })
 
 describe('ExtractedPositionSchema', () => {
-  it('normalizes tickers: uppercase, cashtag/futures prefix stripped', () => {
+  it('normalizes tickers: uppercase, cashtag stripped, futures slash PRESERVED (it is information)', () => {
     expect(ExtractedPositionSchema.parse(leg({ ticker: '$nvda' })).ticker).toBe('NVDA')
-    expect(ExtractedPositionSchema.parse(leg({ ticker: '/es' })).ticker).toBe('ES')
+    expect(ExtractedPositionSchema.parse(leg({ ticker: '/es' })).ticker).toBe('/ES') // never collides with Eversource
   })
 
   it('rejects non-positive quantity — the sign lives in `side`, never in quantity', () => {
@@ -69,6 +69,14 @@ describe('direction derivation (never asked of the model)', () => {
     expect(derivePlayDirection([
       leg({ instrument: 'shares', side: 'long', cost_basis: 10_000 }),
       leg({ instrument: 'put', side: 'long', cost_basis: 50 }),
+    ])).toBe('bullish')
+  })
+
+  it('a PARTIAL-basis book falls back to leg count — a tiny priced hedge must not flip a larger unpriced position', () => {
+    expect(derivePlayDirection([
+      leg({ instrument: 'shares', side: 'long', cost_basis: null }), // the big position, unpriced
+      leg({ instrument: 'shares', side: 'long', cost_basis: null }),
+      leg({ instrument: 'put', side: 'long', cost_basis: 50 }), // the hedge — must not decide alone
     ])).toBe('bullish')
   })
 

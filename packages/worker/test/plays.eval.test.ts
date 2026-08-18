@@ -56,3 +56,20 @@ describe('summarize', () => {
     expect(s.position_count).toContain('100.0%')
   })
 })
+
+describe('scoreCase: canonical alignment', () => {
+  it('reversed-but-identical spread legs score perfect (order is not a field)', () => {
+    const a = leg()
+    const b = leg({ side: 'short' as const, strike: 160, cost_basis: 300, current_value: 100, pnl_abs: 200 })
+    const s = scoreCase('c4', extraction([a, b]), extraction([b, a]))
+    expect(s.perField.ticker).toEqual({ correct: 2, total: 2 })
+    expect(s.perField.strike).toEqual({ correct: 2, total: 2 })
+  })
+})
+
+describe('fieldMatches: integers are exact', () => {
+  it('200 vs 201 contracts is a real error, not rounding', () => {
+    expect(fieldMatches(200, 201)).toBe(false)
+    expect(fieldMatches(3.5, 3.51)).toBe(true) // float tolerance unchanged
+  })
+})

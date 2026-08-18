@@ -48,7 +48,7 @@ describe('config loading', () => {
     expect(llm.provider).toBe('openai')
     expect(llm.extractModel.length).toBeGreaterThan(0)
     expect(llm.maxPlaysPerTick).toBe(5)
-    expect(llm.maxOutputTokens).toBe(2000)
+    expect(llm.maxOutputTokens).toBe(6000)
     expect(llm.dailyBudgetUsd).toBe(5.0)
     expect(worker.plays.maxImagesLlm).toBe(8)
     expect(worker.plays.maxRequestBytes).toBe(24 * 1024 * 1024)

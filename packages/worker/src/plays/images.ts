@@ -23,6 +23,16 @@ import type { AnalyzerImage } from './analyzer'
 const MAX_EDGE_PX = 1600
 const JPEG_QUALITY = 80
 
+/** THE production encoding — exported so `plays-eval` scores exactly what production sends
+ *  (scoring raw archived images would measure a model on inputs it never sees). */
+export async function encodeForLlm(raw: Buffer): Promise<AnalyzerImage> {
+  const data = await sharp(raw, { animated: false })
+    .resize({ width: MAX_EDGE_PX, height: MAX_EDGE_PX, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: JPEG_QUALITY })
+    .toBuffer()
+  return { data, mediaType: 'image/jpeg' }
+}
+
 export interface PreparedImages {
   images: AnalyzerImage[]
   /** Items that could not be loaded/encoded or fell past the request-byte cap. */
@@ -40,10 +50,7 @@ export async function preparePlayImages(
   for (const [i, item] of take.entries()) {
     try {
       const raw = await readFile(join(opts.mediaDir, item.path))
-      const encoded = await sharp(raw, { animated: false })
-        .resize({ width: MAX_EDGE_PX, height: MAX_EDGE_PX, fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: JPEG_QUALITY })
-        .toBuffer()
+      const { data: encoded } = await encodeForLlm(raw)
       if (totalBytes + encoded.length > opts.maxRequestBytes) {
         // Cap hit: drop the WHOLE tail, not just this image — skipping one and sending the next
         // would present the model a gapped "original order".

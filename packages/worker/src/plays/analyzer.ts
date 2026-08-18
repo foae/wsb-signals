@@ -42,8 +42,13 @@ export interface ExtractResult {
 }
 
 export interface PlayAnalyzer {
-  extract(images: AnalyzerImage[], text: PlayText): Promise<ExtractResult>
+  /** `signal` aborts the in-flight call (worker shutdown) — an un-abortable extract would outlive
+   *  the compose stop_grace_period into a SIGKILL: paid but unrecorded, re-charged on restart. */
+  extract(images: AnalyzerImage[], text: PlayText, opts?: { signal?: AbortSignal }): Promise<ExtractResult>
 }
+
+/** Per-call ceiling even without a shutdown: a hung provider must not pin the queue tick. */
+const EXTRACT_TIMEOUT_MS = 180_000
 
 export interface AiAnalyzerOptions {
   provider: string
@@ -68,11 +73,16 @@ export class AiSdkAnalyzer implements PlayAnalyzer {
     this.maxOutputTokens = opts.maxOutputTokens
   }
 
-  async extract(images: AnalyzerImage[], text: PlayText): Promise<ExtractResult> {
+  async extract(images: AnalyzerImage[], text: PlayText, opts?: { signal?: AbortSignal }): Promise<ExtractResult> {
+    const timeout = AbortSignal.timeout(EXTRACT_TIMEOUT_MS)
     const result = await generateObject({
       model: this.model,
       schema: LlmExtractionSchema,
       maxOutputTokens: this.maxOutputTokens,
+      // The AI SDK DEFAULTS to 2 hidden retries — three provider attempts per "one" metered call.
+      // Zero here, always: the queue's attempt/backoff owns retry policy (review round 1).
+      maxRetries: 0,
+      abortSignal: opts?.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
       system: EXTRACT_SYSTEM_PROMPT,
       messages: [{
         role: 'user',

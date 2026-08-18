@@ -58,7 +58,9 @@ export const FieldConfidenceSchema = z.object({
 
 /** One LEG. All broker-screen dollar figures are absolute; `side` orients them. */
 export const ExtractedPositionSchema = z.object({
-  ticker: z.string().min(1).max(12).transform((s) => s.toUpperCase().replace(/^[$/]/, '')),
+  /** `$` strips (cashtag noise); a leading `/` is PRESERVED — it is the futures marker, and
+   *  stripping it collides `/ES` with Eversource's ES (P2 review round 1). */
+  ticker: z.string().min(1).max(12).transform((s) => s.toUpperCase().replace(/^\$/, '')),
   instrument: z.enum(INSTRUMENTS),
   side: z.enum(SIDES),
   /** Contracts or shares — ALWAYS positive; `side` carries the sign. */
@@ -112,24 +114,24 @@ export function legDirectionSign(p: Pick<ExtractedPosition, 'instrument' | 'side
 
 /**
  * The play's overall direction, DERIVED — never asked of the model: majority sign weighted by
- * cost basis (a $10k long-shares leg outweighs a $50 hedge put), falling back to leg count when no
- * leg carries a cost basis. Mixed/hedged books resolve to `neutral`, which the herd measure treats
- * as no-match (product §4.1).
+ * cost basis (a $10k long-shares leg outweighs a $50 hedge put). The weighting is used only when
+ * EVERY sign-bearing leg carries a cost basis — with a partial-basis book, a tiny priced hedge
+ * would otherwise flip the headline over a much larger unpriced position (P2 review round 1), so
+ * mixed-null books fall back to plain leg count. Mixed/hedged books resolve to `neutral`, which
+ * the herd measure treats as no-match (product §4.1).
  */
 export function derivePlayDirection(positions: readonly ExtractedPosition[]): PlayDirection {
   let weighted = 0
-  let hasWeight = false
+  let allWeighted = true
   let unweighted = 0
   for (const p of positions) {
     const sign = legDirectionSign(p)
     if (sign === 0) continue
     unweighted += sign
-    if (p.cost_basis != null && p.cost_basis > 0) {
-      weighted += sign * p.cost_basis
-      hasWeight = true
-    }
+    if (p.cost_basis != null && p.cost_basis > 0) weighted += sign * p.cost_basis
+    else allWeighted = false
   }
-  const score = hasWeight ? weighted : unweighted
+  const score = allWeighted ? weighted : unweighted
   if (score > 0) return 'bullish'
   if (score < 0) return 'bearish'
   return 'neutral'

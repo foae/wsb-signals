@@ -26,7 +26,8 @@ export interface PositionQuote {
 export interface PositionMark {
   positionId: string
   markable: boolean
-  /** Why not, when !markable: 'realized' | 'other-instrument' | 'non-usd' | 'no-quote' | 'no-cost-basis'. */
+  /** Why not, when !markable:
+   *  'realized' | 'other-instrument' | 'incomplete-leg' | 'non-usd' | 'no-quote' | 'no-cost-basis'. */
   reason: string | null
   /** Absolute dollars at the quote: liquidation value (long) / cost to close (short). */
   markValue: number | null
@@ -37,7 +38,12 @@ export interface PositionMark {
 
 export interface PlayMarkResult {
   positions: PositionMark[]
-  /** Sum over MARKED positions only; null when nothing was markable. */
+  /** Present ONLY when EVERY position marked — a partial total over a spread's available legs
+   *  recreates the phantom-gain failure the per-leg schema exists to prevent (mark the long leg,
+   *  miss the short, report unbounded gains). P5 surfaces partial coverage via the per-position
+   *  marks + counts, never a misleading headline number. `totalCostBasis` is the GROSS sum of
+   *  absolute bases (long debits + short credits), not net debit — an ROI denominator choice P5
+   *  makes explicitly, not here. */
   totalPnlAbs: number | null
   totalCostBasis: number | null
   markedCount: number
@@ -58,6 +64,11 @@ function markPosition(p: MarkablePosition, quote: PositionQuote | undefined): Po
   if (p.realized === true) return { ...base, markable: false, reason: 'realized' }
   const mult = multiplierFor(p.instrument)
   if (mult == null) return { ...base, markable: false, reason: 'other-instrument' }
+  // An option leg without strike+expiry has no OCC symbol — P5 cannot produce a quote for it, and a
+  // caller-supplied "quote" for an unidentifiable contract would mark fiction.
+  if ((p.instrument === 'call' || p.instrument === 'put') && (p.strike == null || p.expiry == null)) {
+    return { ...base, markable: false, reason: 'incomplete-leg' }
+  }
   // Non-USD positions are untrackable in v1 — marking them against US quotes would be silently wrong.
   if (p.currency != null && p.currency !== 'USD') return { ...base, markable: false, reason: 'non-usd' }
   if (quote == null || !Number.isFinite(quote.price) || quote.price < 0) {
@@ -77,8 +88,11 @@ export function markPlay(
 ): PlayMarkResult {
   const marks = positions.map((p) => markPosition(p, quotes[p.position_id]))
   const marked = marks.filter((m) => m.markable)
-  const totalPnlAbs = marked.length ? marked.reduce((s, m) => s + m.pnlAbs!, 0) : null
-  const totalCostBasis = marked.length
+  // Totals only for FULL coverage (see PlayMarkResult doc) — with one exception: realized legs are
+  // closed, their absence from the mark is not missing data, so they don't block the total.
+  const complete = marks.every((m) => m.markable || m.reason === 'realized')
+  const totalPnlAbs = complete && marked.length ? marked.reduce((s, m) => s + m.pnlAbs!, 0) : null
+  const totalCostBasis = complete && marked.length
     ? positions.filter((p) => marks.find((m) => m.positionId === p.position_id)?.markable)
       .reduce((s, p) => s + (p.cost_basis ?? 0), 0)
     : null

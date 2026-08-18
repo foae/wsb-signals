@@ -81,3 +81,35 @@ describe('markPlay', () => {
     expect(r.unmarkedCount).toBe(1)
   })
 })
+
+describe('markPlay: review round 1 tightenings', () => {
+  it('PARTIAL coverage yields NO headline total — a spread with an unquotable short leg must not report the long leg alone', () => {
+    const r = markPlay([
+      pos('long', { strike: 150, cost_basis: 700, quantity: 2 }),
+      pos('short', { strike: 160, side: 'short', cost_basis: 300, quantity: 2 }),
+    ], { long: { price: 6 } }) // no quote for the short leg
+    expect(r.positions[0]!.pnlAbs).toBe(500) // the per-leg mark still exists…
+    expect(r.totalPnlAbs).toBeNull() // …but the total refuses the phantom +500
+    expect(r.totalCostBasis).toBeNull()
+    expect(r.markedCount).toBe(1)
+    expect(r.unmarkedCount).toBe(1)
+  })
+
+  it('realized legs do NOT block the total (closed = final, not missing)', () => {
+    const r = markPlay([
+      pos('open', { quantity: 1, cost_basis: 350 }),
+      pos('closed', { realized: true }),
+    ], { open: { price: 4 } })
+    expect(r.totalPnlAbs).toBe(50)
+  })
+
+  it('an option leg without strike+expiry is unmarkable even WITH a quote (no OCC symbol = fiction)', () => {
+    const r = markPlay([pos('a', { strike: null })], { a: { price: 6 } })
+    expect(r.positions[0]).toMatchObject({ markable: false, reason: 'incomplete-leg' })
+    const r2 = markPlay([pos('b', { expiry: null })], { b: { price: 6 } })
+    expect(r2.positions[0]!.reason).toBe('incomplete-leg')
+    // Shares need no strike/expiry.
+    const r3 = markPlay([pos('c', { instrument: 'shares', strike: null, expiry: null, quantity: 10, cost_basis: 1000 })], { c: { price: 120 } })
+    expect(r3.positions[0]!.markable).toBe(true)
+  })
+})

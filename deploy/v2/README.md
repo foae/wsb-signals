@@ -170,6 +170,14 @@ Every play is traceable by grepping its post id through three moments:
    - `plays stage crashed` `{err, attempts, terminal}` — a bug or infra fault; `terminal: true`
      means the row is parked as `failed` after `max_attempts`.
 
+4. **Extract** (P2, only with `OPENAI_API_KEY`): `play extracted` `{playId, positions, direction,
+   confidence, tokensIn/Out, costUsd}` is the success line; `plays extract dispatch REFUSED`
+   (warn) = fail-closed metering parked the play (`reason: no-price` needs real prices in
+   `[plays.llm.prices]`; `reason: budget` clears at UTC midnight); `plays llm spend`
+   `{spendTodayUsd, mediaReadyDepth}` is the per-tick money signal; `plays extract aborted
+   (shutdown)` = deploy mid-call, re-run after restart, not billed; `plays extraction OFF (no
+   analyzer)` (warn) = the key is missing while a backlog waits.
+
 `plays media: gallery post-JSON fetch failed` warns count Reddit-side fetches on the FALLBACK path
 only — galleries resolve locally from the archived raw since `11da034`; the fetch (and this warn)
 fires only when the archived gallery metadata is missing or partial. 403s here mean Reddit is
