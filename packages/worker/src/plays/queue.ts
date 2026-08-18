@@ -30,7 +30,7 @@ import type { PlaysConfig } from '../config'
 import type { Db } from '../db'
 import { log } from '../logger'
 import { abortableSleep } from '../timing'
-import type { PlayAnalyzer } from './analyzer'
+import { isUnbilledRejection, type PlayAnalyzer } from './analyzer'
 import { preparePlayImages } from './images'
 import { runMediaStage, type Fetcher, type MediaStageResult } from './media'
 import { canDispatch, costUsd, estimateInputTokens, todaySpendUsd } from './metering'
@@ -308,7 +308,12 @@ async function processMediaReady(
       await releaseClaim(deps.db, row, [], now)
       return 'aborted'
     }
-    throw e // a real provider/timeout failure — the reservation row stays (fail-closed), stage crash path
+    if (isUnbilledRejection(e)) {
+      // 401/403 = rejected BEFORE billing (bad key / missing scope): keep the meter honest by
+      // dropping the reservation, then fail the stage normally (attempts/backoff still apply).
+      await deps.db.delete(playExtractions).where(eq(playExtractions.id, reserved!.id))
+    }
+    throw e // a real provider/timeout failure keeps its reservation (fail-closed), stage crash path
   }
 
   const validated = validateExtraction(result.extraction, {

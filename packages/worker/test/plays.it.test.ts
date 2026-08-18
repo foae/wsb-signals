@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { playExtractions, plays, type PlayMediaItem, type PlayRow } from '@wsb/shared'
+import { APICallError } from 'ai'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -433,5 +434,29 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
     const stats = await extractTick(undefined)
     expect(stats).toMatchObject({ claimed: 0, extracted: 0 })
     expect((await getPlay('p1')).status).toBe('media_ready')
+  })
+})
+
+describe('unbilled provider rejections (P2 live finding: restricted key, 403 missing scope)', () => {
+  it('a 403 drops the attempt reservation (never billed) but still counts as a stage fault', async () => {
+    await capturePlays(pg.db, [rawPlay('p1')], playsCfg(), NOW)
+    await pg.db.update(plays)
+      .set({ status: 'media_ready', mediaStatus: 'none', media: null, nextAttemptAt: NOW })
+      .where(eq(plays.id, 'p1'))
+    const rejected = {
+      extract: async () => {
+        throw new APICallError({
+          message: 'Missing scopes: api.responses.write', url: 'https://api.openai.com/v1/responses',
+          requestBodyValues: {}, statusCode: 403, responseHeaders: {}, responseBody: '',
+        })
+      },
+    }
+    await runQueueTick({
+      db: pg.db, config: playsCfg(), clock: () => NOW, analyzer: rejected, isListedTicker: () => true,
+    })
+    const row = await getPlay('p1')
+    expect(row.attempts).toBe(1) // still a fault — backoff applies
+    expect(row.status).toBe('media_ready')
+    expect(await pg.db.select().from(playExtractions)).toHaveLength(0) // rejected ≠ billed ≠ metered
   })
 })

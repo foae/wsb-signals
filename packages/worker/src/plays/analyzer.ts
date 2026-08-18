@@ -11,7 +11,7 @@
  * because OpenAI strict structured outputs reject `.optional()`.
  */
 import { createOpenAI } from '@ai-sdk/openai'
-import { generateObject, type LanguageModel } from 'ai'
+import { APICallError, generateObject, type LanguageModel } from 'ai'
 
 import { LlmExtractionSchema, type LlmExtraction } from './extraction'
 import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT, extractUserPrompt } from './prompts/extract'
@@ -49,6 +49,14 @@ export interface PlayAnalyzer {
 
 /** Per-call ceiling even without a shutdown: a hung provider must not pin the queue tick. */
 const EXTRACT_TIMEOUT_MS = 180_000
+
+/** True when the provider REJECTED the request without billing it (401 bad key / 403 missing
+ *  scope — seen live at the P2 gate: a restricted key lacking `api.responses.write`). The caller
+ *  may drop the attempt's cost reservation; anything ambiguous stays metered (fail-closed).
+ *  Lives here because the seam is the only file allowed to know AI-SDK error types. */
+export function isUnbilledRejection(e: unknown): boolean {
+  return APICallError.isInstance(e) && (e.statusCode === 401 || e.statusCode === 403)
+}
 
 export interface AiAnalyzerOptions {
   provider: string
