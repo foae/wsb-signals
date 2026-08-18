@@ -14,3 +14,9 @@ allowBuilds:
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - '@nuxt/ui@4.8.2'
+overrides:
+  # Security floors for two vulnerable transitive esbuilds whose parents pin old ranges
+  # (GHSA dev-server advisories; parents checked 2026-08-18 — no fixed release to bump to).
+  # Scoped to the offending edges so the rest of the tree keeps its own esbuild pins.
+  '@esbuild-kit/core-utils>esbuild': ^0.25.0 # drizzle-kit's legacy loader chain (devDep)
+  'fontless>esbuild': ^0.28.1 # @nuxt/ui → @nuxt/fonts → fontless

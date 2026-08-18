@@ -10,7 +10,6 @@
     "start": "tsx src/index.ts",
     "build-whitelist": "tsx src/build-whitelist.ts",
     "heartbeat": "tsx src/heartbeat.ts",
-    "shadow-diff": "tsx src/shadow-cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

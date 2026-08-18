@@ -1,16 +1,33 @@
 # Golden parity fixtures
 
-These files are the **v0.0.1 → v2 parity contract**. They are emitted from the **frozen** Python radar
-(the oracle, `git tag v0.0.1`) by [`oracle/dump_fixtures.py`](../oracle/dump_fixtures.py), and the TS
-port asserts against them slice-by-slice (`design/v2-porting-spec.md` §1, build order in
-`design/v2-plan.md` §4).
+These files are the **v0.0.1 → v2 parity contract**. They were emitted from the **frozen** Python
+radar (the oracle, `git tag v0.0.1`) by its `oracle/dump_fixtures.py`, and the TS worker's parity
+tests assert against them (`design/v2-porting-spec.md` §1). They are the regression net pinning the
+scoring math now that the Python tree is pruned from `main`.
 
 **They are committed on purpose** — the TS test suite reads them directly, so parity tests run with no
-Python and no DuckDB at test time. Regenerate only when the oracle is re-pinned:
+Python and no DuckDB at test time.
+
+## Regenerating (only if the scoring contract ever changes intentionally)
+
+The oracle no longer lives on `main`. Use tag **`oracle-final`** — the last pre-prune commit, which
+carries both the frozen `wsb_signals/` tree AND the `oracle/dump_fixtures.py` harness. (Tag `v0.0.1`
+predates `oracle/`; the harness was built during the v2 port.) Regenerate from a worktree of the tag
+and copy the output back:
 
 ```bash
-uv run python oracle/dump_fixtures.py     # from repo root, in the v0.0.1 env
+git worktree add /tmp/wsb-oracle oracle-final
+cd /tmp/wsb-oracle
+uv sync                                   # build the frozen Python env (uv reads pyproject + uv.lock)
+uv run python oracle/dump_fixtures.py     # → /tmp/wsb-oracle/fixtures/*.json
+cp -r fixtures/* <repo>/fixtures/         # copy into the live tree, review the diff, commit
+cd - && git worktree remove /tmp/wsb-oracle
 ```
+
+The dump script warns loudly if the worktree's `wsb_signals/` has drifted from tag `v0.0.1` — drifted
+code would silently redefine the oracle. If the intentional change means the oracle can no longer
+express the new behavior, update the fixtures by hand and record the divergence in
+`design/v2-porting-spec.md` instead.
 
 ## What's here
 

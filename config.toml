@@ -24,7 +24,7 @@ base_url = "https://arctic-shift.photon-reddit.com/api"
 # bare single letters are dropped as noise (architecture §2.2).
 candidate_regex = '(?<![A-Za-z0-9])(\$)?([A-Z]{1,5})(?![A-Za-z0-9])'
 stoplist_path   = "whitelist/stoplist.txt"
-whitelist_path  = "whitelist/symbols.txt"   # built by `wsb build-whitelist` (Alpaca universe)
+whitelist_path  = "whitelist/symbols.txt"   # built by `pnpm -C packages/worker build-whitelist` (Alpaca universe)
 ambiguous_path  = "whitelist/ambiguous.txt" # real tickers that are also common words (DRAM…) → require trading context
 bots            = ["AutoModerator", "VisualMod", "wsbapp", "OPStockBot"]
 
@@ -90,9 +90,4 @@ min_corr         = 0.5      # FLOOR; the effective bar is max(min_corr, ~2/√pa
 max_staleness_seconds = 1800  # alarm if newest Arctic-Shift item older than this (Phase 0.5)
 
 [storage]
-db_path  = "data/wsb.duckdb"
 data_dir = "data"
-
-[dashboard]
-address = "0.0.0.0"   # bind all interfaces — reachable from the host (Incus container dev env)
-port    = 8501        # read-only board over public WSB data; no secrets exposed

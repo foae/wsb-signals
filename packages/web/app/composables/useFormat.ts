@@ -1,6 +1,6 @@
 /**
- * Pure formatting helpers — match the v0.0.1 Streamlit oracle exactly.
- * dashboard.py lines ~302–318.
+ * Pure formatting helpers — match the v0.0.1 Streamlit oracle exactly
+ * (`wsb_signals/dashboard.py` lines ~302–318 at tag `v0.0.1`; tree pruned from main).
  */
 
 /** Share-of-voice: null → '—', else e.g. "28.5%" */

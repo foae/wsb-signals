@@ -102,7 +102,11 @@ export function windowStartFor(now: number, windowSeconds: number): number {
 
 /**
  * Scale to [0,1] by the window max (negatives floored to 0); all-zero or empty → zeros.
- * Max-norm — NOT percentile rank — keeps H_e SoV-primary (see aggregate.py `_max_norm` docstring).
+ * Max-norm — NOT percentile rank — because H_e must stay SoV-primary: percentile rank flattens
+ * 1st-vs-2nd SoV into a tiny gap, letting secondaries (net_dir) override the primary signal, and
+ * it hands tied all-zero components (first-window rank_delta/dd_count) a spurious 1.0. Max-norm
+ * preserves the leader's magnitude and zeroes empty components. (Rationale ported verbatim from
+ * the frozen oracle's `_max_norm`, tag v0.0.1.)
  */
 export function maxNorm(values: readonly number[]): number[] {
   const vmax = values.reduce((mx, v) => (v > mx ? v : mx), Number.NEGATIVE_INFINITY)
@@ -287,8 +291,8 @@ export function aggregateWindow(inp: AggregateInputs): EmpiricalFeature[] {
   // so equal rows compare equal and genuinely-different rows compare like Python's raw sort — including
   // when the oracle's order rests on a 1-ULP h_e difference (e.g. 0.4 vs 0.39999999999999997). Quantizing
   // to 1e-9 (porting-spec §2.6, original) DISCARDS that real signal and inverts such pairs vs the oracle —
-  // the random/010 fixture proved it. Near-tie robustness belongs in the slice-9 shadow-diff tolerance,
-  // not in the production sort. (Spec §2.6 corrected to match.)
+  // the random/010 fixture proved it. Near-tie tolerance belonged in the (retired) shadow-diff gate,
+  // never in the production sort. (Spec §2.6 corrected to match.)
   out.sort(compareBoard)
   return out
 }

@@ -6,7 +6,7 @@
  *   1 = STALE (lag > threshold; tap is degraded)
  *   2 = NO-DATA (tap is likely DOWN)
  *
- * This file is a thin entry that ALWAYS runs `main()` (like `shadow-cli.ts`/`build-whitelist.ts`); the
+ * This file is a thin entry that ALWAYS runs `main()` (like `build-whitelist.ts`); the
  * testable verdict logic lives in `heartbeat-core.ts`, so nothing imports this module and there is no
  * is-main guard to silently mis-fire for the healthcheck.
  */

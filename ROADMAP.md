@@ -10,14 +10,16 @@
 > Authoritative: [`design/v2-plan.md`](./design/v2-plan.md) + [`design/v2-porting-spec.md`](./design/v2-porting-spec.md).
 > The phase descriptions below are **build history** for the frozen radar.
 >
-> **Next direction (2026-08-18): WSB Plays** — capture Gain/Loss/YOLO screenshot posts, vision-LLM
-> position extraction, interpretation/categorization, auto-published play browser; the radar demotes
-> to a data subsystem (herd/trend evidence) and keeps running. Design approved, build not started.
+> **Current direction (2026-08-18): WSB Plays — IN BUILD** — capture Gain/Loss/YOLO screenshot
+> posts, vision-LLM position extraction, interpretation/categorization, auto-published play browser;
+> the radar demotes to a data subsystem (herd/trend evidence) and keeps running.
 > Authoritative: [`design/plays-product.md`](./design/plays-product.md) +
-> [`design/plays-plan.md`](./design/plays-plan.md) (slices P0–P6; P0 prunes the frozen Python tree
-> from `main` — recoverable at tag `v0.0.1`). The unbuilt Phase-3 remainder below (STEALTH
-> detection, alerts) is **parked indefinitely** (decided 2026-08-18) — kept as recorded thinking,
-> not tracked as work. Plays work is tracked as GitHub Issues under milestone "WSB Plays v1".
+> [`design/plays-plan.md`](./design/plays-plan.md) (slices P0–P6). **P0 landed (2026-08-18)**: the
+> frozen Python tree + the retired shadow gate are pruned from `main` — recoverable at tag `v0.0.1`
+> (the radar) / `oracle-final` (radar + fixture-dump harness; see `fixtures/README.md`). The
+> unbuilt Phase-3 remainder below (STEALTH detection, alerts) is **parked indefinitely** (decided
+> 2026-08-18) — kept as recorded thinking, not tracked as work. Plays work is tracked as GitHub
+> Issues under milestone "WSB Plays v1".
 
 ## Phase 0 — Feasibility & scaffolding ⛔ (gating)
 

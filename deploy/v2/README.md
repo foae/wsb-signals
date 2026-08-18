@@ -3,8 +3,8 @@
 This ships the v2 TypeScript pipeline as **3 services**: a Postgres database, the worker, and the
 Nuxt 4 SSR web board.
 
-The **frozen Python radar is not deployed here** — it is the parity oracle only (see the root
-`docker-compose.yml` and `deploy/README.md` if you need to run it).
+(The frozen v0.0.1 Python oracle was pruned from `main` — recover it at tag `v0.0.1` if you ever
+need to run it.)
 
 ---
 
@@ -99,7 +99,7 @@ If you are running on a host where the default Docker bridge has egress:
 | Volume | Contents | Survives |
 |---|---|---|
 | `wsb-v2-pg` | Postgres data directory | `down` / `restart` |
-| `wsb-v2-data` | Worker data dir (`/app/data` — `.last_poll`, shadow dumps) | `down` / `restart` |
+| `wsb-v2-data` | Worker data dir (`/app/data` — `.last_poll`) | `down` / `restart` |
 
 `docker compose down` stops the containers and preserves both volumes.
 `docker compose down -v` stops the containers **and deletes the volumes** (wipes all history — do
@@ -109,9 +109,16 @@ not do this unless you intend to start from scratch).
 
 ## Healthcheck and the freshness runbook
 
-The worker's healthcheck runs `pnpm -C packages/worker heartbeat` every 10 minutes. This is the
-same Arctic-Shift freshness probe as the frozen radar. When the container shows `unhealthy` in
-`docker compose ps`, follow the runbook in [deploy/README.md §Runbook](../README.md#runbook--arctic-shift-staledown).
+The worker's healthcheck runs `pnpm -C packages/worker heartbeat` every 10 minutes — an
+Arctic-Shift freshness probe (exit 0 OK / 1 stale / 2 down).
+
+Arctic-Shift is the **sole** live tap (PullPush frozen, Reddit API excluded) — **no free fallback**.
+When the worker shows `unhealthy` in `docker compose ps`, or cycle logs show `STALE`/`NO-DATA`:
+
+1. The worker keeps polling but **do not trust** signals while stale — the SoV denominator is biased.
+2. Re-test: `docker compose exec worker pnpm -C packages/worker heartbeat`.
+3. If down for long, stop the worker rather than publish stale signals. Threshold:
+   `heartbeat.max_staleness_seconds` in `config.toml`.
 
 ---
 

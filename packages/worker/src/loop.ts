@@ -12,7 +12,7 @@ import { join } from 'node:path'
 
 import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
 
-import { windowStartFor, type AggregateInputs } from './aggregate'
+import { windowStartFor } from './aggregate'
 import type { WorkerConfig } from './config'
 import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig } from './config'
 import {
@@ -26,9 +26,6 @@ import { log } from './logger'
 import type { MarketData } from './market'
 import { mentionsFromPoll } from './mentions'
 import { buildSignals, overlayMarket, runAggregation } from './pipeline'
-import {
-  buildCycleDump, dumpCycle, fingerprintExtractor, type ShadowSink, type WordsetFingerprint,
-} from './shadow'
 
 /** Stable 64-bit advisory-lock key ('wSBS') — the double-run guard. */
 const WORKER_LOCK_KEY = 0x7753_4253
@@ -44,12 +41,6 @@ export interface CycleDeps {
   markPoll: (now: number) => void | Promise<void>
   /** Shutdown signal threaded into the poll so SIGTERM cuts an in-flight fetch short. */
   signal?: AbortSignal
-  /** Live-shadow sink (slice 9): when set, each completed cycle emits its parity dump (poll + mentions +
-   *  the exact aggregate inputs + the board + a post-publish read-back). Undefined in normal operation. */
-  shadow?: ShadowSink
-  /** The extractor's wordset fingerprint, stamped into each shadow dump so replay can verify B3 used the
-   *  same wordlists. Computed once at startup (constant across cycles). */
-  wordsets?: WordsetFingerprint
 }
 
 export interface CycleResult {
@@ -89,13 +80,7 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
   // window, so it carries W−1's last mentions. Its autocommit MUST land before the current window reads
   // features_at(W−1)/feature_history (pooled connections could otherwise read stale W−1) — porting-spec §7.
   await runAggregation(db, ws - config.windowSeconds, config.aggregate, { persist: true })
-  // Capture the W-window aggregate inputs for the live shadow (only when a sink is wired) so the dump
-  // carries the EXACT reads the oracle replay must consume — same input → any diff is a real port bug.
-  let shadowInputs: AggregateInputs | undefined
-  const rows = await runAggregation(db, ws, config.aggregate, {
-    persist: false,
-    onInputs: deps.shadow ? (i) => { shadowInputs = i } : undefined,
-  })
+  const rows = await runAggregation(db, ws, config.aggregate, { persist: false })
 
   let analytical: AnalyticalFeatureInsert[] | undefined
   let movers: MarketMoverInsert[] | undefined
@@ -137,6 +122,15 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
     signals,
   })
 
+  // Post-publish read-back: re-read what landed in Postgres and diff it against the board just published.
+  // Catches write-path bugs (NULL h_e, JSONB round-trips, BIGINT coercion, a missing publish marker) the
+  // cycle they happen — the web reads exactly what this re-reads. ~4 cheap window reads per cycle.
+  const readback = await verifyPublished(db, ws, { features: rows, analytical, signals })
+  if (!readback.ok) {
+    log.error({ windowStart: ws, diffs: readback.diffs.length, cycleRun: readback.cycle_run },
+      'READ-BACK mismatch — persisted board diverges from the published board (write-path bug)')
+  }
+
   const lag = poll.newestUtc != null ? now - poll.newestUtc : null
   const hb = lag == null ? 'NO-DATA' : lag <= config.maxStalenessSeconds ? 'OK' : 'STALE'
   const top = rows[0]
@@ -148,24 +142,6 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
   }, 'cycle complete')
   if (hb !== 'OK') {
     log.error({ freshness: hb }, 'freshness degraded — Arctic-Shift is the sole live tap; see README runbook')
-  }
-
-  // Live shadow (slice 9): emit this cycle's parity dump (the board as published + the exact scorer inputs).
-  // Only when the window had mentions (shadowInputs set) — empty windows carry no board to diff. The
-  // post-publish READ-BACK (M4 review) re-reads what landed in Postgres and diffs it against the board the
-  // gate verifies, closing the write-path seam the replay can't see (it consumes reads, not writes).
-  if (deps.shadow && shadowInputs) {
-    const readback = await verifyPublished(db, ws, { features: rows, analytical, signals })
-    if (!readback.ok) {
-      log.error({ windowStart: ws, diffs: readback.diffs.length, cycleRun: readback.cycle_run },
-        'live-shadow READ-BACK mismatch — persisted board diverges from the published board (write-path bug)')
-    }
-    await deps.shadow(buildCycleDump({
-      windowStart: ws, windowSeconds: config.windowSeconds, generatedAt: now,
-      capped: poll.capped, newestUtc: poll.newestUtc, wordsets: deps.wordsets,
-      poll: { posts: poll.posts, comments: poll.comments }, mentions, inputs: shadowInputs, features: rows,
-      readback,
-    }))
   }
 
   return { skipped: false, windowStart: ws, tickers: rows.length, priced: analytical?.length ?? 0 }
@@ -310,10 +286,6 @@ export interface StartOptions {
   root?: string
   once?: boolean
   noMarket?: boolean
-  /** Live-shadow mode (slice 9): dump each cycle's parity artifact to `shadowDir` (default <dataDir>/shadow)
-   *  for the deterministic replay-vs-oracle diff. Off by default — a validation aid, not the steady state. */
-  shadow?: boolean
-  shadowDir?: string
 }
 
 /**
@@ -345,14 +317,6 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
   if (!market && !opts.noMarket) log.warn('market overlay disabled — ALPACA creds missing (empirical-only)')
   const extractor = buildExtractor(raw, root)
 
-  // Live shadow: dump per-cycle parity artifacts for the replay-vs-oracle diff (slice 9). The dir defaults
-  // under the worker data dir; SHADOW_DIR overrides. Off unless --shadow (or SHADOW=1) is set.
-  const shadowOn = opts.shadow || env.SHADOW === '1'
-  const shadowDir = opts.shadowDir ?? env.SHADOW_DIR ?? join(worker.dataDir, 'shadow')
-  const shadow: ShadowSink | undefined = shadowOn ? (d) => dumpCycle(shadowDir, d) : undefined
-  const wordsets = shadowOn ? fingerprintExtractor(extractor.wordsets) : undefined
-  if (shadowOn) log.info({ shadowDir }, 'live-shadow mode ON — dumping per-cycle parity artifacts')
-
   log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market) },
     'run loop starting (forward-only; SIGTERM/Ctrl-C to stop)')
 
@@ -361,7 +325,7 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
     await runLoop(
       {
         db: handle.db, source, market, extractor, bots: worker.bots, config: worker,
-        markPoll: (ts) => markPoll(worker.dataDir, ts), shadow, wordsets,
+        markPoll: (ts) => markPoll(worker.dataDir, ts),
       },
       {
         once: opts.once,

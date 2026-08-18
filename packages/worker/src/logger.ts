@@ -1,9 +1,7 @@
 /**
  * Worker logger — pino (structured JSON), per v2-plan.md §3.
  *
- * Fields are deliberately plain so a later live-shadow diff (slice 9) can line them up against the
- * frozen Python radar's logger. Pretty-printing is dev-only (LOG_PRETTY=1); production emits raw JSON
- * lines for a log scraper.
+ * Pretty-printing is dev-only (LOG_PRETTY=1); production emits raw JSON lines for a log scraper.
  */
 import { pino } from 'pino'
 

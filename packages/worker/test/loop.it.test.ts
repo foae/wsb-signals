@@ -10,14 +10,14 @@ import {
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import type { EmpiricalFeature } from '../src/aggregate'
 import type { WorkerConfig } from '../src/config'
 import { loadConfig } from '../src/config'
-import { latestCompleteWindow } from '../src/db'
+import { latestCompleteWindow, verifyPublished } from '../src/db'
 import { TickerExtractor } from '../src/extract'
 import type { PollResult, Source } from '../src/ingest'
 import { runCycle, runLoop, type CycleDeps } from '../src/loop'
 import type { MarketData, StockSnapshot } from '../src/market'
-import type { CycleDump } from '../src/shadow'
 import { startPg, type PgHarness } from './helpers/pg'
 
 // Slice-6 integration (porting-spec §7): the full cycle + loop lifecycle, on real Postgres with a fake
@@ -113,46 +113,29 @@ describe('runCycle', () => {
     expect(sig.find((s) => s.ticker === 'AMD')!.divergence).toBeNull()
   })
 
-  it('shadow sink: emits a well-formed parity dump mirroring the published board (slice 9)', async () => {
-    let captured: CycleDump | undefined
+  it('post-publish read-back: clean after a real cycle, and reports a corrupted persisted row', async () => {
     const market = new FakeMarket(new Map([['NVDA', snap('NVDA', 110, 100)]]))
-    await runCycle(deps({ market, shadow: (d) => { captured = d } }), NOW)
+    await runCycle(deps({ market }), NOW)
 
-    expect(captured).toBeDefined()
-    const d = captured!
-    expect(d.schema_version).toBe(1)
-    expect(d.window_start).toBe(WS)
-    expect(d.window_seconds).toBe(config.windowSeconds)
+    // Re-verify the persisted board against the in-memory rows it was published from.
+    const feats = await pg.db.select().from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, WS))
+    const inMem = feats.map((f): EmpiricalFeature => ({
+      ticker: f.ticker, windowStart: f.windowStart, mentions: f.mentions!, authors: f.authors!,
+      sov: f.sov!, velocity: f.velocity, accel: f.accel, z: f.z, netDir: f.netDir!, ddCount: f.ddCount!,
+      flairCounts: f.flairCounts as Record<string, number>,
+      baselineStatus: f.baselineStatus as EmpiricalFeature['baselineStatus'], hE: f.hE!,
+    }))
+    const clean = await verifyPublished(pg.db, WS, { features: inMem, analytical: undefined, signals: [] })
+    expect(clean.cycle_run).toBe(true)
+    expect(clean.diffs.filter((d) => d.table === 'empirical')).toHaveLength(0)
 
-    // features mirror the published empirical board, in canonical (h_e-descending) order.
-    const board = await pg.db.select().from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, WS))
-    expect(d.features.map((f) => f.ticker).sort()).toEqual(board.map((b) => b.ticker).sort())
-    for (let k = 0; k + 1 < d.features.length; k++) expect(d.features[k]!.h_e).toBeGreaterThanOrEqual(d.features[k + 1]!.h_e)
-    const byTicker = new Map(board.map((b) => [b.ticker, b.hE!]))
-    for (const f of d.features) expect(f.h_e).toBeCloseTo(byTicker.get(f.ticker)!, 12) // dump == published
-
-    // the captured aggregate inputs are the exact reads (the replay's contract).
-    expect(d.inputs.window_start).toBe(WS)
-    expect(d.inputs.mentions_in_window).toHaveLength(2)
-
-    // B3: poll + mentions, the latter sorted by (thing_id, ticker). okPoll = NVDA@p1 (post), AMD@c1 (comment).
-    expect(d.poll.posts).toHaveLength(1)
-    expect(d.poll.comments).toHaveLength(1)
-    expect(d.mentions.map((m) => [m.thing_id, m.ticker])).toEqual([['c1', 'AMD'], ['p1', 'NVDA']])
-
-    // M4: the post-publish read-back confirms the PERSISTED board matches what the gate verified (write path).
-    expect(d.readback?.ok).toBe(true)
-    expect(d.readback?.cycle_run).toBe(true)
-    expect(d.readback?.diffs).toHaveLength(0)
-  })
-
-  it('shadow sink: a discarded (!ok) cycle emits NO dump', async () => {
-    let captured: CycleDump | undefined
-    await runCycle(deps({
-      source: new FakeSource(() => ({ ...okPoll(), ok: false })),
-      shadow: (d) => { captured = d },
-    }), NOW)
-    expect(captured).toBeUndefined()
+    // Corrupt one persisted field — the read-back must surface exactly that divergence (write-path bug).
+    await pg.db.update(empiricalFeatures)
+      .set({ hE: null })
+      .where(eq(empiricalFeatures.windowStart, WS))
+    const dirty = await verifyPublished(pg.db, WS, { features: inMem, analytical: undefined, signals: [] })
+    expect(dirty.ok).toBe(false)
+    expect(dirty.diffs.some((d) => d.table === 'empirical' && d.field === 'h_e')).toBe(true)
   })
 
   it('discards a !ok poll WHOLE — nothing persisted, no marker', async () => {

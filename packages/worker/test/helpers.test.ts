@@ -1,9 +1,9 @@
 /**
  * Unit tests for the pure helpers hoisted to `@wsb/shared` in slice 8 — `prettyName` (ported from the
- * frozen oracle `wsb_signals/db.py:pretty_name`) and `compareBoard` (the canonical board total order the
- * worker and web both sort on). `compareBoard`'s total-order property is covered separately in
- * shadow.test.ts; here we pin the display formatting + the ordering chain.
+ * frozen oracle's `pretty_name`, tag v0.0.1) and `compareBoard` (the canonical board total order the
+ * worker and web both sort on): display formatting, the ordering chain, and the total-order property.
  */
+import fc from 'fast-check'
 import { describe, expect, it } from 'vitest'
 
 import { type BoardRow, compareBoard, prettyName } from '@wsb/shared'
@@ -55,5 +55,31 @@ describe('compareBoard (canonical board order)', () => {
     ]
     const sorted = [...rows].sort(compareBoard).map((r) => r.ticker)
     expect(sorted).toEqual(['AAA', 'MMM', 'AAA', 'ZZZ'])
+  })
+})
+
+describe('compareBoard is a TOTAL ORDER (deterministic-ranking invariant, architecture §5)', () => {
+  // The board must never depend on input order — that holds only if compareBoard is a total order
+  // (a non-transitive comparator can produce different boards from permuted input).
+  // Property-test antisymmetry + transitivity over random boards.
+  const row = fc.record({
+    hE: fc.double({ min: 0, max: 1, noNaN: true }),
+    sov: fc.double({ min: 0, max: 1, noNaN: true }),
+    authors: fc.integer({ min: 0, max: 50 }),
+    mentions: fc.integer({ min: 0, max: 500 }),
+    ticker: fc.string({ minLength: 1, maxLength: 5 }),
+  }) as fc.Arbitrary<BoardRow>
+  const sgn = (n: number): number => (n < 0 ? -1 : n > 0 ? 1 : 0)
+
+  it('is reflexive + antisymmetric', () => {
+    fc.assert(fc.property(row, row, (a, b) => {
+      expect(compareBoard(a, a)).toBe(0)
+      expect(sgn(compareBoard(a, b))).toBe(-sgn(compareBoard(b, a)))
+    }))
+  })
+  it('is transitive', () => {
+    fc.assert(fc.property(row, row, row, (a, b, c) => {
+      if (compareBoard(a, b) <= 0 && compareBoard(b, c) <= 0) expect(compareBoard(a, c)).toBeLessThanOrEqual(0)
+    }))
   })
 })

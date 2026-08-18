@@ -6,8 +6,8 @@
  *    first-seen and only refresh engagement; mentions are immutable (DO NOTHING); features DO UPDATE all;
  *  - **≤1000-row chunking** so a batch never blows the Postgres 65535 bind-parameter cap;
  *  - **atomic per-cycle publish** — a window's features + its `cycle_runs` marker commit in ONE
- *    transaction, so a reader sees a whole cycle or none (the shadow-diff / future web read the latest
- *    complete window). This replaces the v0.0.1 DuckDB-lock + JSON-snapshot workaround entirely.
+ *    transaction, so a reader sees a whole cycle or none (the web reads the latest complete window).
+ *    This replaces the v0.0.1 DuckDB-lock + JSON-snapshot workaround entirely.
  */
 import { and, asc, desc, eq, getTableColumns, gte, inArray, lt, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
@@ -25,7 +25,6 @@ import { migrationsFolder } from '@wsb/shared/migrations'
 
 import { compareBoard, type EmpiricalFeature, type HistoryRow, type MentionRow, type PriorFeatures } from './aggregate'
 import type { SeriesPoint } from './analytics'
-import type { Readback, ReadbackDiff } from './shadow'
 
 export type Db = NodePgDatabase
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
@@ -208,7 +207,7 @@ export async function publishCycle(db: Db, payload: CyclePayload): Promise<void>
   })
 }
 
-/** The read contract: the latest COMPLETE window (the shadow-diff now, the web later read only this).
+/** The read contract: the latest COMPLETE window (the web reads only this).
  *  Filters on `status = 'complete'` so any future partial/failed marker can't surface as the latest. */
 export async function latestCompleteWindow(db: Db): Promise<number | null> {
   const rows = await db.select({ ws: cycleRuns.windowStart }).from(cycleRuns)
@@ -257,7 +256,7 @@ export async function readFeaturesAt(db: Db, windowStart: number): Promise<Prior
  *  - **bounded** to the trailing `[from, before)` window (`from = window_start − baseline.lookback_seconds`)
  *    — the only behavioral change vs the oracle: the baseline becomes a rolling window, not all-time. With
  *    `weights.z = 0` it has ZERO effect on `H_e`; it only changes the persisted `z` field once a deploy
- *    exceeds the lookback. The shadow gate stays green (replay consumes this captured, already-bounded set).
+ *    exceeds the lookback.
  *  - **scoped** to `hour_of_week(window_start) = how` in SQL — a parity-preserving optimization: it returns
  *    exactly the subset `aggregate_window` would keep, so its in-memory hour-of-week filter is a redundant
  *    safety net (and the golden fixtures, which feed `aggregate_window` directly, are untouched). The SQL
@@ -380,7 +379,24 @@ export async function readSignalSeries(
   return out
 }
 
-// --- live-shadow read-back (slice 9, M4 review) ---------------------------------------------------
+// --- post-publish read-back -----------------------------------------------------------------------
+
+/** One field where the PERSISTED Postgres row diverged from the in-memory board the cycle published. */
+export interface ReadbackDiff {
+  table: 'empirical' | 'analytical' | 'signals' | 'cycle_runs'
+  ticker: string | null
+  field: string
+  in_memory: unknown
+  persisted: unknown
+}
+
+/** Post-publish read-back result: the persisted board re-read from Postgres, diffed EXACTLY (same
+ *  engine — any difference is a write/coercion/marker bug) against the in-memory board just published. */
+export interface Readback {
+  ok: boolean
+  cycle_run: boolean // the cycle_runs publish marker for this window exists + is 'complete'
+  diffs: ReadbackDiff[]
+}
 
 /** Canonical sorted-key JSON of a flair_counts object, so an in-memory object and a PG jsonb (which does
  *  NOT preserve key order) compare equal on counts regardless of serialization order. */
@@ -415,11 +431,13 @@ function diffTable(
 }
 
 /**
- * Post-publish read-back (M4 review): re-read the window's persisted board from Postgres and diff it
- * EXACTLY against the in-memory rows the gate just verified. Same engine ⇒ bit-equal is required; any
+ * Post-publish read-back: re-read the window's persisted board from Postgres and diff it EXACTLY
+ * against the in-memory rows the cycle just published. Same engine ⇒ bit-equal is required; any
  * difference is a write/coercion bug (e.g. h_e stored NULL, a JSONB flair round-trip, a BIGINT epoch
- * coercion) or a missing `cycle_runs` marker — none of which the replay-vs-oracle diff can see (it consumes
- * the worker's READS, not its WRITES). Closes that seam: the web reads exactly what this re-reads.
+ * coercion) or a missing `cycle_runs` marker. The web reads exactly what this re-reads, so a mismatch
+ * here is a board-corrupting bug caught the cycle it happens. (Originally part of the retired
+ * replay-vs-oracle shadow gate; kept unconditionally because the write-path seam it covers has nothing
+ * to do with the oracle.)
  */
 export async function verifyPublished(
   db: Db,

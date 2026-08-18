@@ -1,6 +1,6 @@
 # WSB Plays — build plan
 
-**Status: DESIGN (approved direction, pre-implementation).** The product spec and decisions record
+**Status: IN BUILD — P0 landed 2026-08-18; P1 next.** The product spec and decisions record
 live in [`plays-product.md`](./plays-product.md); this doc is the *how*: architecture deltas, repo
 repositioning, schema, the LLM seam, config, and the slice order. Conventions follow
 `v2-plan.md` — each slice lands green (`typecheck` + tests) with its gate met before the next starts.
@@ -96,8 +96,10 @@ nothing to do with the oracle. Delete the rest: `shadow.ts` (dump + `wordsets`),
 
 **Keep:** **`fixtures/` and the worker parity tests.** They are the regression net pinning the
 scoring math — Docker-free, cheap, and still meaningful after the oracle is gone. If scoring ever
-changes intentionally, regenerate fixtures from the tag (`git worktree add /tmp/v001 v0.0.1` + the
-old `oracle/dump_fixtures.py` procedure — document this in `fixtures/README`).
+changes intentionally, regenerate fixtures from tag **`oracle-final`** (the last pre-prune commit —
+tag `v0.0.1` predates the `oracle/` harness, so the dump script only exists there): `git worktree
+add /tmp/wsb-oracle oracle-final` + the old `oracle/dump_fixtures.py` procedure — documented in
+`fixtures/README.md`.
 
 **Reframe:** `CLAUDE.md` + `README.md` rewritten around *plays product + radar subsystem*;
 `ROADMAP.md` gains the Plays phase; `design/` gains these two docs as the active direction;

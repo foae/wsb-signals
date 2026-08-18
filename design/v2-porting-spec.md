@@ -439,6 +439,16 @@ Code: `analytics.ts` (pure), `pipeline.buildSignals` (orchestration), `db.ts` re
 
 ## 12. Live shadow — replay-vs-oracle (slice 9, M4) — the cutover gate
 
+> **⚰ TOMBSTONE (P0, 2026-08-18).** The gate this section specifies **ran and PASSED (2026-06-09)**
+> — its job is done. The shadow machinery (`shadow.ts`, `shadow-diff.ts`, `shadow-cli.ts`, the
+> `--shadow` flag, `oracle/replay.py`) was **removed** in the WSB Plays P0 prune
+> (`design/plays-plan.md` §2), along with the frozen Python tree it diffed against (recoverable at
+> tag `oracle-final`). Two pieces survive on `main`: the **post-publish read-back**
+> (`verifyPublished`, moved into `db.ts` and now run unconditionally every cycle — the write-path
+> seam it covers has nothing to do with the oracle) and the **committed golden fixtures**
+> (`fixtures/` + the worker parity tests; regeneration procedure in `fixtures/README.md`). The rest
+> of this section is kept as the historical record of what the gate proved and how.
+
 Continuous, **deterministic** value+order parity of the TS worker against the frozen oracle, on **real
 live data**. The scorer/extraction half of the cutover gate (the full criterion — shadow + read-back +
 green ITs — is at the end of this section).

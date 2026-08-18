@@ -15,12 +15,12 @@
  * DELIBERATE DIVERGENCE from the oracle's §4 contract (gate-safe — porting-spec §4): the oracle gives up
  * the whole poll on the FIRST transient page failure. Live, the heavy 1h comment backfill reliably trips
  * Arctic-Shift's `422 "Timeout. Maybe slow down a bit"` throttle and intermittent 5xx, so a no-retry
- * client discards most cycles (board gaps; can't accumulate the shadow window). So a transient page failure
- * (throttle / 5xx / network / non-JSON) is RETRIED with bounded exponential backoff before declaring
- * `ok=false`; a genuine non-retryable 4xx (400/401/403/404…) still fails immediately. This is upstream of
- * the parity boundary — the shadow replay consumes the CAPTURED mentions, and §12 assigns live-I/O
- * robustness to the worker's own loop + these fault tests, NOT to replay — so it does not affect scoring
- * parity. Disable (`maxRetries: 0`) to get the exact oracle no-retry semantics (the parity test does).
+ * client discards most cycles (board gaps). So a transient page failure (throttle / 5xx / network /
+ * non-JSON) is RETRIED with bounded exponential backoff before declaring `ok=false`; a genuine
+ * non-retryable 4xx (400/401/403/404…) still fails immediately. This is upstream of the parity
+ * boundary — retries change WHICH poll succeeds, never how a captured poll is scored — so it does not
+ * affect scoring parity. Disable (`maxRetries: 0`) to get the exact oracle no-retry semantics (the
+ * parity test does).
  *  - rate-limit: honor `X-RateLimit-Remaining`; back off 2s only when it parses as a STRICT integer < 50.
  *    Python `int()` raises on non-numeric (→ ignore); JS `parseInt` is lenient and WOULD mis-trigger, so
  *    we gate on a strict integer regex (the garbage-header landmine — porting-spec §9 fault test).

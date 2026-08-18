@@ -63,9 +63,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Heartbeat = Arctic-Shift freshness probe (same cadence as the frozen Python radar's healthcheck).
-    # Exits non-zero when the sole live tap is stale or down → container shows `unhealthy` in
-    # `docker compose ps`. See deploy/README.md §Runbook for the stale/down response playbook.
+    # Heartbeat = Arctic-Shift freshness probe. Exits non-zero when the sole live tap is stale or
+    # down → container shows `unhealthy` in `docker compose ps`. See deploy/v2/README.md
+    # ("Healthcheck and the freshness runbook") for the stale/down response playbook.
     healthcheck:
       test: ["CMD", "pnpm", "-C", "packages/worker", "heartbeat"]
       interval: 10m
@@ -108,5 +108,5 @@ services:
 volumes:
   # wsb-v2-pg: Postgres data — persists across restarts/recreates; only `down -v` wipes it.
   wsb-v2-pg:
-  # wsb-v2-data: worker data dir (/app/data — .last_poll and any shadow dumps).
+  # wsb-v2-data: worker data dir (/app/data — .last_poll).
   wsb-v2-data:

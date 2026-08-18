@@ -1,6 +1,6 @@
 /**
  * Heartbeat verdict — the pure decision logic, split out from the CLI entry (`heartbeat.ts`) so the entry
- * can call `main()` UNCONDITIONALLY (like `shadow-cli.ts`) instead of guarding on an `import.meta.url ===
+ * can call `main()` UNCONDITIONALLY (like `build-whitelist.ts`) instead of guarding on an `import.meta.url ===
  * process.argv[1]` check. That guard is fragile for a Docker HEALTHCHECK: if a future tsx/loader change
  * ever broke it, `main()` would silently never run and the container would report healthy on a dead tap.
  * Keeping the testable logic here means tests import THIS module, never the side-effectful entry.
