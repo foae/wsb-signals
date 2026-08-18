@@ -13,7 +13,7 @@ import { and, asc, desc, eq, getTableColumns, gte, inArray, lt, sql, type SQL } 
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import type { PgTable } from 'drizzle-orm/pg-core'
-import { Pool, type PoolClient } from 'pg'
+import { Pool, type PoolClient, type PoolConfig } from 'pg'
 
 import {
   analyticalFeatures, cycleRuns, empiricalFeatures, marketMovers, mentions, rawComments, rawPosts,
@@ -37,9 +37,13 @@ export interface DbHandle {
 }
 
 /** Open a writer connection (the worker is the single writer; the web gets a read-only role).
- *  `keepAlive` keeps the long-lived advisory-lock connection from being reaped by an idle TCP timeout. */
-export function createDb(connectionString: string): DbHandle {
-  const pool = new Pool({ connectionString, keepAlive: true })
+ *  `keepAlive` keeps the long-lived advisory-lock connection from being reaped by an idle TCP timeout.
+ *  `opts` lets the PLAYS pool add connect/statement/query deadlines — the radar pool deliberately has
+ *  none (its cycle self-heals via try/catch, and a deadline could kill a slow-but-succeeding publish),
+ *  but a deadline-less plays insert awaited on the radar path could HANG the cycle, not just fail it
+ *  (invariant P1 — a hang is worse than a throw, which capturePlays already swallows). */
+export function createDb(connectionString: string, opts: Omit<PoolConfig, 'connectionString'> = {}): DbHandle {
+  const pool = new Pool({ connectionString, keepAlive: true, ...opts })
   const db = drizzle(pool)
   return { db, pool, close: () => pool.end() }
 }

@@ -36,12 +36,14 @@ const play = (over: Partial<PlayRow>): PlayRow => ({
   trackStatus: null, trackUntil: null, ...over,
 })
 
-/** Route-table fake fetch: URL → Response factory (a factory, so each retry gets a fresh body). */
+/** Route-table fake fetch: URL → Response factory (a factory, so each retry gets a fresh body).
+ *  Honors an already-aborted request signal (throws like undici would) so shutdown paths are testable. */
 const fakeFetch = (routes: Record<string, () => Response>): { calls: string[]; fetch: Fetcher } => {
   const calls: string[] = []
-  const fetch = (async (input: unknown) => {
+  const fetch = (async (input: unknown, init?: { signal?: AbortSignal }) => {
     const url = String(input)
     calls.push(url)
+    if (init?.signal?.aborted) throw new Error('This operation was aborted')
     const make = routes[url]
     if (!make) return new Response('not routed', { status: 404 })
     return make()
@@ -196,5 +198,68 @@ describe('runMediaStage', () => {
     const r = await runMediaStage(play({ id: 'gal4', isGallery: true, permalink: '/r/wsb/comments/g4/x/' }), deps(fetch))
     expect(r.items.map((i) => i.path)).toEqual(['gal4/0.jpg'])
     expect(r.retryable).toBe(true) // the queue retries within media_retry_until; archiving is idempotent
+  })
+
+  it('a shutdown abort surfaces as aborted, NEVER as a permanent degrade (P7 — review round 1)', async () => {
+    const ac = new AbortController()
+    ac.abort()
+    const { fetch } = fakeFetch({}) // throws on aborted signal, like undici
+    const r = await runMediaStage(
+      play({ id: 'shut1', url: 'https://i.redd.it/xyz789.jpeg' }),
+      deps(fetch, { signal: ac.signal }),
+    )
+    expect(r).toMatchObject({ aborted: true, retryable: false, items: [] })
+
+    // The gallery-resolution path too — an aborted post-JSON fetch must not classify as 'gone'.
+    const g = await runMediaStage(
+      play({ id: 'shut2', isGallery: true, permalink: '/r/wsb/comments/s2/x/' }),
+      deps(fetch, { signal: ac.signal }),
+    )
+    expect(g).toMatchObject({ aborted: true, retryable: false })
+  })
+
+  it('reuses prior-attempt items from plays.media instead of re-fetching (manifest survives upstream deletion)', async () => {
+    const priorItem = {
+      order: 0, path: 'reuse1/0.jpg', ext: 'jpg', bytes: 7, sha256: 'prior-sha',
+      sourceUrl: 'https://i.redd.it/xyz789.jpeg',
+    }
+    const { fetch, calls } = fakeFetch({}) // any fetch would 404 — reuse must not fetch at all
+    const r = await runMediaStage(
+      play({ id: 'reuse1', url: 'https://i.redd.it/xyz789.jpeg', media: [priorItem] }), deps(fetch))
+    expect(r.items).toEqual([priorItem])
+    expect(r.retryable).toBe(false)
+    expect(calls).toEqual([]) // the file is already on disk; the source may since be deleted
+  })
+
+  it('rejects a 200 that is not an image: empty body or non-image content type (CDN error page)', async () => {
+    const { fetch } = fakeFetch({
+      'https://i.redd.it/empty1.jpg': () => new Response(Buffer.alloc(0), { status: 200 }),
+      'https://i.redd.it/html1.jpg': () =>
+        new Response('<html>oops</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    })
+    const e = await runMediaStage(play({ id: 'empty', url: 'https://i.redd.it/empty1.jpg' }), deps(fetch))
+    expect(e).toMatchObject({ items: [], retryable: false }) // permanent — no zero-byte "archives"
+    const h = await runMediaStage(play({ id: 'html', url: 'https://i.redd.it/html1.jpg' }), deps(fetch))
+    expect(h).toMatchObject({ items: [], retryable: false })
+  })
+
+  it('a path-capable play id never escapes the media root (write-path defense in depth)', async () => {
+    const { fetch, calls } = fakeFetch({})
+    const r = await runMediaStage(play({ id: '../pwn', url: 'https://i.redd.it/xyz789.jpeg' }), deps(fetch))
+    expect(r).toMatchObject({ items: [], retryable: false, aborted: false })
+    expect(r.detail).toContain('unsafe play id')
+    expect(calls).toEqual([]) // refused before any I/O
+  })
+
+  it('an exhausted stage budget marks remaining images transient instead of outrunning the lease', async () => {
+    const { fetch, calls } = fakeFetch({
+      'https://www.reddit.com/r/wsb/comments/g5/x/.json?raw_json=1': () =>
+        new Response(JSON.stringify([{ data: { children: [{ data: galleryPostData }] } }]), { status: 200 }),
+    })
+    const d = deps(fetch)
+    d.deadlineAt = Date.now() - 1 // budget already spent before the first image
+    const r = await runMediaStage(play({ id: 'gal5', isGallery: true, permalink: '/r/wsb/comments/g5/x/' }), d)
+    expect(r).toMatchObject({ items: [], retryable: true })
+    expect(calls).toHaveLength(1) // only the resolution fetch; no image downloads started
   })
 })

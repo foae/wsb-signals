@@ -19,6 +19,11 @@ import { log } from '../logger'
 /** Direct-download image host — a bare `url` pointing here is the single-image shape (product §3). */
 const DIRECT_IMAGE_RE = /^https?:\/\/i\.redd\.it\/[\w-]+\.(?:jpe?g|png|webp|gif)$/i
 
+/** Reddit post ids are short base36; anything else is a corrupt/hostile upstream dict. The id becomes a
+ *  FILESYSTEM PATH SEGMENT (media dir) and a URL segment (web media route) — a path-capable id must be
+ *  rejected at this single choke point, not sanitized downstream. */
+const PLAY_ID_RE = /^[A-Za-z0-9_-]{1,32}$/
+
 /**
  * Classify the post's media shape at capture time (product §3): anything the media resolver can try
  * (`pending`) vs a genuinely text-only post (`none`). The resolver re-derives the details from `raw`;
@@ -35,13 +40,14 @@ export function initialMediaStatus(d: RawThing): Extract<PlayMediaStatus, 'pendi
 }
 
 /** The flair-matched subset of a poll's raw posts, mapped to insertable rows (status `captured`).
- *  Posts without a string id are dropped — an unidentifiable play can't be deduped or linked. */
+ *  Posts without a well-formed id are dropped — an unidentifiable play can't be deduped or linked,
+ *  and the id must be path-safe (PLAY_ID_RE). */
 export function playRowsFromRaw(rawPosts: readonly RawThing[], flairs: ReadonlySet<string>, now: number): PlayInsert[] {
   const out: PlayInsert[] = []
   for (const d of rawPosts) {
     const flair = typeof d.link_flair_text === 'string' ? d.link_flair_text : null
     if (flair == null || !flairs.has(flair)) continue
-    if (typeof d.id !== 'string' || d.id.length === 0) continue
+    if (typeof d.id !== 'string' || !PLAY_ID_RE.test(d.id)) continue
     out.push({
       id: d.id,
       createdUtc: typeof d.created_utc === 'number' ? Math.trunc(d.created_utc) : null,
@@ -91,16 +97,17 @@ export async function capturePlays(
     inserted: 0,
     galleries: rows.filter((r) => r.isGallery).length,
   }
-  if (rows.length === 0) return stats
   try {
-    // ~35 posts/cycle — far under the bind-parameter chunking threshold; one statement.
-    const inserted = await db.insert(plays).values(rows)
-      .onConflictDoNothing({ target: plays.id })
-      .returning({ id: plays.id })
-    stats.inserted = inserted.length
-    if (stats.inserted > 0) {
-      log.info({ ...stats, ids: inserted.map((r) => r.id) }, 'plays captured')
+    if (rows.length > 0) {
+      // ~35 posts/cycle — far under the bind-parameter chunking threshold; one statement.
+      const inserted = await db.insert(plays).values(rows)
+        .onConflictDoNothing({ target: plays.id })
+        .returning({ id: plays.id })
+      stats.inserted = inserted.length
     }
+    // Logged EVERY cycle, including matched=0 — that silent case IS the flair-rename canary; gating the
+    // log on inserted>0 would mute it exactly when the flair list breaks.
+    log.info(stats, 'plays capture')
   } catch (e) {
     log.error({ err: String(e) }, 'plays capture insert failed — radar cycle unaffected, will retry next poll')
   }

@@ -59,7 +59,7 @@ export interface QueueDeps {
 export interface TickStats {
   claimed: number
   advanced: number // reached media_ready this tick (archived / degraded / text-only)
-  retrying: number // transient media failure, still inside the retry window
+  retrying: number // transient media failure (still inside the retry window) or a shutdown release
   failed: number // stage crashes that hit max_attempts (terminal)
 }
 
@@ -69,6 +69,8 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1000)
  * Claim up to `CLAIM_BATCH` due `captured` rows: not claimed (or lease-expired) and past
  * `next_attempt_at`. One short transaction — SELECT … FOR UPDATE SKIP LOCKED + the claim-stamp UPDATE —
  * so concurrent claimers (a second process, a stale-lease race) partition rows instead of blocking.
+ * The returned rows carry the NEW `claimedAt`: it is this claimer's fence token — every later update
+ * guards on it, so a claimer that lost its lease mid-stage can't clobber the re-claimer's work.
  */
 export async function claimCaptured(db: Db, config: PlaysConfig, now: number): Promise<PlayRow[]> {
   return db.transaction(async (tx) => {
@@ -84,12 +86,17 @@ export async function claimCaptured(db: Db, config: PlaysConfig, now: number): P
     if (rows.length) {
       await tx.update(plays).set({ claimedAt: now }).where(inArray(plays.id, rows.map((r) => r.id)))
     }
-    return rows
+    return rows.map((r) => ({ ...r, claimedAt: now }))
   })
 }
 
-/** Advance a claimed `captured` row to `media_ready` with its final media verdict. The status guard in
- *  the WHERE makes this a no-op if anything else already moved the row (never-backwards, P8). */
+/** This claimer's WHERE fence: right row, still in the from-status, still OUR claim. The claim fence is
+ *  what keeps a lease-expired straggler from mutating rows a re-claimer now owns; the status guard is
+ *  the never-backwards rule (P8). A fenced-out update is a silent no-op — exactly right. */
+const ownedBy = (row: PlayRow): ReturnType<typeof and> =>
+  and(eq(plays.id, row.id), eq(plays.status, row.status), eq(plays.claimedAt, row.claimedAt!))
+
+/** Advance a claimed `captured` row to `media_ready` with its final media verdict. */
 async function advanceToMediaReady(
   db: Db, row: PlayRow, mediaStatus: 'archived' | 'failed' | 'none', items: PlayMediaItem[], now: number,
 ): Promise<void> {
@@ -101,16 +108,32 @@ async function advanceToMediaReady(
     nextAttemptAt: now, // the next stage (P2 extract) is due immediately once it exists
     attempts: 0, // attempts budget is per stage
     error: null,
-  }).where(and(eq(plays.id, row.id), eq(plays.status, 'captured')))
+  }).where(ownedBy(row))
 }
 
-/** Reschedule a transiently-failing media fetch inside its retry window (status stays `captured`). */
-async function scheduleMediaRetry(db: Db, row: PlayRow, retryUntil: number, now: number): Promise<void> {
+/** Reschedule a transiently-failing media fetch inside its retry window (status stays `captured`).
+ *  Any items archived THIS attempt are persisted so the next attempt reuses instead of re-fetching —
+ *  and so an image deleted upstream between attempts is never lost from the manifest. */
+async function scheduleMediaRetry(
+  db: Db, row: PlayRow, retryUntil: number, items: PlayMediaItem[], now: number,
+): Promise<void> {
   await db.update(plays).set({
     mediaRetryUntil: retryUntil,
     nextAttemptAt: now + MEDIA_RETRY_INTERVAL_S,
     claimedAt: null,
-  }).where(and(eq(plays.id, row.id), eq(plays.status, 'captured')))
+    ...(items.length ? { media: items } : {}), // never clobber prior items with an empty attempt
+  }).where(ownedBy(row))
+}
+
+/** Release a shutdown-aborted claim UNCHANGED: not a fault (no attempts, no retry window), just due
+ *  again on the next tick after restart. Advancing here would degrade the play to text-only over a
+ *  plain deploy (P7); items archived before the abort are persisted for reuse. */
+async function releaseClaim(db: Db, row: PlayRow, items: PlayMediaItem[], now: number): Promise<void> {
+  await db.update(plays).set({
+    claimedAt: null,
+    nextAttemptAt: now,
+    ...(items.length ? { media: items } : {}),
+  }).where(ownedBy(row))
 }
 
 /** Record a stage crash: bump `attempts`, back off exponentially, and only at `max_attempts` park the
@@ -125,17 +148,22 @@ async function recordStageFailure(db: Db, row: PlayRow, config: PlaysConfig, now
     claimedAt: null,
     nextAttemptAt: now + backoff,
     ...(terminal ? { status: 'failed' as const } : {}),
-  }).where(and(eq(plays.id, row.id), eq(plays.status, row.status)))
+  }).where(ownedBy(row))
   return terminal
 }
 
-/** The `captured` stage: resolve + archive media, then advance / retry / degrade per invariant P7. */
+/** The `captured` stage: resolve + archive media, then advance / retry / release / degrade (P7). */
 async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Promise<'advanced' | 'retrying'> {
   const media = deps.media ?? runMediaStage
   const r: MediaStageResult = await media(row, {
     config: deps.config, fetchImpl: deps.fetchImpl, signal: deps.signal,
   })
 
+  if (r.aborted) {
+    log.info({ playId: row.id, archived: r.items.length }, 'plays media stage aborted (shutdown) — releasing claim')
+    await releaseClaim(deps.db, row, r.items, now)
+    return 'retrying'
+  }
   if (r.none) {
     await advanceToMediaReady(deps.db, row, 'none', [], now)
     return 'advanced'
@@ -144,18 +172,21 @@ async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Prom
     const retryUntil = row.mediaRetryUntil ?? now + deps.config.mediaRetrySeconds
     if (now < retryUntil) {
       log.warn({ playId: row.id, detail: r.detail, retryUntil }, 'plays media transient failure — will retry')
-      await scheduleMediaRetry(deps.db, row, retryUntil, now)
+      await scheduleMediaRetry(deps.db, row, retryUntil, r.items, now)
       return 'retrying'
     }
     // Window exhausted: keep whatever was archived; an empty set degrades to text-only (invariant P7).
   }
-  const status = r.items.length ? 'archived' : 'failed'
+  // Prior-attempt items (persisted on retry scheduling) still count when THIS attempt resolved nothing.
+  const priorItems = Array.isArray(row.media) ? (row.media as PlayMediaItem[]) : []
+  const items = r.items.length ? r.items : priorItems
+  const status = items.length ? 'archived' : 'failed'
   if (status === 'failed') {
     log.warn({ playId: row.id, detail: r.detail }, 'plays media unrecoverable — degrading to text-only')
   } else if (r.detail) {
-    log.warn({ playId: row.id, archived: r.items.length, detail: r.detail }, 'plays media partially archived')
+    log.warn({ playId: row.id, archived: items.length, detail: r.detail }, 'plays media partially archived')
   }
-  await advanceToMediaReady(deps.db, row, status, r.items, now)
+  await advanceToMediaReady(deps.db, row, status, items, now)
   return 'advanced'
 }
 

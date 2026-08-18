@@ -3,7 +3,7 @@
  * minimal: captured rows with thumbnails, newest first, proving capture → media volume → web end-to-end
  * before any LLM money is spent. P4 grows the real board (filters, detail pages) around it.
  */
-import { desc } from 'drizzle-orm'
+import { desc, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { z } from 'zod'
 
@@ -42,7 +42,9 @@ export async function readPlays(db: NodePgDatabase): Promise<PlayCard[]> {
     flair: plays.flair, title: plays.title, permalink: plays.permalink, status: plays.status,
     mediaStatus: plays.mediaStatus, isGallery: plays.isGallery, media: plays.media,
   }).from(plays)
-    .orderBy(desc(plays.createdUtc), desc(plays.id))
+    // NULLS LAST: Postgres DESC sorts NULLs first, and capture null-fills a junk created_utc — those
+    // rows belong at the bottom, not pinned above every real play.
+    .orderBy(sql`${plays.createdUtc} desc nulls last`, desc(plays.id))
     .limit(LIST_LIMIT)
 
   return rows.map((r) => {

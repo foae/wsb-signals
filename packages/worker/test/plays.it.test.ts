@@ -83,7 +83,7 @@ describe('queue claim / lease / stages', () => {
     const { clockNow, ...rest } = over
     return runQueueTick({
       db: pg.db, config: playsCfg(), clock: () => clockNow ?? NOW,
-      media: async () => ({ items: [item('p1/0.jpg')], retryable: false, none: false }),
+      media: async () => ({ items: [item('p1/0.jpg')], retryable: false, none: false, aborted: false }),
       ...rest,
     })
   }
@@ -103,7 +103,7 @@ describe('queue claim / lease / stages', () => {
 
   it('text-only plays advance with media_status none', async () => {
     await capturePlays(pg.db, [rawPlay('p1', { url: '', media_metadata: null })], playsCfg(), NOW)
-    await tick({ media: async () => ({ items: [], retryable: false, none: true }) })
+    await tick({ media: async () => ({ items: [], retryable: false, none: true, aborted: false }) })
     const row = await getPlay('p1')
     expect(row.status).toBe('media_ready')
     expect(row.mediaStatus).toBe('none')
@@ -112,8 +112,8 @@ describe('queue claim / lease / stages', () => {
 
   it('transient media failure: retries inside the window, then degrades to text-only (invariant P7)', async () => {
     await capturePlays(pg.db, [rawPlay('p1')], playsCfg(), NOW)
-    const transient = async (): Promise<{ items: []; retryable: true; none: false }> =>
-      ({ items: [], retryable: true, none: false })
+    const transient = async (): Promise<{ items: []; retryable: true; none: false; aborted: false }> =>
+      ({ items: [], retryable: true, none: false, aborted: false })
 
     // First pass: schedules a retry — status STAYS captured, the window opens.
     expect(await tick({ media: transient })).toMatchObject({ claimed: 1, retrying: 1, advanced: 0 })
@@ -161,6 +161,59 @@ describe('queue claim / lease / stages', () => {
     // Lease expired → re-claimable, processed.
     await pg.db.update(plays).set({ claimedAt: NOW - 700 }).where(eq(plays.id, 'p1'))
     expect(await tick()).toMatchObject({ claimed: 1, advanced: 1 })
+  })
+
+  it('a shutdown-aborted stage releases the claim UNCHANGED — no degrade, no retry window (P7)', async () => {
+    await capturePlays(pg.db, [rawPlay('p1')], playsCfg(), NOW)
+    const stats = await tick({
+      media: async () => ({ items: [], retryable: false, none: false, aborted: true }),
+    })
+    expect(stats).toMatchObject({ claimed: 1, retrying: 1, advanced: 0, failed: 0 })
+    const row = await getPlay('p1')
+    expect(row.status).toBe('captured') // still due — a deploy must not cost the play its media
+    expect(row.mediaStatus).toBe('pending')
+    expect(row.mediaRetryUntil).toBeNull() // restarts must not burn the transient-failure window
+    expect(row.claimedAt).toBeNull()
+    expect(row.attempts).toBe(0)
+    expect(row.nextAttemptAt).toBe(NOW) // due immediately after restart
+  })
+
+  it('fences every update on the claim: a lease-expired straggler cannot clobber a re-claimer', async () => {
+    await capturePlays(pg.db, [rawPlay('p1')], playsCfg(), NOW)
+    // The stage simulates a straggler losing its lease mid-flight: a re-claimer stamps a NEW claimed_at
+    // while this stage is running; the straggler's advance must then be a silent no-op.
+    const stats = await tick({
+      media: async () => {
+        await pg.db.update(plays).set({ claimedAt: NOW + 999 }).where(eq(plays.id, 'p1'))
+        return { items: [item('p1/0.jpg')], retryable: false, none: false, aborted: false }
+      },
+    })
+    expect(stats).toMatchObject({ claimed: 1 })
+    const row = await getPlay('p1')
+    expect(row.status).toBe('captured') // the straggler's advance was fenced out
+    expect(row.claimedAt).toBe(NOW + 999) // the re-claimer's claim is untouched
+    expect(row.media).toBeNull()
+  })
+
+  it('persists partial items on retry and keeps them through a later degrade (manifest never shrinks)', async () => {
+    await capturePlays(pg.db, [rawPlay('p1')], playsCfg(), NOW)
+    // Attempt 1: one image archived, another transiently failing → retry scheduled, partial persisted.
+    await tick({
+      media: async () => ({ items: [item('p1/0.jpg')], retryable: true, none: false, aborted: false }),
+    })
+    let row = await getPlay('p1')
+    expect(row.status).toBe('captured')
+    expect(row.media).toEqual([item('p1/0.jpg')]) // persisted for reuse by the next attempt
+    // Attempt 2, window exhausted, and THIS attempt resolves nothing (e.g. post JSON now 404s):
+    // the prior archived item must still make the play `archived`, not text-only.
+    await tick({
+      clockNow: NOW + 700,
+      media: async () => ({ items: [], retryable: true, none: false, aborted: false }),
+    })
+    row = await getPlay('p1')
+    expect(row.status).toBe('media_ready')
+    expect(row.mediaStatus).toBe('archived')
+    expect(row.media).toEqual([item('p1/0.jpg')])
   })
 
   it('media_ready rows rest untouched (LLM stages land at P2)', async () => {

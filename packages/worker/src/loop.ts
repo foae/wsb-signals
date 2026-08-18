@@ -230,6 +230,7 @@ export async function runLoop(deps: CycleDeps, opts: LoopOptions): Promise<void>
     ac.abort()
   }
   opts.stopSignal?.addEventListener('abort', stop, { once: true })
+  if (opts.stopSignal?.aborted) stop() // a signal aborted BEFORE attach fires no event — honor it too
 
   try {
     // Startup throttle: after a rapid restart, wait out the min gap since the last poll. Ignore a
@@ -309,8 +310,12 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
   const extractor = buildExtractor(raw, root)
 
   // Dedicated plays pool (invariant P9): a plays query can never starve the radar pool, whose advisory
-  // lock permanently holds one client. Same DB, same writer role — just separate connections.
-  const playsHandle = worker.plays.enabled ? createDb(dbUrl) : null
+  // lock permanently holds one client. Same DB, same writer role — just separate connections, WITH
+  // deadlines: `capturePlays` is awaited on the radar cycle's path, and its try/catch only covers a
+  // query that FAILS — these bounds make a wedged pool fail instead of hanging the radar (P1).
+  const playsHandle = worker.plays.enabled
+    ? createDb(dbUrl, { connectionTimeoutMillis: 10_000, statement_timeout: 15_000, query_timeout: 20_000 })
+    : null
   if (!worker.plays.enabled) log.info('plays disabled ([plays].enabled = false) — radar only')
 
   log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market),
@@ -349,8 +354,10 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
       // media) — running them in parallel would give the tick nothing to claim.
       await radar
       if (playsHandle) {
+        // The EXTERNAL stop signal, not `internal` — internal is already aborted by radar completing
+        // (the .finally above), which must not suppress the tick; SIGTERM still must abort it.
         await runPlaysQueue({ db: playsHandle.db, config: worker.plays }, {
-          once: true, stopSignal: new AbortController().signal,
+          once: true, stopSignal: opts.stopSignal ?? new AbortController().signal,
         })
       }
     } else {

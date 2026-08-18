@@ -21,7 +21,7 @@
  */
 import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 import { fetch as undiciFetch } from 'undici'
 
@@ -32,10 +32,20 @@ import type { RawThing, Sleeper } from '../ingest'
 import { log } from '../logger'
 
 const DIRECT_IMAGE_RE = /^https?:\/\/i\.redd\.it\/[\w-]+\.(jpe?g|png|webp|gif)$/i
+/** Per-fetch deadline — spans the WHOLE response (headers AND body): the signal from
+ *  `AbortSignal.timeout` keeps governing `res.body` reads, so a tarpit that dribbles bytes after 200
+ *  can't hang the queue tick (and thus shutdown) indefinitely. */
 const FETCH_TIMEOUT_MS = 30_000
 /** In-stage bounded retry for a transient fetch (the queue's media_retry_until window sits above this). */
 const MAX_FETCH_RETRIES = 2
 const RETRY_BACKOFF_MS = 500
+/** Whole-stage time budget. Keeps the worst case (many images × retries × timeouts) WELL under the
+ *  queue's lease_minutes — past it, remaining images are counted transient and the play retries next
+ *  tick instead of overrunning its lease into a double-claim (plays-plan §3). */
+const STAGE_BUDGET_MS = 240_000
+/** Byte cap on the gallery post-JSON body — an external host must not buffer unbounded into the heap
+ *  the radar shares (plays-plan §1's memory rule; the image cap is `max_image_mb`). */
+const GALLERY_JSON_CAP = 2 * 1024 * 1024
 
 /** Reddit gallery mimes → the i.redd.it file extension. Unknown mimes are skipped (video/gif variants
  *  are out of scope for v1 — product §3 keeps them text-only). */
@@ -57,47 +67,63 @@ export interface MediaDeps {
   fetchImpl?: Fetcher
   sleep?: Sleeper
   signal?: AbortSignal
+  /** Stage deadline (epoch ms) — defaults to now + STAGE_BUDGET_MS. Injectable for tests. */
+  deadlineAt?: number
 }
 
 const realSleep: Sleeper = (ms) => new Promise((r) => setTimeout(r, ms))
 
-/** One fetch with timeout + shutdown signal + bounded transient retry. Returns the response only on 200;
- *  otherwise classifies the failure. A shutdown abort is always non-retryable (it's not a fault). */
-async function fetchOk(
-  url: string, deps: MediaDeps,
-): Promise<{ ok: true; res: Awaited<ReturnType<Fetcher>> } | { ok: false; retryable: boolean; detail: string }> {
+/** How a failed fetch should be handled downstream. `aborted` (shutdown) is its OWN kind — treating it
+ *  as permanent turned every SIGTERM mid-stage into a permanent text-only degrade (P7 violation; the
+ *  queue must release the claim unchanged instead), and treating it as transient would burn the
+ *  media_retry_until window on restarts. */
+type FetchFailKind = 'transient' | 'permanent' | 'aborted'
+type FetchOutcome =
+  | { ok: true; res: Awaited<ReturnType<Fetcher>>; done: () => void }
+  | { ok: false; kind: FetchFailKind; detail: string }
+
+/** One fetch with a full-response deadline + shutdown signal + bounded transient retry. Returns the
+ *  response only on 200; the caller MUST consume the body and then call `done()` — the timeout keeps
+ *  governing body reads until then (see FETCH_TIMEOUT_MS). */
+async function fetchOk(url: string, deps: MediaDeps): Promise<FetchOutcome> {
   const fetchImpl = deps.fetchImpl ?? undiciFetch
   const sleep = deps.sleep ?? realSleep
   for (let attempt = 0; ; attempt++) {
-    let retryable = false
+    let kind: FetchFailKind = 'permanent'
     let detail = ''
     try {
       const ac = new AbortController()
       const timer = setTimeout(() => ac.abort(new Error(`timeout after ${FETCH_TIMEOUT_MS}ms`)), FETCH_TIMEOUT_MS)
       timer.unref?.()
+      const signal = deps.signal ? AbortSignal.any([ac.signal, deps.signal]) : ac.signal
       let res
       try {
         res = await fetchImpl(url, {
           method: 'GET',
           headers: { 'User-Agent': deps.config.redditUserAgent },
-          signal: deps.signal ? AbortSignal.any([ac.signal, deps.signal]) : ac.signal,
+          signal,
         })
-      } finally {
+      } catch (e) {
         clearTimeout(timer)
+        throw e
       }
-      if (res.status === 200) return { ok: true, res }
+      // NOTE: the timer is NOT cleared on the success path — it stays armed while the caller streams
+      // the body (undici aborts in-flight body reads when the request signal fires), and `done()`
+      // disarms it. Cleared here only on the non-200 paths below.
+      if (res.status === 200) return { ok: true, res, done: () => clearTimeout(timer) }
+      clearTimeout(timer)
       await res.body?.cancel().catch(() => {})
       // 403/404/410 = deleted/blocked (permanent — the media is not coming back); 429/5xx = transient.
-      retryable = res.status === 429 || res.status >= 500
+      kind = res.status === 429 || res.status >= 500 ? 'transient' : 'permanent'
       detail = `status ${res.status}`
     } catch (e) {
-      if (deps.signal?.aborted) return { ok: false, retryable: false, detail: 'shutdown' }
-      retryable = true // network error / timeout
+      if (deps.signal?.aborted) return { ok: false, kind: 'aborted', detail: 'shutdown' }
+      kind = 'transient' // network error / timeout
       detail = String(e)
     }
-    if (!retryable || attempt >= MAX_FETCH_RETRIES) return { ok: false, retryable, detail }
+    if (kind !== 'transient' || attempt >= MAX_FETCH_RETRIES) return { ok: false, kind, detail }
     await sleep(RETRY_BACKOFF_MS * 2 ** attempt)
-    if (deps.signal?.aborted) return { ok: false, retryable: false, detail: 'shutdown' }
+    if (deps.signal?.aborted) return { ok: false, kind: 'aborted', detail: 'shutdown' }
   }
 }
 
@@ -134,6 +160,7 @@ type Resolution =
   | { kind: 'none' }
   | { kind: 'gone'; detail: string } // permanent — degrade to text-only now
   | { kind: 'transient'; detail: string } // retry within the media_retry_until window
+  | { kind: 'aborted' } // shutdown — the queue releases the claim UNCHANGED (no window, no degrade)
 
 /** Order + extension from a Reddit post-JSON gallery payload. Exported for the unit tests — this parse
  *  is where the ordered-subset landmine lives. */
@@ -192,16 +219,22 @@ export async function resolveImages(play: PlayRow, deps: MediaDeps): Promise<Res
     // raw_json=1 keeps URLs unescaped in the payload.
     const r = await fetchOk(`https://www.reddit.com${permalink}.json?raw_json=1`, deps)
     if (!r.ok) {
+      if (r.kind === 'aborted') return { kind: 'aborted' }
       log.warn({ playId: play.id, detail: r.detail }, 'plays media: gallery post-JSON fetch failed') // gate metric
-      return r.retryable ? { kind: 'transient', detail: `gallery json: ${r.detail}` }
+      return r.kind === 'transient' ? { kind: 'transient', detail: `gallery json: ${r.detail}` }
         : { kind: 'gone', detail: `gallery json: ${r.detail}` }
     }
     let postData: RawThing
     try {
-      const json = (await r.res.json()) as { data?: { children?: { data?: RawThing }[] } }[]
+      const body = await readCapped(r.res, GALLERY_JSON_CAP) // capped — never buffer unbounded JSON
+      if (!body.ok) return { kind: 'gone', detail: `gallery json: ${body.detail}` }
+      const json = JSON.parse(body.buf.toString('utf8')) as { data?: { children?: { data?: RawThing }[] } }[]
       postData = json[0]?.data?.children?.[0]?.data ?? {}
     } catch (e) {
-      return { kind: 'transient', detail: `gallery json parse: ${String(e)}` } // interstitial/HTML — likely transient
+      if (deps.signal?.aborted) return { kind: 'aborted' }
+      return { kind: 'transient', detail: `gallery json parse: ${String(e)}` } // interstitial/HTML/timeout — likely transient
+    } finally {
+      r.done()
     }
     const images = galleryImages(postData, max)
     if (images.length === 0) {
@@ -225,42 +258,95 @@ export async function resolveImages(play: PlayRow, deps: MediaDeps): Promise<Res
 // --- the stage --------------------------------------------------------------------------------------
 
 export interface MediaStageResult {
-  /** Archived items, gallery order preserved. Idempotent: a retry re-downloads and overwrites. */
+  /** Archived items, gallery order preserved — including items REUSED from a prior attempt (persisted
+   *  in `plays.media` when a retry was scheduled), so an image archived on attempt 1 and deleted
+   *  upstream before attempt 2 is never lost from the manifest. */
   items: PlayMediaItem[]
   /** ≥1 fetch failed transiently — worth another pass within the `media_retry_until` window. */
   retryable: boolean
   /** The post never had resolvable media (text-only by construction). */
   none: boolean
+  /** Shutdown aborted the stage mid-flight. The queue must release the claim UNCHANGED — advancing
+   *  would permanently degrade the play to text-only over a restart (P7), and opening the retry
+   *  window would burn it on every deploy. */
+  aborted: boolean
   detail?: string
 }
 
+const stageResult = (over: Partial<MediaStageResult>): MediaStageResult =>
+  ({ items: [], retryable: false, none: false, aborted: false, ...over })
+
 /**
  * Resolve + download + archive one play's media. Never throws for fetch-level trouble — the result tells
- * the queue whether to advance (`items`/`none`), retry (`retryable`), or degrade. Filesystem errors DO
- * throw (disk-full is a queue-level fault, not a media state).
+ * the queue whether to advance (`items`/`none`), retry (`retryable`), release (`aborted`), or degrade.
+ * Filesystem errors DO throw (disk-full is a queue-level fault, not a media state). Bounded by
+ * STAGE_BUDGET_MS so the stage can never outrun the queue's claim lease.
  */
 export async function runMediaStage(play: PlayRow, deps: MediaDeps): Promise<MediaStageResult> {
   const resolved = await resolveImages(play, deps)
-  if (resolved.kind === 'none') return { items: [], retryable: false, none: true }
-  if (resolved.kind === 'gone') return { items: [], retryable: false, none: false, detail: resolved.detail }
-  if (resolved.kind === 'transient') return { items: [], retryable: true, none: false, detail: resolved.detail }
+  if (resolved.kind === 'none') return stageResult({ none: true })
+  if (resolved.kind === 'aborted') return stageResult({ aborted: true })
+  if (resolved.kind === 'gone') return stageResult({ detail: resolved.detail })
+  if (resolved.kind === 'transient') return stageResult({ retryable: true, detail: resolved.detail })
 
-  const dir = join(deps.config.mediaDir, play.id)
+  // Defense in depth: capture validates the id shape, but a path-capable id (e.g. `../x`) from a
+  // corrupt upstream dict must never escape the media root — this is a WRITE path.
+  const rootAbs = resolve(deps.config.mediaDir)
+  const dir = resolve(rootAbs, play.id)
+  if (!dir.startsWith(rootAbs + sep)) {
+    return stageResult({ detail: `unsafe play id ${JSON.stringify(play.id)} — refusing to archive` })
+  }
   await mkdir(dir, { recursive: true })
 
+  // Items archived by a PRIOR attempt (persisted on retry scheduling) — reused instead of re-fetched:
+  // the file is already on disk with its hash recorded, and the source may since have been deleted.
+  const prior = new Map((Array.isArray(play.media) ? (play.media as PlayMediaItem[]) : [])
+    .map((it) => [`${it.order}|${it.sourceUrl}`, it]))
+
+  const deadlineAt = deps.deadlineAt ?? Date.now() + STAGE_BUDGET_MS
   const items: PlayMediaItem[] = []
   let transient = 0
   const failures: string[] = []
   for (const img of resolved.images) {
+    const reused = prior.get(`${img.order}|${img.url}`)
+    if (reused) {
+      items.push(reused)
+      continue
+    }
+    if (Date.now() > deadlineAt) {
+      // Stage budget exhausted: count the remainder transient and let the next tick continue — never
+      // outrun the claim lease into a double-claim.
+      transient++
+      failures.push(`#${img.order} stage budget exhausted`)
+      continue
+    }
     const r = await fetchOk(img.url, deps)
     if (!r.ok) {
-      if (r.retryable) transient++
+      if (r.kind === 'aborted') return stageResult({ items, aborted: true })
+      if (r.kind === 'transient') transient++
       failures.push(`#${img.order} ${r.detail}`)
       continue
     }
-    const body = await readCapped(r.res, deps.config.maxImageBytes)
+    let body
+    try {
+      body = await readCapped(r.res, deps.config.maxImageBytes)
+    } catch (e) {
+      // Abort mid-body: shutdown → release; deadline/network → transient for this image.
+      if (deps.signal?.aborted) return stageResult({ items, aborted: true })
+      transient++
+      failures.push(`#${img.order} body read failed: ${String(e)}`)
+      continue
+    } finally {
+      r.done()
+    }
     if (!body.ok) {
       failures.push(`#${img.order} ${body.detail}`) // oversize — permanent, skip this image
+      continue
+    }
+    // A 200 with an empty body or a non-image content type (CDN error page) is not media — permanent.
+    const ctype = r.res.headers.get('content-type')
+    if (body.buf.length === 0 || (ctype != null && !ctype.startsWith('image/'))) {
+      failures.push(`#${img.order} not an image (${body.buf.length} bytes, ${ctype ?? 'no content-type'})`)
       continue
     }
     const filename = `${img.order}.${img.ext}`
@@ -274,12 +360,11 @@ export async function runMediaStage(play: PlayRow, deps: MediaDeps): Promise<Med
       sourceUrl: img.url,
     })
   }
-  return {
+  return stageResult({
     items,
-    // Retry while any image is transiently missing — archiving is idempotent, and a partial set should
-    // become the full set if the blip clears within the window.
+    // Retry while any image is transiently missing — already-archived items are persisted by the queue
+    // on retry scheduling and reused above, so the partial set can only grow within the window.
     retryable: transient > 0,
-    none: false,
     detail: failures.length ? failures.join('; ') : undefined,
-  }
+  })
 }

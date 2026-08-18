@@ -143,6 +143,8 @@ export function findRoot(start: string = process.cwd()): string {
 
 export function loadConfig(root: string): LoadedConfig {
   const raw = parseToml(readFileSync(join(root, 'config.toml'), 'utf8')) as unknown as RawConfig
+  // Required since P1 — fail with a clear message, not a TypeError deep in the flattening below.
+  if (!raw.plays) throw new Error("config.toml is missing the [plays] section (required since P1 — see plays-plan §9)")
   // Real env vars WIN over the .env file (container-native secrets — Python overlays os.environ).
   const env: Record<string, string> = { ...readDotenv(root) }
   for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v

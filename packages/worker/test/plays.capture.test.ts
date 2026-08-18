@@ -50,6 +50,11 @@ describe('playRowsFromRaw', () => {
       .toEqual([])
   })
 
+  it('drops path-capable ids — the id becomes a filesystem/URL segment (media dir, /api/media)', () => {
+    const hostile = ['../pwn', 'a/b', 'a.b', 'a b', '.', '..', 'x'.repeat(33)]
+    expect(playRowsFromRaw(hostile.map((id) => rawPost({ id })), FLAIRS, NOW)).toEqual([])
+  })
+
   it('tolerates junk-typed fields (nulls, not throws)', () => {
     const rows = playRowsFromRaw(
       [rawPost({ author: 42, title: null, created_utc: 'soon', score: 'many', url: 7, permalink: {} })],
