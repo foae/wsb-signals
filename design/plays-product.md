@@ -61,13 +61,14 @@ drop it from config if unwanted.)
 Measured volume (Arctic-Shift sample, 2026-08-18): ~100 posts per 15 h on the sub, of which
 Gain+Loss+YOLO ≈ 28 % → **roughly 45 candidate plays/day**. This bounds LLM cost (see plan §7).
 
-Per candidate, media falls into three verified shapes:
+Per candidate, media falls into these shapes (the first three verified live):
 
 | Shape | How it arrives | Handling |
 |---|---|---|
 | Single image | `url` = `i.redd.it/….jpeg` | download directly |
 | Gallery | `url` = `reddit.com/gallery/<id>`, `is_gallery: true` — **Arctic-Shift archives `media_metadata` as `null`** (verified live), so the image list is NOT in the archive | resolve via Reddit's public post JSON (`permalink` + `.json`) at capture time — the post is ~5 min old, so this works live-forward; fallback on failure: text-only |
-| Text-only | `url` empty or self-permalink | no vision step; the play is analyzed from title + selftext alone |
+| Inline images in a self-post | text post with `media_metadata` present (images embedded in `selftext`) | resolve like a gallery — don't silently drop to text-only `[prevalence unverified — measure at P1]` |
+| Text-only | `url` empty or self-permalink, no media | no vision step; the play is analyzed from title + selftext alone |
 
 **Images are archived to disk at capture** (shared volume). Reddit deletes/removes gain-porn posts
 routinely; live-forward capture is the one moment the media is reliably there. Media failure
@@ -78,9 +79,11 @@ posts under other flairs (`DD`, `Discussion`) even when they contain position sc
 
 ## 4. Pipeline stages (product view)
 
-Statuses advance `captured → extracted → analyzed → published` (with `media_failed`, `failed`,
-`skipped` off-ramps); each play is processed by a queue that is **error-isolated and budget-capped
-so the radar cycle is never delayed or broken by LLM trouble** (invariant P1, §8).
+Statuses advance `captured → media_ready → extracted → analyzed → published`, with `failed` as the
+only off-ramp — and only after bounded retries (media state is tracked separately; a media failure
+degrades the play to text-only, it doesn't park it). Each play is processed by a queue that is
+**structurally isolated and budget-capped so the radar cycle is never delayed or broken by LLM
+trouble** (invariants P1/P9, §8).
 
 ### 4.1 Extraction (vision)
 
@@ -89,14 +92,29 @@ One structured-output call: screenshot(s) + title + selftext → a versioned `Pl
 
 - screenshot kind (single position / portfolio / order ticket / chart / none),
 - broker if identifiable,
-- positions: ticker, instrument (`shares|call|put|spread|other`), direction, strike/expiry,
-  quantity, avg price, cost basis, current value, P&L ($ and %), realized vs unrealized,
+- positions — **one entry per leg** (a spread is N legs, never a single row: marking a debit
+  spread as its long leg alone reports unbounded phantom gains): ticker, instrument
+  (`shares|call|put|other`), **side (`long|short`)** — distinct from this repo's bull/bear
+  `direction`, which is *derived* (a sold put is short **and** bullish; conflating them inverts
+  P&L on a very common WSB position) — strike, **full expiry date** (screenshots show "1/17"; the
+  extractor resolves the year or leaves it null — OCC symbols need `YYMMDD`), quantity, avg price,
+  cost basis, current value, P&L ($ and %), realized vs unrealized. Option prices are per-share
+  with the ×100 contract multiplier applied only in downstream math — the schema pins the
+  convention so marks can't be off by exactly 100×,
 - per-field and overall confidence.
 
-A deterministic **validation pass** follows in TS (not the LLM): tickers are checked against the
-whitelist / `ticker_names`; P&L is cross-checked arithmetically (`pnl ≈ value − cost`, tolerance);
-failures downgrade confidence. **The system never silently invents a ticker** — an unvalidated
-symbol keeps the play at low confidence (invariant P3).
+This shape is **pinned against the P5 marking math before P2 lands** — plays extracted with a
+weaker schema would need a paid full re-run when outcome tracking arrives.
+
+A deterministic **validation pass** follows in TS (not the LLM), with **three outcomes**:
+`validated` (whitelist / `ticker_names` hit), `known-non-equity` (index/futures/crypto underlyings
+— SPX, NDX, VIX, /ES, BTC — absent from the Alpaca `us_equity` whitelist *by construction*, yet
+staples of exactly these flairs; normal confidence, flagged untrackable-by-Alpaca), and
+`unvalidated` (confidence downgrade). P&L is cross-checked arithmetically (`pnl ≈ value − cost`,
+tolerance); failures downgrade confidence. **The system never silently invents a ticker**
+(invariant P3). Published confidence is **derived primarily from this deterministic pass** (ticker
+outcome, arithmetic consistency, media presence); the model's self-reported confidence is one
+input, not the number — LLM self-confidence is poorly calibrated.
 
 ### 4.2 Interpretation & categorization (text)
 
@@ -104,9 +122,14 @@ A second structured-output call whose prompt contains only **evidence the system
 
 - the validated extraction,
 - post title + selftext,
-- **radar evidence** (deterministic): heat rank and SoV at the posting window; mentions/distinct
-  authors over trailing 24 h/72 h; count of *prior* same-ticker, same-direction position posts in
-  the trailing 72 h (the herd measure),
+- **radar evidence** (deterministic): heat rank and SoV from the **last complete window at or
+  before the post** — max `cycle_runs.window_start` strictly below the post's own hour bucket. The
+  current bucket is still accumulating (rewritten every 5-min cycle); reading it would ground the
+  board's headline evidence chip ("TSLA was #2 by heat when this was posted") in ~minutes of data
+  for any play posted early in an hour. Plus: mentions/distinct authors over trailing 24 h/72 h,
+  and the count of *prior* same-ticker, same-direction position posts in the trailing 72 h —
+  **excluding the play's own mention**, which the radar persists in the same cycle (the herd
+  measure),
 - **market evidence** (Alpaca, free tier): day/5-day return, rvol (low-confidence flag carried
   over), movers-list membership around the post date.
 
@@ -139,11 +162,19 @@ Tags (open set, seeded): `0dte`, `weeklies`, `far-otm`, `leveraged-etf`, `meme-s
 
 Plays whose position is open (YOLO posts; any extraction with `realized: false`) get tracked:
 
-- **Daily mark-to-market** after US close: shares → Alpaca daily close; options → contract mark
-  from the free indicative options snapshot (Greeks/IV feed), falling back to intrinsic value off
-  the underlying when the contract quote is unavailable; at expiry → intrinsic, status `expired`.
-- **Author-followup linking**: a later Gain/Loss post by the same author on the same primary ticker
-  (within 90 days) links as the play's resolution (`resolved-posted`) and both pages cross-reference.
+- **Mark-to-market on trading days** — gated on Alpaca's `/v2/calendar`, run ≥ 30 min after the
+  session close (a fixed UTC tick drifts with DST and duplicates marks on holidays): shares →
+  Alpaca daily close (free tier = thin IEX; marks carry a per-feed confidence flag the way
+  `rvol_conf` does); options → contract mark from the free indicative snapshot. When a far-OTM
+  contract has no quote — likely common at WSB strikes; the Phase 0.2 probe verified Greeks/IV "on
+  liquid strikes" only — **intrinsic value is recorded as a floor, never drawn as a price point
+  pre-expiry** (a live 30-DTE OTM call is not worth −100 %). At expiry → intrinsic, status
+  `expired`.
+- **Author-followup linking** — runs when a new play finishes interpretation (only then is its
+  ticker known): a later Gain/Loss post by the same author on the same primary ticker (within
+  90 days) links as the play's resolution (`resolved-posted`) and both pages cross-reference.
+  Null/`[deleted]`/bot authors never join — an unguarded `author =` match would cross-link every
+  deleted-author play on a ticker.
 - Tracking stops after a configured horizon (default 60 days) unless an option expiry runs longer.
   Statuses: `open`, `expired`, `resolved-posted`, `untrackable`.
 
@@ -193,10 +224,20 @@ daily spend budget in config (defaults in plan §6); over budget → plays queue
 - **P3 — Tickers are validated, never invented.** Whitelist/`ticker_names` validation gates every
   extracted symbol; failures mean low confidence, not a made-up ticker on the board.
 - **P4 — `herd-following` requires deterministic radar evidence** above the configured threshold.
+  Enforced structurally: the category enum offered to the model excludes it below threshold; the
+  prompt additionally bars herd claims in free-text tags/summaries.
 - **P5 — Selection bias is always surfaced.** WSB self-reports wins far more than losses. Aggregate
   statistics (category win rates, average P&L) must carry the bias caveat, and the per-post outcome
   rule from the radar ("never aggregate to a per-ticker win rate") extends to plays verbatim.
-- **P6 — Spend is hard-capped** (per-cycle count + daily budget); the failure mode is a growing
-  queue, never a surprise bill.
+  *(A documentation norm for humans and analyzing agents — unlike P3/P4/P6/P8/P9 it is not
+  code-enforceable; the analysis how-to doc carries it.)*
+- **P6 — Spend is hard-capped** (per-tick count + daily budget, priced from config); the failure
+  mode is a growing queue, never a surprise bill.
 - **P7 — Media is archived at capture** (Reddit deletes); media failure degrades to text-only
-  analysis with lowered confidence, never a dropped play.
+  analysis with lowered confidence, never a dropped play — and a *transient* fetch failure is
+  retried before degrading.
+- **P8 — Capture is idempotent: a post is analyzed and charged for at most once.** The 5-min poll
+  over a 1-h window re-delivers every candidate ~12×; the plays insert is `ON CONFLICT DO NOTHING`
+  and no writer ever moves `status` backwards.
+- **P9 — Plays code never holds a DB transaction or pooled client across a network/LLM call**, and
+  the plays loops run on their own PG pool. This — not `try/catch` walls — is what makes P1 true.
