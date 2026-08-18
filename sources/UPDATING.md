@@ -36,8 +36,10 @@ doc is a known gap to confirm against the live source.
 | `reddit-data-access.md`, `market-data-access.md` | derived strategy docs | Update when the underlying provider docs above change. |
 
 ## What drifts fastest (re-check before trusting numbers)
-- **Tap liveness** — run `../scripts/probe_reddit_taps.py` to re-check Arctic-Shift freshness and
-  whether **PullPush** has un-frozen (it was frozen @2025-05-19 as of the 2026-06-03 probe).
+- **Tap liveness** — run `pnpm -C packages/worker heartbeat` to re-check Arctic-Shift freshness.
+  To re-check whether **PullPush** has un-frozen (frozen @2025-05-19 as of the 2026-06-03 probe),
+  the original probe script is `scripts/probe_reddit_taps.py` at tag `oracle-final` (pruned from
+  `main` in the Plays P0 slice).
 - **Rate limits / pricing / tiers** — `massive.md`, `alpaca.md`, `pullpush-api.md` rate sections.
 - **Discord member counts** and the **WSB subscriber figure** — snapshots; re-pull when they matter.
 - **IBKR field tags & snapshot caps** — confirm against the live IBKR field reference/changelog.

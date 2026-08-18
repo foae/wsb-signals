@@ -73,7 +73,8 @@ Everything lands inside the existing topology — no new services:
 
 The Python v0.0.1 tree did its job (cutover gate passed 2026-06-09) and now it's the main obstacle
 to the repo reading as the product it's becoming. Everything removed here is recoverable at tag
-`v0.0.1`.
+`oracle-final` (the last pre-prune commit; tag `v0.0.1` has the frozen radar but predates the
+`oracle/` harness and the shadow gate).
 
 **Remove:** root `wsb_signals/` + `tests/` + `pyproject.toml`/`uv.lock`/`Dockerfile` + root
 `docker-compose.yml` (it builds that Dockerfile — deleting one without the other leaves a broken

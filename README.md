@@ -92,9 +92,11 @@ env / the gitignored `.env` files.
 
 **Operations (single-tap safety).** Arctic-Shift is the *only* live source (PullPush frozen, Reddit
 API excluded), so the `heartbeat` CLI probes newest-item lag and **exits non-zero when the tap is
-stale (1) or down (2)** — it doubles as the worker container's healthcheck. On alarm the runbook is
-simple: the radar **stops** (there is no free fallback); re-test the tap before resuming, and don't
-publish stale signals. Threshold: `heartbeat.max_staleness_seconds`. Transient Arctic-Shift
+stale (1) or down (2)** — it doubles as the worker container's healthcheck. The worker keeps
+polling through an outage (it self-heals), so on alarm the runbook is an **operator action**: don't
+trust signals while stale, and if the tap stays down, **stop the worker yourself** rather than
+publish stale signals (there is no free fallback); re-test before resuming. Threshold:
+`heartbeat.max_staleness_seconds`. Transient Arctic-Shift
 throttling (`422 "slow down"`/5xx) is absorbed by bounded retry-with-backoff in the ingest.
 
 ## History (v0.0.1 → v2 → Plays)

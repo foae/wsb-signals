@@ -67,11 +67,15 @@ function inputsFrom(fx: AggFixture): AggregateInputs {
 }
 
 // Floats compared within tolerance; nulls must match exactly (null-vs-value is a contract, not noise).
+// 12 digits (|diff| < 0.5e-12): with the shadow-diff gate retired this is the strictest surviving
+// float check, and the one legitimate cross-language wobble — the oracle's `var ** 0.5` vs Math.sqrt,
+// ≤1 ULP on z (~2e-16 at O(1)) — clears it by three orders of magnitude. 9 digits would let real
+// ~1e-10 scoring drift through silently.
 function expectCloseOrNull(actual: number | null, expected: number | null, label: string): void {
   if (expected === null) expect(actual, label).toBeNull()
   else {
     expect(actual, label).not.toBeNull()
-    expect(actual as number, label).toBeCloseTo(expected, 9)
+    expect(actual as number, label).toBeCloseTo(expected, 12)
   }
 }
 

@@ -94,6 +94,7 @@ describe('runCycle', () => {
     const res = await runCycle(deps({ market, markPoll: (t) => { marked.push(t) } }), NOW)
 
     expect(res.skipped).toBe(false)
+    expect(res.readbackOk).toBe(true) // the unconditional post-publish read-back ran and was clean
     expect(marked).toEqual([NOW])
     expect(await pg.db.select().from(rawPosts)).toHaveLength(1)
     expect(await pg.db.select().from(rawComments)).toHaveLength(1)

@@ -48,6 +48,8 @@ export interface CycleResult {
   windowStart?: number
   tickers?: number
   priced?: number
+  /** Post-publish read-back verdict — false means the persisted board diverged from the published one. */
+  readbackOk?: boolean
 }
 
 /**
@@ -144,7 +146,10 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
     log.error({ freshness: hb }, 'freshness degraded — Arctic-Shift is the sole live tap; see README runbook')
   }
 
-  return { skipped: false, windowStart: ws, tickers: rows.length, priced: analytical?.length ?? 0 }
+  return {
+    skipped: false, windowStart: ws, tickers: rows.length, priced: analytical?.length ?? 0,
+    readbackOk: readback.ok,
+  }
 }
 
 // --- poll-time marker (startup throttle state) -----------------------------------------------------

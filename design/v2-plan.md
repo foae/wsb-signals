@@ -5,6 +5,14 @@
 > `nuxt-migration.md`. Parity details live in [`v2-porting-spec.md`](./v2-porting-spec.md); the
 > concept/math/non-negotiables remain [`signal-framework.md`](./signal-framework.md) +
 > [`architecture.md`](./architecture.md). Frozen reference = `git tag v0.0.1`.
+>
+> **⚰ HISTORICAL as of the Plays P0 prune (2026-08-18).** This doc describes the repo **as it was
+> during the v2 port** — several statements below no longer hold on `main`: the Python tree is no
+> longer "in-tree at root, untouched" (pruned; tags `v0.0.1`/`oracle-final`), the `--shadow` /
+> `shadow-diff` commands are gone (gate passed and retired; porting-spec §12 tombstone), the root
+> `docker-compose.yml`/`deploy/README.md` are deleted, and the web service is built and shipped in
+> `deploy/v2/` (not deferred). For the current tree read `CLAUDE.md` and `design/plays-plan.md`;
+> this doc is kept as the port's design/decision record.
 
 ## 0. Decision & scope
 

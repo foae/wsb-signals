@@ -17,7 +17,8 @@ PullPush returns the *same* `2025-05-19 13:06` cutoff for all-Reddit posts, all-
 **and** r/AskReddit → the halt is **global, not a WSB quirk**. So **PullPush is unusable for any
 data after 2025-05-19** — not for the live radar, not for recent backfill, and its "Reddit-wide
 FTS" edge is moot for current data. It remains valid only for **historical ≤2025-05-19** lookups
-(and is slow). **Re-run the probe before relying on PullPush; it may recover.**
+(and is slow). **Re-run the probe before relying on PullPush; it may recover** (the probe script,
+`scripts/probe_reddit_taps.py`, now lives at tag `oracle-final` — pruned from `main` in Plays P0).
 
 This also confirms the headline feasibility question: **Arctic-Shift content latency is seconds-to-
 minutes** → the live radar is viable. (Scores are still `0/1` for ~36 h — the engagement lag, §3.)
