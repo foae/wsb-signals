@@ -60,6 +60,9 @@ services:
     env_file: .env           # provides DATABASE_URL, ALPACA_API_KEY, ALPACA_API_SECRET (see .env.example)
     volumes:
       - wsb-v2-data:/app/data
+      # Plays media archive (plays-plan §1): worker writes screenshots under data/media/plays/<post_id>/;
+      # the web mounts the SAME volume read-only and serves it via /api/media/**.
+      - wsb-v2-media:/app/data/media
     depends_on:
       db:
         condition: service_healthy
@@ -92,9 +95,12 @@ services:
     restart: unless-stopped
     network_mode: host       # runtime: web binds :3000 on the host; reaches Postgres at localhost:5432
     env_file: .env           # provides NUXT_DATABASE_URL (see .env.example)
+    volumes:
+      - wsb-v2-media:/app/data/media:ro   # plays screenshots — read-only; served via /api/media/**
     environment:
       NITRO_PORT: 3000
       HOST: 0.0.0.0
+      NUXT_MEDIA_DIR: /app/data/media/plays
     depends_on:
       db:
         condition: service_healthy
@@ -110,3 +116,6 @@ volumes:
   wsb-v2-pg:
   # wsb-v2-data: worker data dir (/app/data — .last_poll).
   wsb-v2-data:
+  # wsb-v2-media: plays media archive — worker writes, web reads (~500 MB/month at ~45 plays/day;
+  # a retention/pruning knob lands with P6 — plays-plan §8).
+  wsb-v2-media:

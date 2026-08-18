@@ -91,3 +91,19 @@ max_staleness_seconds = 1800  # alarm if newest Arctic-Shift item older than thi
 
 [storage]
 data_dir = "data"
+
+[plays]
+# WSB Plays capture + queue (plays-plan §3/§9). P1 keys only — the [plays.llm]/[plays.herd]/
+# [plays.outcomes] blocks land with their slices (P2/P3/P5). Media archives under
+# <data_dir>/media/plays/<post_id>/ (the shared worker↔web volume).
+enabled = true
+flairs = ["Gain", "Loss", "YOLO", "Verified Trade"]  # link_flair_text capture gate (product §3)
+queue_interval_s = 60
+max_attempts = 4               # transient-failure retries before a play is terminally `failed`
+lease_minutes = 10             # stale-claim recovery: claimed_at older than this is re-claimable
+media_retry_minutes = 10       # re-attempt window for transient media-fetch failures before text-only
+max_images_stored = 20         # per play; gallery order decides which (first = the position screenshot)
+max_image_mb = 10              # per image; larger downloads are aborted mid-stream
+# Browser-ish UA for the reddit.com post-JSON fetch (galleries — Arctic-Shift archives their
+# media_metadata as null) and the i.redd.it downloads. May need tuning if reddit 403s (plan §11).
+reddit_user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"

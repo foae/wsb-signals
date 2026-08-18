@@ -100,8 +100,9 @@ If you are running on a host where the default Docker bridge has egress:
 |---|---|---|
 | `wsb-v2-pg` | Postgres data directory | `down` / `restart` |
 | `wsb-v2-data` | Worker data dir (`/app/data` — `.last_poll`) | `down` / `restart` |
+| `wsb-v2-media` | Plays media archive (`/app/data/media/plays/<post_id>/`) — worker writes, web mounts read-only and serves it via `/api/media/**` (`NUXT_MEDIA_DIR`). ~500 MB/month at ~45 plays/day; a retention knob lands with P6 (plays-plan §8). | `down` / `restart` |
 
-`docker compose down` stops the containers and preserves both volumes.
+`docker compose down` stops the containers and preserves all volumes.
 `docker compose down -v` stops the containers **and deletes the volumes** (wipes all history — do
 not do this unless you intend to start from scratch).
 

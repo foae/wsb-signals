@@ -29,6 +29,13 @@
       "when": 1780732894129,
       "tag": "0003_strong_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1787070262689,
+      "tag": "0004_short_molecule_man",
+      "breakpoints": true
     }
   ]
 }

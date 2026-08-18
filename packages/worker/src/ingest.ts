@@ -38,15 +38,24 @@ import { log } from './logger'
 
 const SOURCE = 'arctic_shift'
 
-/** A raw thing as it arrives from Arctic-Shift — snake_case Reddit keys, untyped values. */
-type RawThing = Record<string, unknown>
+/** A raw thing as it arrives from Arctic-Shift — snake_case Reddit keys, untyped values. Exported for
+ *  the plays capture, which reads the FULL dict (~110 keys: permalink, is_gallery, media_metadata, …)
+ *  that the normalized parity rows deliberately drop (plays-plan §3). */
+export type RawThing = Record<string, unknown>
 
 export interface PollResult {
   posts: RawPostInsert[]
   comments: RawCommentInsert[]
+  /** The in-window posts as FULL raw dicts, for the plays capture. The Source seam stays
+   *  plays-agnostic: flair filtering happens in plays/capture.ts, never here (plays-plan §3). */
+  rawPosts: RawThing[]
   newestUtc: number | null // freshest normalized item seen — feeds the heartbeat
   capped: boolean // pagination hit the page cap (window undercounted, but benign)
   ok: boolean // false if a fetch errored mid-pagination (partial — caller discards whole)
+  /** The posts-side walk alone succeeded. Plays capture keys on THIS, not `ok`: the whole-poll discard
+   *  protects the SoV denominator, which capture doesn't touch — a prolonged comments-side failure must
+   *  not lose a window of plays whose media is meanwhile being deleted (plays-plan §3). */
+  postsOk: boolean
 }
 
 export interface PollOptions {
@@ -368,6 +377,6 @@ export class ArcticShiftSource implements Source {
     if (capped) {
       log.warn({ maxPages: this.maxPages }, 'hit page cap — window likely undercounted (raise ingest.max_pages)')
     }
-    return { posts, comments, newestUtc, capped, ok: p.ok && c.ok }
+    return { posts, comments, rawPosts: p.items, newestUtc, capped, ok: p.ok && c.ok, postsOk: p.ok }
   }
 }

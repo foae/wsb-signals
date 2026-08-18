@@ -42,9 +42,10 @@ const snap = (ticker: string, price: number, prevClose: number): StockSnapshot =
 const okPoll = (): PollResult => ({
   posts: [post('p1', 'alice', 'NVDA calls', WS + 10)],
   comments: [comment('c1', 'bob', 'AMD puts', WS + 20)],
-  newestUtc: WS + 20, capped: false, ok: true,
+  rawPosts: [], newestUtc: WS + 20, capped: false, ok: true, postsOk: true,
 })
-const emptyPoll = (): PollResult => ({ posts: [], comments: [], newestUtc: null, capped: false, ok: true })
+const emptyPoll = (): PollResult =>
+  ({ posts: [], comments: [], rawPosts: [], newestUtc: null, capped: false, ok: true, postsOk: true })
 
 class FakeSource implements Source {
   readonly name = 'fake'
@@ -178,7 +179,7 @@ describe('runCycle', () => {
 
 const loopOpts = (over: Record<string, unknown> = {}): Parameters<typeof runLoop>[1] => ({
   once: true, intervalSeconds: 300, minPollGapSeconds: 0, dataDir: TMP,
-  clock: () => NOW, sleep: async () => {}, installHandlers: false, ...over,
+  clock: () => NOW, sleep: async () => {}, ...over,
 })
 
 describe('runLoop lifecycle', () => {

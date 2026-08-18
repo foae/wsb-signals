@@ -1,6 +1,6 @@
 # WSB Plays — product spec
 
-**Status: DESIGN (approved direction, pre-implementation).** This document defines *what* the Plays
+**Status: APPROVED — IN BUILD (see plays-plan.md for slice progress).** This document defines *what* the Plays
 product is and the decisions behind it. The build plan (architecture deltas, schema, slices, order)
 lives in [`plays-plan.md`](./plays-plan.md). Both are authoritative in the same sense as the other
 `design/` docs: code references them, and doc/code drift is a bug.

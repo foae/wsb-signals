@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
 
 import { windowStartFor } from './aggregate'
-import type { WorkerConfig } from './config'
+import type { PlaysConfig, WorkerConfig } from './config'
 import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig } from './config'
 import {
   acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, upsertComments,
@@ -26,6 +26,11 @@ import { log } from './logger'
 import type { MarketData } from './market'
 import { mentionsFromPoll } from './mentions'
 import { buildSignals, overlayMarket, runAggregation } from './pipeline'
+import { capturePlays } from './plays/capture'
+import { runPlaysQueue } from './plays/queue'
+import { abortableSleep } from './timing'
+
+export { abortableSleep } from './timing'
 
 /** Stable 64-bit advisory-lock key ('wSBS') — the double-run guard. */
 const WORKER_LOCK_KEY = 0x7753_4253
@@ -39,6 +44,9 @@ export interface CycleDeps {
   config: WorkerConfig
   /** Persist the poll time (the startup throttle reads it); injected so tests don't touch fs. */
   markPoll: (now: number) => void | Promise<void>
+  /** Plays capture (P1) — undefined when [plays] is disabled. `db` is the DEDICATED plays pool
+   *  (invariant P9); the capture insert itself is best-effort and never throws (invariant P1). */
+  plays?: { db: Db; config: PlaysConfig }
   /** Shutdown signal threaded into the poll so SIGTERM cuts an in-flight fetch short. */
   signal?: AbortSignal
 }
@@ -62,6 +70,12 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
 
   const poll = await source.poll(config.windowSeconds, { now, signal: deps.signal })
   if (!poll.ok) {
+    // Plays capture keys on the POSTS-side fetch succeeding, not the whole poll: the whole-poll discard
+    // protects the SoV denominator, which capture doesn't touch — a prolonged comments-side failure must
+    // not lose a window of plays whose media is meanwhile being deleted (plays-plan §3, invariant P7).
+    if (deps.plays && poll.postsOk) {
+      await capturePlays(deps.plays.db, poll.rawPosts, deps.plays.config, now)
+    }
     log.error('poll incomplete (Arctic-Shift error mid-fetch) — skipping this cycle, will retry')
     return { skipped: true }
   }
@@ -146,6 +160,13 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
     log.error({ freshness: hb }, 'freshness degraded — Arctic-Shift is the sole live tap; see README runbook')
   }
 
+  // Plays capture: a best-effort ON CONFLICT DO NOTHING insert, OUTSIDE every radar transaction and
+  // AFTER publishCycle committed — inside it, a plays-table error would roll back the radar cycle
+  // (invariant P1). capturePlays never throws (plays-plan §3).
+  if (deps.plays) {
+    await capturePlays(deps.plays.db, poll.rawPosts, deps.plays.config, now)
+  }
+
   return {
     skipped: false, windowStart: ws, tickers: rows.length, priced: analytical?.length ?? 0,
     readbackOk: readback.ok,
@@ -173,22 +194,6 @@ export function markPoll(dataDir: string, ts: number): void {
 
 // --- the loop --------------------------------------------------------------------------------------
 
-/** A sleep that resolves early when `signal` aborts (so SIGTERM doesn't wait out a full interval). */
-export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve()
-  return new Promise<void>((resolve) => {
-    const onAbort = (): void => {
-      clearTimeout(timer)
-      resolve()
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 export interface LoopOptions {
   once?: boolean
   intervalSeconds: number
@@ -197,9 +202,9 @@ export interface LoopOptions {
   /** Injectable for tests: wall clock (epoch seconds) + sleep. */
   clock?: () => number
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>
-  /** Injectable for tests: install process signal/error handlers (default: real `process`). */
-  installHandlers?: boolean
-  /** Optional external stop trigger — aborting it requests the SAME graceful shutdown as SIGTERM. */
+  /** External stop trigger — aborting it requests graceful shutdown. Process-level wiring (SIGTERM →
+   *  abort, uncaughtException guards) lives in `index.ts`, which OWNS all process handlers — the loops
+   *  never install their own (plays-plan §1: a second copy per loop would race shutdown). */
   stopSignal?: AbortSignal
   /** Per-cycle advisory-lock liveness probe. Returning false (lock lost) stops the loop so the caller
    *  can exit non-zero and let the orchestrator restart a clean singleton (the double-run guard). */
@@ -209,36 +214,20 @@ export interface LoopOptions {
 const nowSeconds = (): number => Math.floor(Date.now() / 1000)
 
 /**
- * Run the poll loop until SIGTERM/SIGINT (or `once`). Each cycle is wrapped in try/catch so a transient
- * fault self-heals on the next interval rather than crashing the daemon. The loop closes the source/market
- * on exit; the caller owns the DB (and the advisory-lock connection).
+ * Run the poll loop until `stopSignal` aborts (or `once`). Each cycle is wrapped in try/catch so a
+ * transient fault self-heals on the next interval rather than crashing the daemon. The loop closes the
+ * source/market on exit; the caller owns the DB (and the advisory-lock connection). Process-level
+ * handlers (SIGTERM/SIGINT, uncaughtException) are `index.ts`'s job, not this loop's (plays-plan §1).
  */
 export async function runLoop(deps: CycleDeps, opts: LoopOptions): Promise<void> {
   const clock = opts.clock ?? nowSeconds
   const sleep = opts.sleep ?? abortableSleep
-  const install = opts.installHandlers ?? true
 
   const ac = new AbortController()
   let stopping = false
   const stop = (): void => {
     stopping = true
     ac.abort()
-  }
-  // A stray unhandled rejection (outside the per-cycle try/catch) shouldn't kill the daemon — log it.
-  const onRejection = (r: unknown): void =>
-    log.error({ err: String(r) }, 'unhandledRejection — guarded; the daemon keeps running')
-  // An uncaughtException means undefined process state — log and EXIT non-zero so the orchestrator
-  // restarts a clean process (continuing risks publishing corrupt/stale cycles).
-  const onException = (e: unknown): void => {
-    log.error({ err: String(e) }, 'uncaughtException — exiting for a clean restart')
-    process.exit(1)
-  }
-
-  if (install) {
-    process.on('SIGTERM', stop)
-    process.on('SIGINT', stop)
-    process.on('unhandledRejection', onRejection)
-    process.on('uncaughtException', onException)
   }
   opts.stopSignal?.addEventListener('abort', stop, { once: true })
 
@@ -275,12 +264,6 @@ export async function runLoop(deps: CycleDeps, opts: LoopOptions): Promise<void>
       await sleep(Math.max(5000, opts.intervalSeconds * 1000 - (clock() - t0) * 1000), ac.signal)
     }
   } finally {
-    if (install) {
-      process.off('SIGTERM', stop)
-      process.off('SIGINT', stop)
-      process.off('unhandledRejection', onRejection)
-      process.off('uncaughtException', onException)
-    }
     opts.stopSignal?.removeEventListener('abort', stop)
     await deps.source.close()
     if (deps.market) await deps.market.close()
@@ -291,12 +274,15 @@ export interface StartOptions {
   root?: string
   once?: boolean
   noMarket?: boolean
+  /** External shutdown trigger (index.ts aborts it on SIGTERM/SIGINT — it owns the process handlers). */
+  stopSignal?: AbortSignal
 }
 
 /**
- * Assemble the worker from config + env, acquire the advisory lock, and run the loop. The DB pool (and
- * thus the held advisory-lock connection) is closed on exit. Returns early without running if another
- * instance already holds the lock.
+ * Assemble the worker from config + env, acquire the advisory lock, and run the loops — the radar loop
+ * plus, when `[plays]` is enabled, the plays queue on its OWN pool (invariant P9; both under the same
+ * advisory lock). The pools (and thus the held advisory-lock connection) are closed on exit, after every
+ * loop has wound down. Returns early without running if another instance already holds the lock.
  */
 export async function startWorker(opts: StartOptions = {}): Promise<void> {
   const root = opts.root ?? findRoot()
@@ -322,31 +308,66 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
   if (!market && !opts.noMarket) log.warn('market overlay disabled — ALPACA creds missing (empirical-only)')
   const extractor = buildExtractor(raw, root)
 
-  log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market) },
-    'run loop starting (forward-only; SIGTERM/Ctrl-C to stop)')
+  // Dedicated plays pool (invariant P9): a plays query can never starve the radar pool, whose advisory
+  // lock permanently holds one client. Same DB, same writer role — just separate connections.
+  const playsHandle = worker.plays.enabled ? createDb(dbUrl) : null
+  if (!worker.plays.enabled) log.info('plays disabled ([plays].enabled = false) — radar only')
+
+  log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market),
+    plays: Boolean(playsHandle) }, 'run loop starting (forward-only; SIGTERM/Ctrl-C to stop)')
+
+  // Internal stop: fires on the external stopSignal AND when the radar loop exits (once mode / lock
+  // lost), so the plays queue never outlives the radar's lifecycle.
+  const internal = new AbortController()
+  const onExternalStop = (): void => internal.abort()
+  opts.stopSignal?.addEventListener('abort', onExternalStop, { once: true })
 
   let lockLost = false
   try {
-    await runLoop(
+    const radar = runLoop(
       {
         db: handle.db, source, market, extractor, bots: worker.bots, config: worker,
         markPoll: (ts) => markPoll(worker.dataDir, ts),
+        plays: playsHandle ? { db: playsHandle.db, config: worker.plays } : undefined,
       },
       {
         once: opts.once,
         intervalSeconds: worker.pollSeconds,
         minPollGapSeconds: worker.minPollGapSeconds,
         dataDir: worker.dataDir,
+        stopSignal: internal.signal,
         lockAlive: async () => {
           const ok = await advisoryLockAlive(lockClient)
           if (!ok) lockLost = true
           return ok
         },
       },
-    )
+    ).finally(() => internal.abort())
+
+    if (opts.once) {
+      // Deterministic single-shot: one radar cycle (which captures), THEN one queue tick (which archives
+      // media) — running them in parallel would give the tick nothing to claim.
+      await radar
+      if (playsHandle) {
+        await runPlaysQueue({ db: playsHandle.db, config: worker.plays }, {
+          once: true, stopSignal: new AbortController().signal,
+        })
+      }
+    } else {
+      const queue = playsHandle
+        ? runPlaysQueue({ db: playsHandle.db, config: worker.plays }, { stopSignal: internal.signal })
+        : Promise.resolve()
+      // allSettled, not all: if one loop rejects, the other must still wind down BEFORE the finally
+      // closes the pools under it. The radar's `.finally` above stops the queue on any radar exit.
+      const results = await Promise.allSettled([radar, queue])
+      const rejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      if (rejected) throw rejected.reason
+    }
   } finally {
+    opts.stopSignal?.removeEventListener('abort', onExternalStop)
     if (!lockLost) lockClient.release() // a dead connection can't be released back to the pool
     await handle.close()
+    await playsHandle?.close()
   }
   if (lockLost) process.exitCode = 1 // signal the orchestrator to restart a clean singleton
 }

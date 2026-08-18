@@ -55,6 +55,32 @@ interface RawConfig {
   }
   heartbeat: { max_staleness_seconds: number }
   storage: { data_dir: string }
+  plays: {
+    enabled: boolean
+    flairs: string[]
+    queue_interval_s: number
+    max_attempts: number
+    lease_minutes: number
+    media_retry_minutes: number
+    max_images_stored: number
+    max_image_mb: number
+    reddit_user_agent: string
+  }
+}
+
+/** Flattened plays capture + queue config (plays-plan §9 — the P1 subset; LLM knobs land at P2). */
+export interface PlaysConfig {
+  enabled: boolean
+  flairs: Set<string>
+  queueIntervalSeconds: number
+  maxAttempts: number
+  leaseSeconds: number
+  mediaRetrySeconds: number
+  maxImagesStored: number
+  maxImageBytes: number
+  redditUserAgent: string
+  /** Absolute media root — files land at `<mediaDir>/<post_id>/<n>.<ext>` (the shared volume). */
+  mediaDir: string
 }
 
 /** The flattened, typed config the loop/cycle consume. */
@@ -69,6 +95,7 @@ export interface WorkerConfig {
   aggregate: AggregateConfig
   market: MarketConfig
   signals: SignalsConfig
+  plays: PlaysConfig
 }
 
 export interface LoadedConfig {
@@ -150,6 +177,18 @@ export function loadConfig(root: string): LoadedConfig {
         minPairs: raw.signals.lead_lag.min_pairs,
         minCorr: raw.signals.lead_lag.min_corr,
       },
+    },
+    plays: {
+      enabled: raw.plays.enabled,
+      flairs: new Set(raw.plays.flairs),
+      queueIntervalSeconds: raw.plays.queue_interval_s,
+      maxAttempts: raw.plays.max_attempts,
+      leaseSeconds: raw.plays.lease_minutes * 60,
+      mediaRetrySeconds: raw.plays.media_retry_minutes * 60,
+      maxImagesStored: raw.plays.max_images_stored,
+      maxImageBytes: raw.plays.max_image_mb * 1024 * 1024,
+      redditUserAgent: raw.plays.reddit_user_agent,
+      mediaDir: join(root, raw.storage.data_dir, 'media', 'plays'),
     },
   }
   return { raw, env, worker, root }

@@ -15,7 +15,9 @@ in any user-facing copy.
 - **WSB Plays — the product; IN BUILD.** Design approved 2026-08-18; work is sliced **P0–P6** and
   tracked as GitHub Issues under milestone **"WSB Plays v1"** (one issue per slice, with the
   checklist + gate). **Slice P0 (repo repositioning) has landed**: the frozen v0.0.1 Python oracle
-  tree and the retired shadow gate are pruned from `main`.
+  tree and the retired shadow gate are pruned from `main`. **Slice P1 (capture & media) code has
+  landed** — flair-matched capture, media archive, plays queue skeleton, bare `/plays` web list; its
+  gate (live capture run + gallery-prevalence / Reddit-JSON success-rate measurement) is pending.
 - **The radar — v2 full-stack TypeScript; BUILT, cutover-approved (2026-06-09), running.** Node
   worker + Nuxt 4 SSR web + Postgres in a pnpm monorepo (`packages/{shared,worker,web}`); deploy is
   `deploy/v2/` (db + worker + web). The radar's behavior is **stable** — Plays adds beside it, and
@@ -111,8 +113,13 @@ validate → evidence build → LLM interpret/categorize → publish → daily o
 | Web | `packages/web` (`server/api/board`) | Read-only Nuxt 4 SSR; one REPEATABLE READ tx over the latest complete cycle. |
 | Config | `config.ts` | `config.toml` (tunables) + env (`DATABASE_URL`, `ALPACA_*`). |
 
-Plays modules land under `packages/worker/src/plays/` per `design/plays-plan.md` (capture, media,
-analyzer seam, evidence, queue, marks).
+Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`. Landed at P1:
+`capture.ts` (flair filter + ON CONFLICT DO NOTHING enqueue, called from `runCycle` AFTER
+`publishCycle` commits), `media.ts` (resolver/archiver: direct + gallery-via-Reddit-JSON + inline
+self-post images; transient-vs-permanent split), `queue.ts` (the second loop: `FOR UPDATE SKIP
+LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff, `captured → media_ready`;
+LLM stages stubbed until P2). Still to land: analyzer seam (P2), evidence (P3), marks (P5). The web
+serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`).
 
 ## Pluggable interfaces (the extension seams)
 
@@ -172,7 +179,8 @@ Plays has its own invariants **P1–P9** — see `design/plays-product.md` §8. 
 - `config.toml` — committed tunables (cadence, regex, `H_e`/`H_m` weights, thresholds; `[plays]`
   blocks land with their slices). Parsed by `packages/worker/src/config.ts`.
 - Secrets are env-only, **gitignored**: the worker needs `DATABASE_URL` (writer role) + `ALPACA_*`
-  (+ `OPENAI_API_KEY` from Plays P2); the web needs only `DATABASE_URL` (read-only role). Deploy
+  (+ `OPENAI_API_KEY` from Plays P2); the web needs only `DATABASE_URL` (read-only role) plus the
+  non-secret `NUXT_MEDIA_DIR` (the plays media volume, set in compose). Deploy
   secrets live in `deploy/v2/.env` (from `.env.example`).
 - `whitelist/symbols.txt` is **derived** (gitignored; `pnpm -C packages/worker build-whitelist`);
   `whitelist/stoplist.txt` and `ambiguous.txt` are curated and committed.

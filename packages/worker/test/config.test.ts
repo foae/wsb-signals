@@ -28,6 +28,20 @@ describe('config loading', () => {
     expect(worker.market.weights.ret).toBeCloseTo(0.5, 9)
   })
 
+  it('parses the [plays] block (P1) — minute knobs flattened to seconds, media dir under data_dir', () => {
+    const { worker } = loadConfig(ROOT)
+    expect(worker.plays.enabled).toBe(true)
+    expect([...worker.plays.flairs].sort()).toEqual(['Gain', 'Loss', 'Verified Trade', 'YOLO'])
+    expect(worker.plays.queueIntervalSeconds).toBe(60)
+    expect(worker.plays.maxAttempts).toBe(4)
+    expect(worker.plays.leaseSeconds).toBe(600)
+    expect(worker.plays.mediaRetrySeconds).toBe(600)
+    expect(worker.plays.maxImagesStored).toBe(20)
+    expect(worker.plays.maxImageBytes).toBe(10 * 1024 * 1024)
+    expect(worker.plays.mediaDir).toBe(join(ROOT, 'data', 'media', 'plays'))
+    expect(worker.plays.redditUserAgent.length).toBeGreaterThan(0)
+  })
+
   it('builds a CASHTAG-ONLY extractor when the whitelist is missing (fails closed)', () => {
     const { raw } = loadConfig(ROOT)
     raw.extract.whitelist_path = 'whitelist/__definitely_missing__.txt'

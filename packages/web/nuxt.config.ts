@@ -9,6 +9,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     // read-only Postgres role — NUXT_DATABASE_URL. Empty in source; populated from env at runtime.
     databaseUrl: '',
+    // Plays media root (the shared worker↔web volume) — NUXT_MEDIA_DIR. Empty ⇒ /api/media/** 404s.
+    mediaDir: '',
     // Display tunables. Defaults mirror config.toml; override via NUXT_MAX_STALENESS_SECONDS /
     // NUXT_WINDOW_SECONDS if the worker's config.toml changes (shared-constants coupling, v2-plan §7).
     maxStalenessSeconds: MAX_STALENESS_SECONDS,

@@ -10,7 +10,7 @@
  *  - Plain B-tree indexes on the window/time read paths (sufficient at this volume).
  */
 import {
-  pgTable, text, integer, bigint, boolean, doublePrecision, jsonb, primaryKey, index,
+  pgTable, text, integer, bigint, boolean, doublePrecision, jsonb, primaryKey, index, uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
 /** BIGINT carried as a JS number (all values < 2^53). Epochs in seconds, and large counts (volume). */
@@ -156,6 +156,134 @@ export const tickerNames = pgTable('ticker_names', {
   symbol: text('symbol').primaryKey(),
   name: text('name'),
 })
+
+// --- WSB Plays (plays-plan §3) ----------------------------------------------------------------------
+//
+// Self-contained beside the radar's parity tables (which keep their exact shapes — plays-plan §1).
+// Conventions: reddit ids are TEXT; every timestamp is bigint epoch SECONDS (the schema-wide int8
+// convention — no timestamptz drift) EXCEPT `play_extractions`/`play_interpretations`.`run_at`, which is
+// MILLISECONDS (a fast retry inside the same second must not be a unique-key insert error). No FKs —
+// house style; the worker is the single writer and enforces referential order itself.
+
+/**
+ * One captured play (a flair-matched Gain/Loss/YOLO post) — also the QUEUE row that carries it through
+ * `captured → media_ready → extracted → analyzed → published` (off-ramp `failed`, only after
+ * `max_attempts`). Insert is ON CONFLICT DO NOTHING and no writer ever moves `status` backwards
+ * (invariant P8 — the 5-min poll re-delivers each post ~12×). Media state lives in `media_status`, NOT
+ * `status`: a media failure degrades the play to text-only, it never parks or fails it (invariant P7).
+ */
+export const plays = pgTable('plays', {
+  id: text('id').primaryKey(), // reddit post id
+  createdUtc: int8('created_utc'),
+  capturedAt: int8('captured_at'),
+  publishedAt: int8('published_at'), // set by P3's denormalize+publish row update
+  author: text('author'),
+  flair: text('flair'),
+  title: text('title'),
+  selftext: text('selftext'),
+  permalink: text('permalink'),
+  url: text('url'),
+  isGallery: boolean('is_gallery'),
+  media: jsonb('media'), // PlayMediaItem[] — archived files (path relative to the media root, sha256, bytes)
+  mediaStatus: text('media_status'), // pending | archived | failed | none (plays.ts)
+  raw: jsonb('raw'), // the FULL Arctic-Shift dict — provenance + reprocessing input
+  // Archive-time engagement is ~0/1 (Arctic ingests at creation); the P5 ≥48h refresh pass updates these
+  // + `removed`, and stamps `refreshed_at` (without it "once per play" is unenforceable).
+  score: integer('score'),
+  numComments: integer('num_comments'),
+  removed: boolean('removed'),
+  refreshedAt: int8('refreshed_at'),
+  // Queue fields. `claimed_at` is the lease: a claim older than `lease_minutes` is re-claimable, so a
+  // crash mid-stage can't strand its rows as claimed-forever (plays-plan §3).
+  status: text('status').notNull(), // captured | media_ready | extracted | analyzed | published | failed
+  attempts: integer('attempts').notNull().default(0),
+  nextAttemptAt: int8('next_attempt_at'),
+  claimedAt: int8('claimed_at'),
+  error: text('error'),
+  // Transient-media-failure window: keep retrying the fetch until this passes, then degrade to text-only
+  // (a single 429 at capture minute must not permanently strip a screenshot play — invariant P7).
+  mediaRetryUntil: int8('media_retry_until'),
+  // Current-run pointers — the detail page reads child rows BY THESE, never max(run_at), so a reprocess
+  // that dies between child-insert and row-update can't mix v2 evidence with a v1 badge (plays-plan §5).
+  currentExtractionAt: int8('current_extraction_at'),
+  currentInterpretationAt: int8('current_interpretation_at'),
+  // Denormalized board fields — filled by P3's publish update; NULL until then.
+  primaryTicker: text('primary_ticker'),
+  category: text('category'),
+  tags: jsonb('tags'),
+  confidence: doublePrecision('confidence'),
+  pnlAbs: doublePrecision('pnl_abs'),
+  pnlPct: doublePrecision('pnl_pct'),
+  realized: boolean('realized'),
+  summary: text('summary'),
+  tldr: text('tldr'),
+  extractorVersion: text('extractor_version'),
+  interpreterVersion: text('interpreter_version'),
+  taxonomyVersion: text('taxonomy_version'),
+  // Outcome tracking (P5): open | expired | resolved-posted | untrackable.
+  trackStatus: text('track_status'),
+  trackUntil: int8('track_until'),
+}, (t) => [
+  index('plays_status_idx').on(t.status),
+  index('plays_published_at_idx').on(t.publishedAt),
+  index('plays_primary_ticker_idx').on(t.primaryTicker),
+  index('plays_category_idx').on(t.category),
+  index('plays_track_idx').on(t.trackStatus, t.trackUntil),
+  index('plays_author_ticker_idx').on(t.author, t.primaryTicker), // P5 author-followup linker
+])
+
+/** One extraction run (P2). Unique (play_id, run_at-ms); every run is kept — cost audit + reprocess
+ *  comparability. The play's `current_extraction_at` pointer selects the served run. */
+export const playExtractions = pgTable('play_extractions', {
+  id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+  playId: text('play_id').notNull(),
+  runAt: int8('run_at').notNull(), // MILLISECONDS (see convention note above)
+  model: text('model'),
+  promptVersion: text('prompt_version'),
+  output: jsonb('output'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+}, (t) => [uniqueIndex('play_extractions_play_run_idx').on(t.playId, t.runAt)])
+
+/** One interpretation run (P3). `evidence` is the deterministically assembled radar+market block the
+ *  prompt saw, stored verbatim — every published label is evidence-backed (invariant P2). */
+export const playInterpretations = pgTable('play_interpretations', {
+  id: bigint('id', { mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+  playId: text('play_id').notNull(),
+  runAt: int8('run_at').notNull(), // MILLISECONDS
+  model: text('model'),
+  promptVersion: text('prompt_version'),
+  evidence: jsonb('evidence'),
+  output: jsonb('output'),
+  tokensIn: integer('tokens_in'),
+  tokensOut: integer('tokens_out'),
+  costUsd: doublePrecision('cost_usd'),
+}, (t) => [uniqueIndex('play_interpretations_play_run_idx').on(t.playId, t.runAt)])
+
+/** Daily mark-to-market (P5) — per POSITION, not per play: a portfolio play holding shares AND options
+ *  cannot carry one source/feed_conf, and partial closes would be invisible at play grain. Play-level
+ *  P&L = sum over its positions. `ts` = the session date (epoch seconds). */
+export const playMarks = pgTable('play_marks', {
+  playId: text('play_id').notNull(),
+  positionId: text('position_id').notNull(), // stable per-leg id from the extraction schema
+  ts: int8('ts').notNull(),
+  markValue: doublePrecision('mark_value'),
+  pnlAbs: doublePrecision('pnl_abs'),
+  pnlPct: doublePrecision('pnl_pct'),
+  source: text('source'), // close | option_mark | intrinsic_floor | expiry_intrinsic
+  feedConf: text('feed_conf'), // thin free IEX feed → low, like rvol_conf
+  note: text('note'),
+}, (t) => [primaryKey({ columns: [t.playId, t.positionId, t.ts] })])
+
+/** Author-followup resolution links (P5): a later Gain/Loss post by the same author+ticker resolves an
+ *  open play; both detail pages cross-reference. */
+export const playLinks = pgTable('play_links', {
+  playId: text('play_id').notNull(),
+  resolutionPlayId: text('resolution_play_id').notNull(),
+  kind: text('kind'), // author-followup
+  linkedAt: int8('linked_at'),
+}, (t) => [primaryKey({ columns: [t.playId, t.resolutionPlayId] })])
 
 /**
  * Per-cycle publish marker (slice 3) — the v2 atomic-publish freshness record (v2-plan.md §5,

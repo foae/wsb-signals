@@ -23,6 +23,7 @@ const TABLES = [
   'raw_posts', 'raw_comments', 'mentions', 'empirical_features', 'analytical_features',
   'market_bars', 'options_snapshot', 'signals', 'baselines', 'market_movers', 'ticker_names',
   'cycle_runs',
+  'plays', 'play_extractions', 'play_interpretations', 'play_marks', 'play_links',
 ]
 
 export async function startPg(): Promise<PgHarness> {

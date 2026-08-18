@@ -1,6 +1,8 @@
 # WSB Plays — build plan
 
-**Status: IN BUILD — P0 landed 2026-08-18; P1 next.** The product spec and decisions record
+**Status: IN BUILD — P0 landed 2026-08-18; P1 code landed 2026-08-18 (gate pending: live capture run
++ gallery-prevalence / Reddit-JSON success-rate measurement); P2 next after the gate.** The product
+spec and decisions record
 live in [`plays-product.md`](./plays-product.md); this doc is the *how*: architecture deltas, repo
 repositioning, schema, the LLM seam, config, and the slice order. Conventions follow
 `v2-plan.md` — each slice lands green (`typecheck` + tests) with its gate met before the next starts.

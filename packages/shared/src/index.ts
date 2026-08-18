@@ -1,10 +1,12 @@
 export * from './schema'
 export * from './helpers'
 export * from './constants'
+export * from './plays'
 
 import {
   rawPosts, rawComments, mentions, empiricalFeatures, analyticalFeatures,
   marketMovers, tickerNames, cycleRuns, signals,
+  plays, playExtractions, playInterpretations, playMarks, playLinks,
 } from './schema'
 
 // Inferred row/insert types — the single-source-of-truth payoff (worker writes, web reads, same types).
@@ -26,3 +28,13 @@ export type CycleRunRow = typeof cycleRuns.$inferSelect
 export type CycleRunInsert = typeof cycleRuns.$inferInsert
 export type SignalRow = typeof signals.$inferSelect
 export type SignalInsert = typeof signals.$inferInsert
+export type PlayRow = typeof plays.$inferSelect
+export type PlayInsert = typeof plays.$inferInsert
+export type PlayExtractionRow = typeof playExtractions.$inferSelect
+export type PlayExtractionInsert = typeof playExtractions.$inferInsert
+export type PlayInterpretationRow = typeof playInterpretations.$inferSelect
+export type PlayInterpretationInsert = typeof playInterpretations.$inferInsert
+export type PlayMarkRow = typeof playMarks.$inferSelect
+export type PlayMarkInsert = typeof playMarks.$inferInsert
+export type PlayLinkRow = typeof playLinks.$inferSelect
+export type PlayLinkInsert = typeof playLinks.$inferInsert
