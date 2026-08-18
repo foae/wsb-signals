@@ -158,29 +158,60 @@ async function readCapped(
 // --- resolution (post → ordered image URLs) ---------------------------------------------------------
 
 type Resolution =
-  | { kind: 'images'; images: ResolvedImage[]; galleryJsonOk?: boolean }
+  | { kind: 'images'; images: ResolvedImage[]; detail?: string } // detail = resolution-time caveat (e.g. partial gallery metadata)
   | { kind: 'none' }
   | { kind: 'gone'; detail: string } // permanent — degrade to text-only now
   | { kind: 'transient'; detail: string } // retry within the media_retry_until window
   | { kind: 'aborted' } // shutdown — the queue releases the claim UNCHANGED (no window, no degrade)
 
-/** Order + extension from a Reddit post-JSON gallery payload. Exported for the unit tests — this parse
- *  is where the ordered-subset landmine lives. */
+/** The gallery item list + keyed metadata, both defensively narrowed: `raw` comes from an external
+ *  archive, so `items` can be any shape and `media_metadata` can be a primitive — a malformed dict
+ *  must resolve to nothing, never throw (a throw here is a stage crash that burns the play toward
+ *  terminal `failed` when text-only analysis was still possible). */
+function galleryParts(postData: RawThing): { items: unknown[]; mm: Record<string, unknown> } {
+  const gd = postData.gallery_data as { items?: unknown } | null | undefined
+  const rawItems = gd?.items
+  const mmRaw = postData.media_metadata
+  return {
+    items: Array.isArray(rawItems) ? rawItems : [],
+    mm: mmRaw != null && typeof mmRaw === 'object' ? (mmRaw as Record<string, unknown>) : {},
+  }
+}
+
+const galleryItemId = (item: unknown): string | undefined => {
+  const id = item != null && typeof item === 'object' ? (item as { media_id?: unknown }).media_id : undefined
+  return typeof id === 'string' ? id : undefined
+}
+
+/** Order + extension from a gallery payload (the archived raw dict or the fetched post JSON — same
+ *  shape). Exported for the unit tests — this parse is where the ordered-subset landmine lives. */
 export function galleryImages(postData: RawThing, maxImages: number): ResolvedImage[] {
-  const gd = postData.gallery_data as { items?: { media_id?: unknown }[] } | null | undefined
-  const mm = (postData.media_metadata ?? {}) as Record<string, { status?: unknown; e?: unknown; m?: unknown }>
+  const { items, mm } = galleryParts(postData)
   const out: ResolvedImage[] = []
-  for (const item of gd?.items ?? []) {
+  for (const item of items) {
     if (out.length >= maxImages) break // first-N in gallery order, never an arbitrary subset
-    const id = item.media_id
-    if (typeof id !== 'string') continue
-    const meta = mm[id]
-    if (!meta || (meta.status != null && meta.status !== 'valid') || (meta.e != null && meta.e !== 'Image')) continue
+    const id = galleryItemId(item)
+    if (id === undefined) continue
+    const meta = mm[id] as { status?: unknown; e?: unknown; m?: unknown } | null | undefined
+    if (meta == null || typeof meta !== 'object') continue
+    if ((meta.status != null && meta.status !== 'valid') || (meta.e != null && meta.e !== 'Image')) continue
     const ext = typeof meta.m === 'string' ? MIME_EXT[meta.m] : undefined
     if (!ext) continue // non-image / unknown mime (video, animated) — out of scope for v1
     out.push({ order: out.length, url: `https://i.redd.it/${id}.${ext}`, ext })
   }
   return out
+}
+
+/** True when every gallery_data image slot has SOME `media_metadata` entry — then local resolution's
+ *  skips are deliberate (video/invalid entries), not holes. False = the archived metadata is partial:
+ *  resolving locally would silently drop images AND renumber the rest, so the resolver must try the
+ *  post-JSON fallback first (P1 review round 2). Exported for the unit tests. */
+export function galleryMetadataComplete(postData: RawThing): boolean {
+  const { items, mm } = galleryParts(postData)
+  return items.every((item) => {
+    const id = galleryItemId(item)
+    return id === undefined ? true : mm[id] != null // a junk id resolves nowhere — not a metadata hole
+  })
 }
 
 /** Inline self-post images from the archived `media_metadata`, ordered by first appearance of each media
@@ -219,39 +250,48 @@ export async function resolveImages(play: PlayRow, deps: MediaDeps): Promise<Res
     // Local-first (P1 gate finding, 2026-08-18): Arctic-Shift DOES archive `gallery_data` +
     // `media_metadata` for fresh gallery posts — the design-time "archived as null" observation does
     // not hold at capture time — and the Reddit post-JSON endpoint 403-blocks non-browser clients
-    // from this network. So the archived dict is the primary source and the fetch is the fallback
-    // for the (now rare) metadata-less raw.
+    // from this network. The archived dict is trusted only when its metadata is COMPLETE; with holes
+    // (or nothing) the post-JSON fetch is tried, and a partial local subset is the floor on fetch
+    // failure — some screenshots beat text-only (P7), and the fetch mostly 403s anyway.
     const local = galleryImages(raw, max)
-    if (local.length > 0) return { kind: 'images', images: local }
+    if (local.length > 0 && galleryMetadataComplete(raw)) return { kind: 'images', images: local }
+    const orPartial = (fail: Resolution, why: string): Resolution =>
+      local.length > 0
+        ? { kind: 'images', images: local, detail: `archived gallery metadata incomplete; json fallback failed (${why}) — archiving the resolvable subset` }
+        : fail
 
     const permalink = play.permalink
-    if (!permalink) return { kind: 'gone', detail: 'gallery post without permalink' }
+    if (!permalink) return orPartial({ kind: 'gone', detail: 'gallery post without permalink' }, 'no permalink')
     // raw_json=1 keeps URLs unescaped in the payload.
     const r = await fetchOk(`https://www.reddit.com${permalink}.json?raw_json=1`, deps)
     if (!r.ok) {
       if (r.kind === 'aborted') return { kind: 'aborted' }
-      log.warn({ playId: play.id, detail: r.detail }, 'plays media: gallery post-JSON fetch failed') // gate metric
-      return r.kind === 'transient' ? { kind: 'transient', detail: `gallery json: ${r.detail}` }
-        : { kind: 'gone', detail: `gallery json: ${r.detail}` }
+      // Counts only fallback-path fetches (missing/partial archived metadata) since local-first landed.
+      log.warn({ playId: play.id, detail: r.detail }, 'plays media: gallery post-JSON fetch failed')
+      return r.kind === 'transient'
+        ? orPartial({ kind: 'transient', detail: `gallery json: ${r.detail}` }, r.detail)
+        : orPartial({ kind: 'gone', detail: `gallery json: ${r.detail}` }, r.detail)
     }
     let postData: RawThing
     try {
       const body = await readCapped(r.res, GALLERY_JSON_CAP) // capped — never buffer unbounded JSON
-      if (!body.ok) return { kind: 'gone', detail: `gallery json: ${body.detail}` }
+      if (!body.ok) return orPartial({ kind: 'gone', detail: `gallery json: ${body.detail}` }, body.detail)
       const json = JSON.parse(body.buf.toString('utf8')) as { data?: { children?: { data?: RawThing }[] } }[]
       postData = json[0]?.data?.children?.[0]?.data ?? {}
     } catch (e) {
       if (deps.signal?.aborted) return { kind: 'aborted' }
-      return { kind: 'transient', detail: `gallery json parse: ${String(e)}` } // interstitial/HTML/timeout — likely transient
+      // Interstitial/HTML/timeout — likely transient.
+      return orPartial({ kind: 'transient', detail: `gallery json parse: ${String(e)}` }, String(e))
     } finally {
       r.done()
     }
     const images = galleryImages(postData, max)
     if (images.length === 0) {
       // A live-JSON gallery with no valid images = removed or all-video — permanent either way.
-      return { kind: 'gone', detail: 'gallery resolved to no images (removed or non-image entries)' }
+      return orPartial(
+        { kind: 'gone', detail: 'gallery resolved to no images (removed or non-image entries)' }, 'json had no images')
     }
-    return { kind: 'images', images, galleryJsonOk: true }
+    return { kind: 'images', images }
   }
 
   if (play.url && DIRECT_IMAGE_RE.test(play.url)) {
@@ -316,7 +356,8 @@ export async function runMediaStage(play: PlayRow, deps: MediaDeps): Promise<Med
   const deadlineAt = deps.deadlineAt ?? Date.now() + STAGE_BUDGET_MS
   const items: PlayMediaItem[] = []
   let transient = 0
-  const failures: string[] = []
+  // A resolution-time caveat (partial gallery metadata) surfaces in the final detail like any failure.
+  const failures: string[] = resolved.detail ? [resolved.detail] : []
   for (const img of resolved.images) {
     const reused = prior.get(`${img.order}|${img.url}`)
     if (reused) {

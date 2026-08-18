@@ -156,19 +156,24 @@ Every play is traceable by grepping its post id through three moments:
    malformed id is dropped loudly: `dropping matched post with unusable id`.
 2. **Process**: when the queue claims work it logs `plays queue tick`
    `{claimed, advanced, retrying, failed}`. No tick line = nothing was due (normal silence).
-3. **Resolve** — exactly one of, always with `playId`:
-   - `play advanced to media_ready` `{mediaStatus, images, isGallery}` — the success line
-     (`mediaStatus: "none"` = text-only by construction, not a failure);
-   - `plays media transient failure — will retry` — retrying inside the `media_retry_until` window;
-   - `plays media partially archived` — advanced with some images missing (`detail` lists which);
-   - `plays media unrecoverable — degrading to text-only` — window exhausted or media gone (P7);
+3. **Resolve** — the attempt ends with exactly one terminal line (always with `playId`); degraded
+   outcomes are *preceded* by a warn naming the cause:
+   - `play advanced to media_ready` `{mediaStatus, images, isGallery}` — the play left the stage.
+     `mediaStatus: "none"` = text-only by construction (not a failure); `"archived"` with a prior
+     `plays media partially archived` warn = some images missing (`detail` lists which);
+     `"failed"` with a prior `plays media unrecoverable — degrading to text-only` warn = window
+     exhausted or media gone (P7);
+   - `plays media transient failure — will retry` — not terminal for the play, only this attempt:
+     retrying inside the `media_retry_until` window, the trace continues next tick;
    - `plays media stage aborted (shutdown) — releasing claim` — deploy/SIGTERM, not a fault; the row
      is re-processed after restart;
    - `plays stage crashed` `{err, attempts, terminal}` — a bug or infra fault; `terminal: true`
      means the row is parked as `failed` after `max_attempts`.
 
-`plays media: gallery post-JSON fetch failed` warns count Reddit-side gallery-resolution failures
-(the P1 gate metric — 403s here mean Reddit is blocking the archive fetch). A
+`plays media: gallery post-JSON fetch failed` warns count Reddit-side fetches on the FALLBACK path
+only — galleries resolve locally from the archived raw since `11da034`; the fetch (and this warn)
+fires only when the archived gallery metadata is missing or partial. 403s here mean Reddit is
+blocking the fetch. A
 `plays update fenced out` warn means a lease expired mid-stage and another claimer took the row —
 harmless once, investigate if recurring (stage running longer than `lease_minutes`?). The plays
 loops can never take the radar down: worst case is
@@ -182,7 +187,7 @@ logs() { docker compose -f deploy/v2/compose.yml logs worker --no-log-prefix "$@
 logs | grep abc123                       # full life of play abc123
 logs | jq -c 'select(.level >= 40)'      # everything abnormal
 logs | jq -c 'select(.msg == "cycle complete")' | tail -5    # radar cadence + health
-logs | grep -c 'gallery post-JSON fetch failed'              # gallery failure count (gate metric)
+logs | grep -c 'gallery post-JSON fetch failed'  # JSON-fallback failures (fires only on missing/partial archived metadata)
 ```
 
 ---

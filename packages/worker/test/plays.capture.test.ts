@@ -70,7 +70,7 @@ describe('initialMediaStatus (capture-time shape classification, product §3)', 
   it('direct i.redd.it image → pending', () => {
     expect(initialMediaStatus(rawPost())).toBe('pending')
   })
-  it('gallery → pending (even though Arctic-Shift archives its media_metadata as null)', () => {
+  it('gallery → pending (regardless of whether the archive included its media_metadata)', () => {
     expect(initialMediaStatus(rawPost({
       url: 'https://www.reddit.com/gallery/abc123', is_gallery: true, media_metadata: null,
     }))).toBe('pending')

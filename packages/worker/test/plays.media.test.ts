@@ -9,7 +9,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import type { PlayRow } from '@wsb/shared'
 
 import type { PlaysConfig } from '../src/config'
-import { galleryImages, inlineImages, runMediaStage, type Fetcher, type MediaDeps } from '../src/plays/media'
+import { galleryImages, galleryMetadataComplete, inlineImages, runMediaStage, type Fetcher, type MediaDeps } from '../src/plays/media'
 
 // P1 media resolver (plays-plan §3 / product §3): gallery ORDER from gallery_data.items (not the
 // unordered media_metadata), mime→ext, inline self-post images, download caps, and the
@@ -82,6 +82,30 @@ describe('galleryImages', () => {
   it('returns [] when gallery_data is missing (removed post JSON)', () => {
     expect(galleryImages({ media_metadata: galleryPostData.media_metadata }, 20)).toEqual([])
   })
+
+  it('never throws on malformed archived shapes — a stage crash would burn the play toward terminal failed', () => {
+    expect(galleryImages({ gallery_data: { items: 'not-an-array' }, media_metadata: {} }, 20)).toEqual([])
+    expect(galleryImages({ gallery_data: { items: [null, 42, {}, { media_id: 7 }] }, media_metadata: {} }, 20)).toEqual([])
+    expect(galleryImages({ gallery_data: 'junk', media_metadata: 'junk' }, 20)).toEqual([])
+    expect(galleryImages({ gallery_data: { items: [{ media_id: 'x' }] }, media_metadata: { x: 'not-an-object' } }, 20))
+      .toEqual([])
+  })
+})
+
+describe('galleryMetadataComplete', () => {
+  it('true when every gallery_data image slot has a metadata entry (skips are then deliberate)', () => {
+    expect(galleryMetadataComplete(galleryPostData)).toBe(true)
+  })
+  it('false when an item has no metadata entry at all — a hole, not a deliberate skip', () => {
+    expect(galleryMetadataComplete({
+      gallery_data: { items: [{ media_id: 'img_a' }, { media_id: 'hole1' }] },
+      media_metadata: { img_a: { status: 'valid', e: 'Image', m: 'image/png' } },
+    })).toBe(false)
+  })
+  it('junk ids and malformed shapes are not holes (they resolve nowhere either way)', () => {
+    expect(galleryMetadataComplete({ gallery_data: { items: [null, { media_id: 9 }] }, media_metadata: {} })).toBe(true)
+    expect(galleryMetadataComplete({ gallery_data: 'junk', media_metadata: null })).toBe(true)
+  })
 })
 
 describe('inlineImages', () => {
@@ -135,6 +159,24 @@ describe('runMediaStage', () => {
     expect(r.retryable).toBe(false)
     expect(r.items.map((i) => i.path)).toEqual(['gal0/0.jpg', 'gal0/1.png'])
     expect(calls.some((u) => u.includes('.json'))).toBe(false) // local metadata → no post-JSON fetch
+  })
+
+  it('gallery with PARTIAL archived metadata: tries the JSON fallback, and archives the local subset when it fails', async () => {
+    const partialRaw = {
+      gallery_data: { items: [{ media_id: 'img_b' }, { media_id: 'hole1' }] }, // hole1 has no metadata entry
+      media_metadata: { img_b: { status: 'valid', e: 'Image', m: 'image/jpg' } },
+    }
+    const { fetch, calls } = fakeFetch({
+      'https://www.reddit.com/r/wsb/comments/gp1/x/.json?raw_json=1': () => new Response('', { status: 403 }),
+      'https://i.redd.it/img_b.jpg': () => new Response(Buffer.from('b-bytes'), { status: 200 }),
+    })
+    const r = await runMediaStage(
+      play({ id: 'galp1', isGallery: true, permalink: '/r/wsb/comments/gp1/x/', raw: partialRaw }), deps(fetch))
+
+    expect(calls[0]).toContain('.json?raw_json=1') // holes → the fallback IS attempted
+    expect(r.retryable).toBe(false)
+    expect(r.items.map((i) => i.path)).toEqual(['galp1/0.jpg']) // subset beats text-only (P7)
+    expect(r.detail).toContain('archiving the resolvable subset')
   })
 
   it('gallery FALLBACK: resolves via the reddit post JSON when the raw lacks gallery metadata', async () => {

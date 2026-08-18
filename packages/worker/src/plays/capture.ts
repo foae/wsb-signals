@@ -32,8 +32,9 @@ const PLAY_ID_RE = /^[A-Za-z0-9_-]{1,32}$/
 export function initialMediaStatus(d: RawThing): Extract<PlayMediaStatus, 'pending' | 'none'> {
   if (d.is_gallery === true) return 'pending'
   if (typeof d.url === 'string' && DIRECT_IMAGE_RE.test(d.url)) return 'pending'
-  // Inline self-post images: media_metadata present (non-null object) on a text post. Galleries archive
-  // it as null in Arctic-Shift, but they're caught by is_gallery above.
+  // Inline self-post images: media_metadata present (non-null object) on a text post. Galleries also
+  // carry media_metadata (P1 gate finding — Arctic-Shift archives it for fresh posts), but they're
+  // caught by is_gallery above; the resolver handles both shapes.
   const mm = d.media_metadata
   if (mm != null && typeof mm === 'object' && Object.keys(mm).length > 0) return 'pending'
   return 'none'
@@ -49,7 +50,8 @@ export function playRowsFromRaw(rawPosts: readonly RawThing[], flairs: ReadonlyS
     if (flair == null || !flairs.has(flair)) continue
     if (typeof d.id !== 'string' || !PLAY_ID_RE.test(d.id)) {
       // Anomalous, not routine: a flair-MATCHED post is being dropped. Silent, this looks like a
-      // mysteriously missing play; logged, it names the culprit.
+      // mysteriously missing play; logged, it names the culprit. The poll re-delivers ~12×/h, so a
+      // bad post re-warns each sighting — deliberate: the anomaly is near-never and must stay loud.
       log.warn({ id: String(d.id).slice(0, 40), flair }, 'plays capture: dropping matched post with unusable id')
       continue
     }

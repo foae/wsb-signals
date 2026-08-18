@@ -188,7 +188,7 @@ describe('queue claim / lease / stages', () => {
         return { items: [item('p1/0.jpg')], retryable: false, none: false, aborted: false }
       },
     })
-    expect(stats).toMatchObject({ claimed: 1 })
+    expect(stats).toMatchObject({ claimed: 1, advanced: 0, retrying: 0, failed: 0 }) // fenced ≠ work done
     const row = await getPlay('p1')
     expect(row.status).toBe('captured') // the straggler's advance was fenced out
     expect(row.claimedAt).toBe(NOW + 999) // the re-claimer's claim is untouched

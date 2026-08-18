@@ -92,7 +92,8 @@ export async function claimCaptured(db: Db, config: PlaysConfig, now: number): P
 
 /** This claimer's WHERE fence: right row, still in the from-status, still OUR claim. The claim fence is
  *  what keeps a lease-expired straggler from mutating rows a re-claimer now owns; the status guard is
- *  the never-backwards rule (P8). A fenced-out update is a silent no-op — exactly right. */
+ *  the never-backwards rule (P8). A fenced-out update is a no-op — correct, and `warnIfFenced` makes it
+ *  visible in logs and keeps it out of the tick stats. */
 const ownedBy = (row: PlayRow): ReturnType<typeof and> =>
   and(eq(plays.id, row.id), eq(plays.status, row.status), eq(plays.claimedAt, row.claimedAt!))
 
@@ -105,10 +106,11 @@ const warnIfFenced = (res: { rowCount: number | null }, row: PlayRow, action: st
   return fenced
 }
 
-/** Advance a claimed `captured` row to `media_ready` with its final media verdict. */
+/** Advance a claimed `captured` row to `media_ready` with its final media verdict.
+ *  Returns false when fenced out (nothing persisted — the row belongs to a re-claimer). */
 async function advanceToMediaReady(
   db: Db, row: PlayRow, mediaStatus: 'archived' | 'failed' | 'none', items: PlayMediaItem[], now: number,
-): Promise<void> {
+): Promise<boolean> {
   const res = await db.update(plays).set({
     status: 'media_ready',
     mediaStatus,
@@ -120,10 +122,10 @@ async function advanceToMediaReady(
   }).where(ownedBy(row))
   // The one per-play success line: without it the COMMON outcome (clean archive) is invisible in logs
   // and a play's id can't be traced from capture to media_ready.
-  if (!warnIfFenced(res, row, 'advance')) {
-    log.info({ playId: row.id, mediaStatus, images: items.length, isGallery: row.isGallery === true },
-      'play advanced to media_ready')
-  }
+  if (warnIfFenced(res, row, 'advance')) return false
+  log.info({ playId: row.id, mediaStatus, images: items.length, isGallery: row.isGallery === true },
+    'play advanced to media_ready')
+  return true
 }
 
 /** Reschedule a transiently-failing media fetch inside its retry window (status stays `captured`).
@@ -131,31 +133,34 @@ async function advanceToMediaReady(
  *  and so an image deleted upstream between attempts is never lost from the manifest. */
 async function scheduleMediaRetry(
   db: Db, row: PlayRow, retryUntil: number, items: PlayMediaItem[], now: number,
-): Promise<void> {
+): Promise<boolean> {
   const res = await db.update(plays).set({
     mediaRetryUntil: retryUntil,
     nextAttemptAt: now + MEDIA_RETRY_INTERVAL_S,
     claimedAt: null,
     ...(items.length ? { media: items } : {}), // never clobber prior items with an empty attempt
   }).where(ownedBy(row))
-  warnIfFenced(res, row, 'media-retry')
+  return !warnIfFenced(res, row, 'media-retry')
 }
 
 /** Release a shutdown-aborted claim UNCHANGED: not a fault (no attempts, no retry window), just due
  *  again on the next tick after restart. Advancing here would degrade the play to text-only over a
  *  plain deploy (P7); items archived before the abort are persisted for reuse. */
-async function releaseClaim(db: Db, row: PlayRow, items: PlayMediaItem[], now: number): Promise<void> {
+async function releaseClaim(db: Db, row: PlayRow, items: PlayMediaItem[], now: number): Promise<boolean> {
   const res = await db.update(plays).set({
     claimedAt: null,
     nextAttemptAt: now,
     ...(items.length ? { media: items } : {}),
   }).where(ownedBy(row))
-  warnIfFenced(res, row, 'release')
+  return !warnIfFenced(res, row, 'release')
 }
 
 /** Record a stage crash: bump `attempts`, back off exponentially, and only at `max_attempts` park the
- *  row as terminally `failed` — a single transient throw must not permanently kill a play. */
-async function recordStageFailure(db: Db, row: PlayRow, config: PlaysConfig, now: number, err: unknown): Promise<boolean> {
+ *  row as terminally `failed` — a single transient throw must not permanently kill a play.
+ *  `terminal` reports what PERSISTED: a fenced-out update parked nothing. */
+async function recordStageFailure(
+  db: Db, row: PlayRow, config: PlaysConfig, now: number, err: unknown,
+): Promise<{ terminal: boolean; fenced: boolean }> {
   const attempts = (row.attempts ?? 0) + 1
   const terminal = attempts >= config.maxAttempts
   const backoff = Math.min(FAILURE_BACKOFF_BASE_S * 2 ** (attempts - 1), FAILURE_BACKOFF_CAP_S)
@@ -166,12 +171,14 @@ async function recordStageFailure(db: Db, row: PlayRow, config: PlaysConfig, now
     nextAttemptAt: now + backoff,
     ...(terminal ? { status: 'failed' as const } : {}),
   }).where(ownedBy(row))
-  warnIfFenced(res, row, 'record-failure')
-  return terminal
+  const fenced = warnIfFenced(res, row, 'record-failure')
+  return { terminal: terminal && !fenced, fenced }
 }
 
-/** The `captured` stage: resolve + archive media, then advance / retry / release / degrade (P7). */
-async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Promise<'advanced' | 'retrying'> {
+/** The `captured` stage: resolve + archive media, then advance / retry / release / degrade (P7).
+ *  `fenced` = the row's lease was lost mid-stage and a re-claimer owns it — nothing persisted here,
+ *  so the tick must not count it as work done. */
+async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Promise<'advanced' | 'retrying' | 'fenced'> {
   const media = deps.media ?? runMediaStage
   const r: MediaStageResult = await media(row, {
     config: deps.config, fetchImpl: deps.fetchImpl, signal: deps.signal,
@@ -179,19 +186,16 @@ async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Prom
 
   if (r.aborted) {
     log.info({ playId: row.id, archived: r.items.length }, 'plays media stage aborted (shutdown) — releasing claim')
-    await releaseClaim(deps.db, row, r.items, now)
-    return 'retrying'
+    return await releaseClaim(deps.db, row, r.items, now) ? 'retrying' : 'fenced'
   }
   if (r.none) {
-    await advanceToMediaReady(deps.db, row, 'none', [], now)
-    return 'advanced'
+    return await advanceToMediaReady(deps.db, row, 'none', [], now) ? 'advanced' : 'fenced'
   }
   if (r.retryable) {
     const retryUntil = row.mediaRetryUntil ?? now + deps.config.mediaRetrySeconds
     if (now < retryUntil) {
       log.warn({ playId: row.id, detail: r.detail, retryUntil }, 'plays media transient failure — will retry')
-      await scheduleMediaRetry(deps.db, row, retryUntil, r.items, now)
-      return 'retrying'
+      return await scheduleMediaRetry(deps.db, row, retryUntil, r.items, now) ? 'retrying' : 'fenced'
     }
     // Window exhausted: keep whatever was archived; an empty set degrades to text-only (invariant P7).
   }
@@ -204,8 +208,7 @@ async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Prom
   } else if (r.detail) {
     log.warn({ playId: row.id, archived: items.length, detail: r.detail }, 'plays media partially archived')
   }
-  await advanceToMediaReady(deps.db, row, status, items, now)
-  return 'advanced'
+  return await advanceToMediaReady(deps.db, row, status, items, now) ? 'advanced' : 'fenced'
 }
 
 /** One queue tick: claim due rows, run each row's stage with a per-row exception boundary. */
@@ -219,11 +222,14 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
     try {
       const outcome = await processCaptured(deps, row, clock())
       if (outcome === 'advanced') stats.advanced++
-      else stats.retrying++
+      else if (outcome === 'retrying') stats.retrying++
+      // 'fenced': counted only in `claimed` — the row's real outcome belongs to whoever re-claimed it.
     } catch (e) {
-      const terminal = await recordStageFailure(deps.db, row, deps.config, clock(), e)
+      const { terminal, fenced } = await recordStageFailure(deps.db, row, deps.config, clock(), e)
       if (terminal) stats.failed++
-      log.error({ playId: row.id, err: String(e), attempts: (row.attempts ?? 0) + 1, terminal }, 'plays stage crashed')
+      log.error(
+        { playId: row.id, err: String(e), attempts: (row.attempts ?? 0) + 1, terminal, ...(fenced ? { fenced } : {}) },
+        'plays stage crashed')
     }
   }
   if (stats.claimed > 0) log.info(stats, 'plays queue tick')
