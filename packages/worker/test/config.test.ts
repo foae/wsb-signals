@@ -42,6 +42,20 @@ describe('config loading', () => {
     expect(worker.plays.redditUserAgent.length).toBeGreaterThan(0)
   })
 
+  it('parses the [plays.llm] block (P2) — shipped prices are 0.0 placeholders (fail-closed, never free)', () => {
+    const { worker } = loadConfig(ROOT)
+    const llm = worker.plays.llm
+    expect(llm.provider).toBe('openai')
+    expect(llm.extractModel.length).toBeGreaterThan(0)
+    expect(llm.maxPlaysPerTick).toBe(5)
+    expect(llm.maxOutputTokens).toBe(2000)
+    expect(llm.dailyBudgetUsd).toBe(5.0)
+    expect(worker.plays.maxImagesLlm).toBe(8)
+    expect(worker.plays.maxRequestBytes).toBe(24 * 1024 * 1024)
+    // The committed config must keep the queue parked until real prices are deliberately set.
+    expect(llm.prices[llm.extractModel]).toEqual({ input: 0.0, output: 0.0 })
+  })
+
   it('builds a CASHTAG-ONLY extractor when the whitelist is missing (fails closed)', () => {
     const { raw } = loadConfig(ROOT)
     raw.extract.whitelist_path = 'whitelist/__definitely_missing__.txt'

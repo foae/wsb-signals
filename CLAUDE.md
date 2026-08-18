@@ -119,8 +119,13 @@ Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`
 `capture.ts` (flair filter + ON CONFLICT DO NOTHING enqueue, called from `runCycle` AFTER
 `publishCycle` commits), `media.ts` (resolver/archiver: direct + gallery-from-archived-raw (Reddit-JSON fallback, 403-prone) + inline
 self-post images; transient-vs-permanent split), `queue.ts` (the second loop: `FOR UPDATE SKIP
-LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff, `captured → media_ready`;
-LLM stages stubbed until P2). Still to land: analyzer seam (P2), evidence (P3), marks (P5). The web
+LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff). Landed at P2:
+`extraction.ts` (the PINNED zod schema + derived direction), `marking.ts` (the pure P2↔P5 markPlay
+pin), `validate.ts` (three-outcome ticker check, arithmetic cross-check, derived confidence,
+deterministic position_ids), `analyzer.ts` (the seam; sole `ai` importer) + `prompts/`,
+`images.ts` (sharp prep), `metering.ts` (fail-closed pricing + DB-summed daily budget),
+`eval.ts` (`plays-eval` over `fixtures/plays/`); queue runs `captured → media_ready → extracted`.
+Still to land: evidence/interpret (P3), marks (P5). The web
 serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`).
 
 ## Pluggable interfaces (the extension seams)
@@ -131,9 +136,9 @@ serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_
 - **`MarketData`** (`market.ts`) — the funnel over market providers. `AlpacaMarketData` (free) is
   the only impl; Massive / IBKR are intended alternatives behind the same interface. Current
   surface is stock snapshots + screeners; **P5 grows it** (trading calendar + option snapshots).
-- **`PlayAnalyzer`** (P2, `plays/analyzer.ts`) — the LLM seam (`extract(images, text)`,
-  `interpret(evidence)`); Vercel AI SDK behind it, provider-agnostic. Pipeline code never imports
-  `ai` directly.
+- **`PlayAnalyzer`** (`plays/analyzer.ts`) — the LLM seam: `extract(images, text)` (landed at P2;
+  `interpret(evidence)` joins at P3 with its evidence type); Vercel AI SDK behind it,
+  provider-agnostic. Pipeline code never imports `ai` directly; tests inject a fake.
 
 ## Radar invariants you must not break (architecture §5; enforced in code)
 

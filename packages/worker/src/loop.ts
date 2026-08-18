@@ -14,7 +14,7 @@ import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
 
 import { windowStartFor } from './aggregate'
 import type { PlaysConfig, WorkerConfig } from './config'
-import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig } from './config'
+import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig, loadWhitelistSet } from './config'
 import {
   acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, upsertComments,
   upsertMentions, upsertPosts, verifyPublished, type Db,
@@ -27,6 +27,7 @@ import type { MarketData } from './market'
 import { mentionsFromPoll } from './mentions'
 import { buildSignals, overlayMarket, runAggregation } from './pipeline'
 import { capturePlays } from './plays/capture'
+import { AiSdkAnalyzer } from './plays/analyzer'
 import { runPlaysQueue } from './plays/queue'
 import { abortableSleep } from './timing'
 
@@ -318,6 +319,23 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
     : null
   if (!worker.plays.enabled) log.info('plays disabled ([plays].enabled = false) — radar only')
 
+  // The LLM seam (P2): wired only with a key — without it the queue runs media-only and warns per
+  // tick about the resting media_ready backlog. Fail-closed metering sits behind this regardless.
+  const openaiKey = env.OPENAI_API_KEY
+  const analyzer = playsHandle && openaiKey
+    ? new AiSdkAnalyzer({
+      provider: worker.plays.llm.provider,
+      model: worker.plays.llm.extractModel,
+      maxOutputTokens: worker.plays.llm.maxOutputTokens,
+      apiKey: openaiKey,
+    })
+    : undefined
+  if (playsHandle && !openaiKey) {
+    log.warn('plays LLM extraction OFF — OPENAI_API_KEY missing; plays rest at media_ready until it is set')
+  }
+  const whitelistSet = loadWhitelistSet(raw, root)
+  const isListedTicker = (t: string): boolean => whitelistSet?.has(t) ?? false
+
   log.info({ interval: worker.pollSeconds, windowMin: worker.windowSeconds / 60, market: Boolean(market),
     plays: Boolean(playsHandle) }, 'run loop starting (forward-only; SIGTERM/Ctrl-C to stop)')
 
@@ -356,13 +374,15 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
       if (playsHandle) {
         // The EXTERNAL stop signal, not `internal` — internal is already aborted by radar completing
         // (the .finally above), which must not suppress the tick; SIGTERM still must abort it.
-        await runPlaysQueue({ db: playsHandle.db, config: worker.plays }, {
+        await runPlaysQueue({ db: playsHandle.db, config: worker.plays, analyzer, isListedTicker }, {
           once: true, stopSignal: opts.stopSignal ?? new AbortController().signal,
         })
       }
     } else {
       const queue = playsHandle
-        ? runPlaysQueue({ db: playsHandle.db, config: worker.plays }, { stopSignal: internal.signal })
+        ? runPlaysQueue(
+          { db: playsHandle.db, config: worker.plays, analyzer, isListedTicker },
+          { stopSignal: internal.signal })
         : Promise.resolve()
       // allSettled, not all: if one loop rejects, the other must still wind down BEFORE the finally
       // closes the pools under it. The radar's `.finally` above stops the queue on any radar exit.

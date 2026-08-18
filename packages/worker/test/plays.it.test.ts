@@ -2,7 +2,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { plays, type PlayMediaItem, type PlayRow } from '@wsb/shared'
+import { playExtractions, plays, type PlayMediaItem, type PlayRow } from '@wsb/shared'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
@@ -27,8 +27,15 @@ const TMP = join(tmpdir(), `wsb-plays-it-${process.pid}`)
 
 const playsCfg = (over: Partial<PlaysConfig> = {}): PlaysConfig => ({
   enabled: true, flairs: new Set(['Gain', 'Loss', 'YOLO', 'Verified Trade']), queueIntervalSeconds: 60,
-  maxAttempts: 4, leaseSeconds: 600, mediaRetrySeconds: 600, maxImagesStored: 20,
-  maxImageBytes: 10 * 1024 * 1024, redditUserAgent: 'test-ua', mediaDir: TMP, ...over,
+  maxAttempts: 4, leaseSeconds: 600, mediaRetrySeconds: 600, maxImagesStored: 20, maxImagesLlm: 8,
+  maxImageBytes: 10 * 1024 * 1024, maxRequestBytes: 24 * 1024 * 1024, redditUserAgent: 'test-ua',
+  mediaDir: TMP,
+  llm: {
+    provider: 'openai', extractModel: 'test-model', interpretModel: 'test-model', maxPlaysPerTick: 5,
+    maxOutputTokens: 2000, dailyBudgetUsd: 5,
+    prices: { 'test-model': { input: 1, output: 4 } }, // $/Mtok — usable by default; tests override to refuse
+  },
+  ...over,
 })
 
 const rawPlay = (id: string, over: RawThing = {}): RawThing => ({
@@ -276,5 +283,129 @@ describe('radar-cycle integration (invariant P1)', () => {
     expect(res.readbackOk).toBe(true)
     expect(await latestCompleteWindow(pg.db)).toBe(WS) // the radar cycle published regardless
     expect(await pg.db.select().from(plays)).toHaveLength(0)
+  })
+})
+
+describe('extraction stage (P2): fail-closed metering + the LLM seam on real Postgres', () => {
+  const llmOut = () => ({
+    screenshot_kind: 'single_position' as const, broker: 'Robinhood',
+    positions: [{
+      ticker: 'NVDA', instrument: 'call' as const, side: 'long' as const, quantity: 2, avg_price: 3.5,
+      strike: 150, expiry: '2026-09-18', cost_basis: 700, current_value: 1200, pnl_abs: 500,
+      pnl_pct: 71.4, realized: false, opened_at: null, currency: null, confidence: 0.9,
+      field_confidence: null,
+    }],
+    notes: null, confidence: 0.85,
+  })
+
+  /** Countable fake PlayAnalyzer — dispatch refusals must never reach it (money). */
+  const fakeAnalyzer = () => {
+    const calls: number[] = []
+    return {
+      calls,
+      extract: async () => {
+        calls.push(1)
+        return {
+          extraction: llmOut(),
+          usage: { inputTokens: 10_000, outputTokens: 500 },
+          model: 'test-model', promptVersion: 'extract-prompt-v1',
+        }
+      },
+    }
+  }
+
+  /** Seed one play already at media_ready (text-only — no files on disk needed for the seam test). */
+  const seedMediaReady = async (id = 'p1'): Promise<void> => {
+    await capturePlays(pg.db, [rawPlay(id)], playsCfg(), NOW)
+    await pg.db.update(plays)
+      .set({ status: 'media_ready', mediaStatus: 'none', media: null, nextAttemptAt: NOW })
+      .where(eq(plays.id, id))
+  }
+
+  const extractTick = (analyzer: QueueDeps['analyzer'], over: Partial<QueueDeps> = {}): ReturnType<typeof runQueueTick> =>
+    runQueueTick({
+      db: pg.db, config: playsCfg(), clock: () => NOW, analyzer,
+      isListedTicker: (t) => t === 'NVDA', ...over,
+    })
+
+  it('media_ready → extracted: play_extractions row (validated output, real cost), pointers set', async () => {
+    await seedMediaReady()
+    const analyzer = fakeAnalyzer()
+    const stats = await extractTick(analyzer)
+    expect(stats).toMatchObject({ extracted: 1, parked: 0, failed: 0 })
+    expect(analyzer.calls).toHaveLength(1)
+
+    const row = await getPlay('p1')
+    expect(row.status).toBe('extracted')
+    expect(row.currentExtractionAt).toBe(NOW * 1000)
+    expect(row.claimedAt).toBeNull()
+    expect(row.attempts).toBe(0)
+
+    const runs = await pg.db.select().from(playExtractions)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({
+      playId: 'p1', model: 'test-model',
+      promptVersion: 'extract-prompt-v1/extract-schema-v1',
+      tokensIn: 10_000, tokensOut: 500,
+    })
+    // 10k in @ $1/M + 500 out @ $4/M (playsCfg test prices) = $0.012
+    expect(runs[0]!.costUsd).toBeCloseTo(0.012, 9)
+    const out = runs[0]!.output as { direction: string; confidence: number; positions: { ticker_outcome: string }[] }
+    expect(out.direction).toBe('bullish')
+    expect(out.positions[0]!.ticker_outcome).toBe('validated')
+  })
+
+  it('FAIL-CLOSED: the shipped all-zero prices park the play — the analyzer is never called', async () => {
+    await seedMediaReady()
+    const analyzer = fakeAnalyzer()
+    const cfg = playsCfg()
+    cfg.llm.prices = { 'test-model': { input: 0, output: 0 } } // the committed-config shape
+    const stats = await extractTick(analyzer, { config: cfg })
+    expect(stats).toMatchObject({ extracted: 0, parked: 1, failed: 0 })
+    expect(analyzer.calls).toHaveLength(0) // no dispatch, no spend
+    const row = await getPlay('p1')
+    expect(row.status).toBe('media_ready') // waiting, not failing
+    expect(row.attempts).toBe(0) // a refusal is not a fault
+    expect(row.nextAttemptAt).toBeGreaterThan(NOW) // parked, re-checked later
+    expect(await pg.db.select().from(playExtractions)).toHaveLength(0)
+  })
+
+  it('RESTART-PROOF budget: spend already in the DB counts — the cap survives a process restart', async () => {
+    await seedMediaReady()
+    // A previous process (or run) already spent the whole daily budget today (UTC of NOW).
+    await pg.db.insert(playExtractions).values({
+      playId: 'p1', runAt: NOW * 1000 - 1000, model: 'test-model', promptVersion: 'x',
+      output: {}, tokensIn: 1, tokensOut: 1, costUsd: 4.999,
+    })
+    const analyzer = fakeAnalyzer()
+    const stats = await extractTick(analyzer)
+    expect(stats).toMatchObject({ extracted: 0, parked: 1 })
+    expect(analyzer.calls).toHaveLength(0)
+    expect((await getPlay('p1')).status).toBe('media_ready')
+  })
+
+  it('an analyzer crash is a stage fault: attempts bump + backoff, then terminal at max_attempts', async () => {
+    await seedMediaReady()
+    const boom = { extract: async () => { throw new Error('provider 500') } }
+    await extractTick(boom)
+    let row = await getPlay('p1')
+    expect(row.status).toBe('media_ready')
+    expect(row.attempts).toBe(1)
+    expect(row.error).toContain('provider 500')
+    // Exhaust the budgeted attempts (max_attempts=4) — each retry is due after backoff.
+    for (let i = 0; i < 3; i++) {
+      await pg.db.update(plays).set({ nextAttemptAt: NOW, claimedAt: null }).where(eq(plays.id, 'p1'))
+      await extractTick(boom)
+    }
+    row = await getPlay('p1')
+    expect(row.status).toBe('failed') // terminal — parked for a human, not retried forever
+    expect(row.attempts).toBe(4)
+  })
+
+  it('no analyzer wired (no OPENAI_API_KEY): media_ready rows rest untouched', async () => {
+    await seedMediaReady()
+    const stats = await extractTick(undefined)
+    expect(stats).toMatchObject({ claimed: 0, extracted: 0 })
+    expect((await getPlay('p1')).status).toBe('media_ready')
   })
 })

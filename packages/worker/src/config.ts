@@ -63,12 +63,43 @@ interface RawConfig {
     lease_minutes: number
     media_retry_minutes: number
     max_images_stored: number
+    max_images_llm: number
     max_image_mb: number
+    max_request_mb: number
     reddit_user_agent: string
+    llm: {
+      provider: string
+      extract_model: string
+      interpret_model: string
+      max_plays_per_tick: number
+      max_output_tokens: number
+      daily_budget_usd: number
+      prices: Record<string, { input: number; output: number }>
+    }
   }
 }
 
-/** Flattened plays capture + queue config (plays-plan §9 — the P1 subset; LLM knobs land at P2). */
+/** Per-model $/Mtok — the metering source of truth (invariant P6). Zero/missing = REFUSE dispatch. */
+export interface LlmPrices {
+  input: number
+  output: number
+}
+
+/** LLM stage knobs (plays-plan §9, [plays.llm]). */
+export interface PlaysLlmConfig {
+  /** AI-SDK provider id ("openai"; "anthropic" etc. later — config-only swap). */
+  provider: string
+  extractModel: string
+  interpretModel: string
+  maxPlaysPerTick: number
+  /** Per call — also the worst-case pre-dispatch cost reservation (metering.ts). */
+  maxOutputTokens: number
+  /** UTC day; the counter is summed from cost_usd rows in the DB, never in-memory. */
+  dailyBudgetUsd: number
+  prices: Record<string, LlmPrices>
+}
+
+/** Flattened plays capture + queue + LLM config (plays-plan §9). */
 export interface PlaysConfig {
   enabled: boolean
   flairs: Set<string>
@@ -77,10 +108,15 @@ export interface PlaysConfig {
   leaseSeconds: number
   mediaRetrySeconds: number
   maxImagesStored: number
+  /** ≤ this many images per LLM request (the first N in gallery order — product §4.1). */
+  maxImagesLlm: number
   maxImageBytes: number
+  /** Total image bytes per LLM request (memory + provider limits, plays-plan §1). */
+  maxRequestBytes: number
   redditUserAgent: string
   /** Absolute media root — files land at `<mediaDir>/<post_id>/<n>.<ext>` (the shared volume). */
   mediaDir: string
+  llm: PlaysLlmConfig
 }
 
 /** The flattened, typed config the loop/cycle consume. */
@@ -145,6 +181,7 @@ export function loadConfig(root: string): LoadedConfig {
   const raw = parseToml(readFileSync(join(root, 'config.toml'), 'utf8')) as unknown as RawConfig
   // Required since P1 — fail with a clear message, not a TypeError deep in the flattening below.
   if (!raw.plays) throw new Error("config.toml is missing the [plays] section (required since P1 — see plays-plan §9)")
+  if (!raw.plays.llm) throw new Error("config.toml is missing the [plays.llm] section (required since P2 — see plays-plan §9)")
   // Real env vars WIN over the .env file (container-native secrets — Python overlays os.environ).
   const env: Record<string, string> = { ...readDotenv(root) }
   for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v
@@ -188,9 +225,20 @@ export function loadConfig(root: string): LoadedConfig {
       leaseSeconds: raw.plays.lease_minutes * 60,
       mediaRetrySeconds: raw.plays.media_retry_minutes * 60,
       maxImagesStored: raw.plays.max_images_stored,
+      maxImagesLlm: raw.plays.max_images_llm,
       maxImageBytes: raw.plays.max_image_mb * 1024 * 1024,
+      maxRequestBytes: raw.plays.max_request_mb * 1024 * 1024,
       redditUserAgent: raw.plays.reddit_user_agent,
       mediaDir: join(root, raw.storage.data_dir, 'media', 'plays'),
+      llm: {
+        provider: raw.plays.llm.provider,
+        extractModel: raw.plays.llm.extract_model,
+        interpretModel: raw.plays.llm.interpret_model,
+        maxPlaysPerTick: raw.plays.llm.max_plays_per_tick,
+        maxOutputTokens: raw.plays.llm.max_output_tokens,
+        dailyBudgetUsd: raw.plays.llm.daily_budget_usd,
+        prices: raw.plays.llm.prices ?? {},
+      },
     },
   }
   return { raw, env, worker, root }
@@ -216,6 +264,15 @@ export function buildExtractor(raw: RawConfig, root: string): TickerExtractor {
   const ambiguous = ambPath && existsSync(ambPath) ? loadWordset(readFileSync(ambPath, 'utf8')) : null
 
   return new TickerExtractor(stop, { regex, whitelist, ambiguous })
+}
+
+/** The whitelist as a bare membership set — the plays validation pass's `isListedTicker` (product
+ *  §4.1). Same file + parsing as `buildExtractor`; null when unconfigured/missing (cashtag-only
+ *  mode), in which case every non-known-non-equity ticker validates as `unvalidated`. */
+export function loadWhitelistSet(raw: RawConfig, root: string): Set<string> | null {
+  const wlPath = raw.extract.whitelist_path ? join(root, raw.extract.whitelist_path) : null
+  if (!wlPath || !existsSync(wlPath)) return null
+  return loadWordset(readFileSync(wlPath, 'utf8'))
 }
 
 /** Port of `cli._arctic_source`. */

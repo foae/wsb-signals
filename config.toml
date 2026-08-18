@@ -93,9 +93,9 @@ max_staleness_seconds = 1800  # alarm if newest Arctic-Shift item older than thi
 data_dir = "data"
 
 [plays]
-# WSB Plays capture + queue (plays-plan §3/§9). P1 keys only — the [plays.llm]/[plays.herd]/
-# [plays.outcomes] blocks land with their slices (P2/P3/P5). Media archives under
-# <data_dir>/media/plays/<post_id>/ (the shared worker↔web volume).
+# WSB Plays capture + queue + LLM (plays-plan §3/§4/§9). The [plays.herd]/[plays.outcomes] blocks
+# land with their slices (P3/P5). Media archives under <data_dir>/media/plays/<post_id>/ (the
+# shared worker↔web volume).
 enabled = true
 flairs = ["Gain", "Loss", "YOLO", "Verified Trade"]  # link_flair_text capture gate (product §3)
 queue_interval_s = 60
@@ -103,7 +103,23 @@ max_attempts = 4               # transient-failure retries before a play is term
 lease_minutes = 10             # stale-claim recovery: claimed_at older than this is re-claimable
 media_retry_minutes = 10       # re-attempt window for transient media-fetch failures before text-only
 max_images_stored = 20         # per play; gallery order decides which (first = the position screenshot)
+max_images_llm = 8             # per LLM request — the FIRST N in gallery order (product §4.1)
 max_image_mb = 10              # per image; larger downloads are aborted mid-stream
-# Browser-ish UA for the reddit.com post-JSON fetch (galleries — Arctic-Shift archives their
-# media_metadata as null) and the i.redd.it downloads. May need tuning if reddit 403s (plan §11).
+max_request_mb = 24            # total image bytes per LLM request (memory + provider limits)
+# Browser-ish UA for the i.redd.it downloads and the gallery post-JSON FALLBACK (galleries resolve
+# locally from the archived raw since the P1 gate; the fallback 403s non-browser clients — plan §11).
 reddit_user_agent = "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"
+
+[plays.llm]
+provider = "openai"            # AI-SDK provider id; "anthropic", … later — config-only swap
+extract_model = "gpt-5-mini"   # placeholder — pick at P2 against the eval set
+interpret_model = "gpt-5-mini"
+max_plays_per_tick = 5
+max_output_tokens = 2000       # per call — also the worst-case pre-dispatch cost reservation
+daily_budget_usd = 5.0         # UTC day; counter is summed from cost_usd rows in the DB
+
+[plays.llm.prices."gpt-5-mini"]  # $/Mtok per configured model — the metering source of truth
+input = 0.0                      # (invariant P6). FAIL-CLOSED: a zero or missing price for a
+output = 0.0                     # configured model REFUSES dispatch (loud log) — these shipped
+                                 # placeholders deliberately keep the queue parked until P2 sets
+                                 # real prices; they never mean "free".

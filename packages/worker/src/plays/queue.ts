@@ -22,15 +22,19 @@
  * then. No transaction is ever held across the media fetches (invariant P9): the claim is one short tx,
  * the stage is fetch+fs only, the advance is one autocommit UPDATE.
  */
-import { and, asc, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm'
 
-import { plays, type PlayMediaItem, type PlayRow } from '@wsb/shared'
+import { playExtractions, plays, type PlayMediaItem, type PlayRow, type PlayStatus } from '@wsb/shared'
 
 import type { PlaysConfig } from '../config'
 import type { Db } from '../db'
 import { log } from '../logger'
 import { abortableSleep } from '../timing'
+import type { PlayAnalyzer } from './analyzer'
+import { preparePlayImages } from './images'
 import { runMediaStage, type Fetcher, type MediaStageResult } from './media'
+import { canDispatch, costUsd, estimateInputTokens, todaySpendUsd } from './metering'
+import { validateExtraction } from './validate'
 
 /** Rows claimed per tick. A constant, not config: the media stage is cheap I/O (P2's LLM stages get the
  *  configured `max_plays_per_tick` knob instead). At ~45 plays/day this clears any realistic backlog. */
@@ -42,17 +46,26 @@ const FAILURE_BACKOFF_BASE_S = 60
 const FAILURE_BACKOFF_CAP_S = 3600
 /** Consecutive whole-tick failures before the plays loop disables itself (the radar keeps running). */
 const MAX_CONSECUTIVE_TICK_FAILURES = 5
+/** Re-check delay when dispatch is refused (no usable price / daily budget hit) — NOT a fault: no
+ *  attempts bump, the play just waits. Budget resets at UTC midnight; prices need a config change. */
+const PARK_ON_REFUSAL_S = 900
 
 export interface QueueDeps {
   /** The DEDICATED plays pool — never the radar's (invariant P9). */
   db: Db
   config: PlaysConfig
+  /** The LLM seam (P2). Absent (no OPENAI_API_KEY) → the extraction stage is skipped: rows rest at
+   *  media_ready, loudly, once per tick. */
+  analyzer?: PlayAnalyzer
+  /** Whitelist membership for the validation pass (product §4.1). Absent → everything that isn't a
+   *  known non-equity is `unvalidated` (fail-conservative). */
+  isListedTicker?: (ticker: string) => boolean
   /** Injectable for tests. */
   clock?: () => number
   fetchImpl?: Fetcher
   media?: typeof runMediaStage
-  /** Shutdown: stop claiming new rows; the in-flight row's fetches abort (cheap to redo — the full
-   *  two-phase drain matters once LLM calls exist, P2). */
+  /** Shutdown: stop claiming new rows; the in-flight row's fetches abort (cheap to redo). An LLM
+   *  call in flight is awaited — its result is paid for; the loop just stops claiming more. */
   signal?: AbortSignal
 }
 
@@ -61,27 +74,31 @@ export interface TickStats {
   advanced: number // reached media_ready this tick (archived / degraded / text-only)
   retrying: number // transient media failure (still inside the retry window) or a shutdown release
   failed: number // stage crashes that hit max_attempts (terminal)
+  extracted: number // media_ready → extracted this tick (P2)
+  parked: number // dispatch refusals (no price / budget) — waiting, not failing
 }
 
 const nowSeconds = (): number => Math.floor(Date.now() / 1000)
 
 /**
- * Claim up to `CLAIM_BATCH` due `captured` rows: not claimed (or lease-expired) and past
+ * Claim up to `limit` due rows in `status`: not claimed (or lease-expired) and past
  * `next_attempt_at`. One short transaction — SELECT … FOR UPDATE SKIP LOCKED + the claim-stamp UPDATE —
  * so concurrent claimers (a second process, a stale-lease race) partition rows instead of blocking.
  * The returned rows carry the NEW `claimedAt`: it is this claimer's fence token — every later update
  * guards on it, so a claimer that lost its lease mid-stage can't clobber the re-claimer's work.
  */
-export async function claimCaptured(db: Db, config: PlaysConfig, now: number): Promise<PlayRow[]> {
+export async function claimDue(
+  db: Db, config: PlaysConfig, now: number, status: PlayStatus, limit: number,
+): Promise<PlayRow[]> {
   return db.transaction(async (tx) => {
     const rows = await tx.select().from(plays)
       .where(and(
-        eq(plays.status, 'captured'),
+        eq(plays.status, status),
         or(isNull(plays.nextAttemptAt), lte(plays.nextAttemptAt, now)),
         or(isNull(plays.claimedAt), lt(plays.claimedAt, now - config.leaseSeconds)),
       ))
       .orderBy(asc(plays.createdUtc), asc(plays.id))
-      .limit(CLAIM_BATCH)
+      .limit(limit)
       .for('update', { skipLocked: true })
     if (rows.length) {
       await tx.update(plays).set({ claimedAt: now }).where(inArray(plays.id, rows.map((r) => r.id)))
@@ -211,13 +228,106 @@ async function processCaptured(deps: QueueDeps, row: PlayRow, now: number): Prom
   return await advanceToMediaReady(deps.db, row, status, items, now) ? 'advanced' : 'fenced'
 }
 
-/** One queue tick: claim due rows, run each row's stage with a per-row exception boundary. */
+/** Park a row on dispatch refusal: release the claim, come back later. NOT a fault — no attempts
+ *  bump, no error. Budget refusals clear at UTC midnight; price refusals need a config change. */
+async function parkForRefusal(db: Db, row: PlayRow, now: number): Promise<void> {
+  const res = await db.update(plays).set({
+    claimedAt: null,
+    nextAttemptAt: now + PARK_ON_REFUSAL_S,
+  }).where(ownedBy(row))
+  warnIfFenced(res, row, 'park')
+}
+
+/**
+ * The `media_ready` stage (P2): images + text → LLM extraction → deterministic validation →
+ * `play_extractions` row + advance to `extracted`. Money moves here, so the order is deliberate:
+ * the fail-closed dispatch gate runs BEFORE anything is sent (invariant P6), and NO transaction
+ * spans the LLM call (invariant P9) — the insert and the advance are separate autocommit writes
+ * (a crash between them re-runs extraction; the unique `(play_id, run_at)` key keeps rows distinct
+ * and `current_extraction_at` points at the winning run).
+ */
+async function processMediaReady(
+  deps: QueueDeps, analyzer: PlayAnalyzer, row: PlayRow, now: number,
+): Promise<'extracted' | 'parked' | 'fenced'> {
+  const media = Array.isArray(row.media) ? (row.media as PlayMediaItem[]) : []
+  const text = { title: row.title, selftext: row.selftext, flair: row.flair }
+  const textChars = (row.title?.length ?? 0) + (row.selftext?.length ?? 0)
+
+  const prepared = media.length
+    ? await preparePlayImages(row.id, media, {
+      mediaDir: deps.config.mediaDir,
+      maxImagesLlm: deps.config.maxImagesLlm,
+      maxRequestBytes: deps.config.maxRequestBytes,
+    })
+    : { images: [], dropped: [], totalBytes: 0 }
+
+  const decision = await canDispatch(
+    deps.db, deps.config.llm, deps.config.llm.extractModel,
+    estimateInputTokens(prepared.images.length, textChars), now * 1000)
+  if (!decision.ok) {
+    log.warn({ playId: row.id, reason: decision.reason, detail: decision.detail },
+      'plays extract dispatch REFUSED — parking the play (fail-closed metering, invariant P6)')
+    await parkForRefusal(deps.db, row, now)
+    return 'parked'
+  }
+
+  const result = await analyzer.extract(prepared.images, text)
+  const validated = validateExtraction(result.extraction, {
+    isListedTicker: deps.isListedTicker ?? (() => false),
+    mediaArchived: row.mediaStatus === 'archived' && prepared.images.length > 0,
+  })
+  const runAt = now * 1000
+  const tokensIn = result.usage.inputTokens
+  const tokensOut = result.usage.outputTokens
+  // Reconcile real cost from usage; unreported usage bills the pre-dispatch reservation — the meter
+  // must never undercount to $0 on a provider that omits usage (invariant P6).
+  const cost = tokensIn != null && tokensOut != null
+    ? costUsd(decision.prices, tokensIn, tokensOut)
+    : decision.reservedUsd
+
+  await deps.db.insert(playExtractions).values({
+    playId: row.id,
+    runAt,
+    model: result.model,
+    promptVersion: `${result.promptVersion}/${validated.schema_version}`,
+    output: validated,
+    tokensIn,
+    tokensOut,
+    costUsd: cost,
+  })
+
+  const res = await deps.db.update(plays).set({
+    status: 'extracted',
+    currentExtractionAt: runAt,
+    claimedAt: null,
+    nextAttemptAt: now, // the P3 interpret stage is due immediately once it exists
+    attempts: 0,
+    error: null,
+  }).where(ownedBy(row))
+  if (warnIfFenced(res, row, 'extract-advance')) return 'fenced'
+  log.info({
+    playId: row.id, positions: validated.positions.length, direction: validated.direction,
+    confidence: validated.confidence, screenshotKind: validated.screenshot_kind,
+    images: prepared.images.length, tokensIn, tokensOut, costUsd: Number(cost.toFixed(5)),
+  }, 'play extracted')
+  return 'extracted'
+}
+
+/** Due `media_ready` backlog — the queue-depth signal the tick logs once LLM stages exist (P2). */
+async function mediaReadyDepth(db: Db, now: number): Promise<number> {
+  const [row] = await db.select({ n: count() }).from(plays)
+    .where(and(eq(plays.status, 'media_ready'), or(isNull(plays.nextAttemptAt), lte(plays.nextAttemptAt, now))))
+  return row?.n ?? 0
+}
+
+/** One queue tick: claim due rows per stage, run each row with a per-row exception boundary. */
 export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
   const clock = deps.clock ?? nowSeconds
-  const stats: TickStats = { claimed: 0, advanced: 0, retrying: 0, failed: 0 }
-  const claimed = await claimCaptured(deps.db, deps.config, clock())
-  stats.claimed = claimed.length
-  for (const row of claimed) {
+  const stats: TickStats = { claimed: 0, advanced: 0, retrying: 0, failed: 0, extracted: 0, parked: 0 }
+
+  const captured = await claimDue(deps.db, deps.config, clock(), 'captured', CLAIM_BATCH)
+  stats.claimed += captured.length
+  for (const row of captured) {
     if (deps.signal?.aborted) break // drain: stop starting rows; unprocessed claims lapse via the lease
     try {
       const outcome = await processCaptured(deps, row, clock())
@@ -232,6 +342,40 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
         'plays stage crashed')
     }
   }
+
+  // P2: media_ready → extracted, only with a wired analyzer (no OPENAI_API_KEY → rows rest, loudly).
+  if (deps.analyzer && !deps.signal?.aborted) {
+    const batch = await claimDue(
+      deps.db, deps.config, clock(), 'media_ready', Math.min(CLAIM_BATCH, deps.config.llm.maxPlaysPerTick))
+    stats.claimed += batch.length
+    for (const row of batch) {
+      if (deps.signal?.aborted) {
+        await releaseClaim(deps.db, row, [], clock())
+        stats.retrying++
+        continue
+      }
+      try {
+        const outcome = await processMediaReady(deps, deps.analyzer, row, clock())
+        if (outcome === 'extracted') stats.extracted++
+        else if (outcome === 'parked') stats.parked++
+      } catch (e) {
+        const { terminal, fenced } = await recordStageFailure(deps.db, row, deps.config, clock(), e)
+        if (terminal) stats.failed++
+        log.error(
+          { playId: row.id, err: String(e), attempts: (row.attempts ?? 0) + 1, terminal, ...(fenced ? { fenced } : {}) },
+          'plays stage crashed')
+      }
+    }
+    if (batch.length > 0) {
+      // The P2 ops signal: realized UTC-day spend + what's still waiting (plays-plan §4).
+      const [spent, depth] = await Promise.all([todaySpendUsd(deps.db, clock() * 1000), mediaReadyDepth(deps.db, clock())])
+      log.info({ spendTodayUsd: Number(spent.toFixed(4)), mediaReadyDepth: depth }, 'plays llm spend')
+    }
+  } else if (!deps.analyzer) {
+    const depth = await mediaReadyDepth(deps.db, clock())
+    if (depth > 0) log.warn({ queued: depth }, 'plays extraction OFF (no analyzer — set OPENAI_API_KEY); media_ready backlog waiting')
+  }
+
   if (stats.claimed > 0) log.info(stats, 'plays queue tick')
   return stats
 }

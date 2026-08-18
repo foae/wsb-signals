@@ -58,6 +58,9 @@ services:
       network: host          # build-time egress to npmjs.com (nested-bridge has none); harmless elsewhere
     image: wsb-worker:latest
     restart: unless-stopped
+    # SIGTERM must outlive an in-flight LLM call + the graceful two-loop wind-down (P2, plays-plan
+    # §1) — compose's 10s default would SIGKILL mid-extraction and waste the paid call.
+    stop_grace_period: 60s
     network_mode: host       # runtime egress to Arctic-Shift / Alpaca / heartbeat
     env_file: .env           # provides DATABASE_URL, ALPACA_API_KEY, ALPACA_API_SECRET (see .env.example)
     volumes:
