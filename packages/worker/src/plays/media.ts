@@ -4,12 +4,14 @@
  * Capture is the one reliable moment the media exists — Reddit deletes gain-porn posts routinely
  * (invariant P7) — so this archives to the shared volume (`<mediaDir>/<post_id>/<n>.<ext>`) at
  * `captured → media_ready`. The shape-specific landmines:
- *  - **Gallery**: Arctic-Shift archives gallery `media_metadata` as null (verified 2026-08-18), so the
- *    image list must come from Reddit's public post JSON (`https://www.reddit.com<permalink>.json`,
- *    browser-ish UA — the post is minutes old). Image ORDER comes from `gallery_data.items[].media_id`
- *    (`media_metadata` alone is an UNORDERED keyed object, and the first image is nearly always the
- *    position screenshot — a cap must take the first N, not an arbitrary subset); `media_metadata`
- *    supplies the extension via its mime.
+ *  - **Gallery**: resolved LOCALLY from the archived raw dict first — Arctic-Shift archives
+ *    `gallery_data` + `media_metadata` for fresh gallery posts (verified live at the P1 gate,
+ *    2026-08-18; the design-time "null media_metadata" observation was from stale archives). Reddit's
+ *    public post JSON (`https://www.reddit.com<permalink>.json`) is only the fallback for a
+ *    metadata-less raw — and 403-blocks non-browser clients from many networks, so expect degrades on
+ *    that path. Image ORDER comes from `gallery_data.items[].media_id` (`media_metadata` alone is an
+ *    UNORDERED keyed object, and the first image is nearly always the position screenshot — a cap must
+ *    take the first N, not an arbitrary subset); `media_metadata` supplies the extension via its mime.
  *  - **Inline self-post images**: `media_metadata` IS archived for text posts — resolve those instead of
  *    silently dropping to text-only. Order = first appearance of each media id in the selftext (the only
  *    order signal that exists), unknown ids last.
@@ -214,6 +216,14 @@ export async function resolveImages(play: PlayRow, deps: MediaDeps): Promise<Res
   const max = deps.config.maxImagesStored
 
   if (play.isGallery) {
+    // Local-first (P1 gate finding, 2026-08-18): Arctic-Shift DOES archive `gallery_data` +
+    // `media_metadata` for fresh gallery posts — the design-time "archived as null" observation does
+    // not hold at capture time — and the Reddit post-JSON endpoint 403-blocks non-browser clients
+    // from this network. So the archived dict is the primary source and the fetch is the fallback
+    // for the (now rare) metadata-less raw.
+    const local = galleryImages(raw, max)
+    if (local.length > 0) return { kind: 'images', images: local }
+
     const permalink = play.permalink
     if (!permalink) return { kind: 'gone', detail: 'gallery post without permalink' }
     // raw_json=1 keeps URLs unescaped in the payload.

@@ -124,7 +124,20 @@ describe('runMediaStage', () => {
     expect(await readFile(join(TMP, 'direct1/0.jpg'))).toEqual(bytes)
   })
 
-  it('gallery: resolves via the reddit post JSON, preserving gallery order on disk', async () => {
+  it('gallery: resolves LOCALLY from the archived raw — the 403-prone reddit JSON is never touched', async () => {
+    const { fetch, calls } = fakeFetch({
+      'https://i.redd.it/img_b.jpg': () => new Response(Buffer.from('b-bytes'), { status: 200 }),
+      'https://i.redd.it/img_a.png': () => new Response(Buffer.from('a-bytes'), { status: 200 }),
+    })
+    const r = await runMediaStage(
+      play({ id: 'gal0', isGallery: true, permalink: '/r/wsb/comments/g0/x/', raw: galleryPostData }), deps(fetch))
+
+    expect(r.retryable).toBe(false)
+    expect(r.items.map((i) => i.path)).toEqual(['gal0/0.jpg', 'gal0/1.png'])
+    expect(calls.some((u) => u.includes('.json'))).toBe(false) // local metadata → no post-JSON fetch
+  })
+
+  it('gallery FALLBACK: resolves via the reddit post JSON when the raw lacks gallery metadata', async () => {
     const { fetch, calls } = fakeFetch({
       'https://www.reddit.com/r/wsb/comments/g1/x/.json?raw_json=1': () =>
         new Response(JSON.stringify([{ data: { children: [{ data: galleryPostData }] } }]), { status: 200 }),

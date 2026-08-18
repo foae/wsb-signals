@@ -115,7 +115,7 @@ validate → evidence build → LLM interpret/categorize → publish → daily o
 
 Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`. Landed at P1:
 `capture.ts` (flair filter + ON CONFLICT DO NOTHING enqueue, called from `runCycle` AFTER
-`publishCycle` commits), `media.ts` (resolver/archiver: direct + gallery-via-Reddit-JSON + inline
+`publishCycle` commits), `media.ts` (resolver/archiver: direct + gallery-from-archived-raw (Reddit-JSON fallback, 403-prone) + inline
 self-post images; transient-vs-permanent split), `queue.ts` (the second loop: `FOR UPDATE SKIP
 LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff, `captured → media_ready`;
 LLM stages stubbed until P2). Still to land: analyzer seam (P2), evidence (P3), marks (P5). The web

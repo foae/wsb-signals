@@ -133,12 +133,15 @@ that actually exists.
   `status` backwards. Explicitly NOT the radar's `onConflictDoUpdate` house style — that would
   reset status and re-enqueue (and re-charge) every play 12×/hour.
 - **Media resolver** (`plays/media.ts`), per the media shapes (product §3): direct `i.redd.it`
-  download; gallery → fetch `https://www.reddit.com<permalink>.json` (browser-ish UA, the post is
-  minutes old) — **image order comes from `gallery_data.items[].media_id`**, with `media_metadata`
-  supplying extensions: `media_metadata` alone is an *unordered* keyed object, and the first
-  gallery image is nearly always the position screenshot, so the ≤ 8-image LLM cap must take the
-  first eight, not an arbitrary subset. (The Reddit fetch is required because Arctic-Shift archives
-  gallery `media_metadata` as `null` — verified 2026-08-18.) Also resolve **inline images in
+  download; gallery → resolve **locally from the archived raw dict first** (the P1 gate found
+  Arctic-Shift DOES archive `gallery_data` + `media_metadata` for fresh gallery posts, contra the
+  design-time null observation), falling back to `https://www.reddit.com<permalink>.json`
+  (browser-ish UA) only when the raw lacks gallery metadata — that endpoint 403-blocks non-browser
+  clients (verified live at the P1 gate), so the fallback usually degrades. **Image order comes
+  from `gallery_data.items[].media_id`**, with `media_metadata` supplying extensions:
+  `media_metadata` alone is an *unordered* keyed object, and the first gallery image is nearly
+  always the position screenshot, so the ≤ 8-image LLM cap must take the first eight, not an
+  arbitrary subset. Also resolve **inline images in
   self-posts** (`media_metadata` present on a text post) rather than dropping to text-only. Caps:
   ≤ 20 images stored / ≤ 8 to the LLM / ≤ 10 MB each, plus the per-request total-bytes cap (§1).
   Archive with sha256 + bytes recorded. **Transient fetch failures retry with bounded backoff**
@@ -384,9 +387,12 @@ token budget and the §1 memory cap; the workspace already pre-approves native b
 
 ## 11. Risks & open questions
 
-- **Reddit JSON fetch for galleries** may 403 on some networks — home-LAN residential IP + sane UA
-  is expected to pass; P1 verifies live. Fallback is text-only analysis (invariant P7), so failure
-  degrades rather than blocks. `[verify at P1]`
+- **Reddit JSON fetch for galleries** — `[verified at P1, 2026-08-18]`: it 403s from the home LAN
+  (browser UA does not help — all unauthenticated `.json` endpoints blocked, www and old alike),
+  BUT the gate also found the fetch is rarely needed: Arctic-Shift archives `gallery_data` +
+  `media_metadata` for fresh gallery posts, so galleries resolve locally from the raw dict
+  (`i.redd.it` image downloads are NOT blocked). The Reddit fetch survives only as the fallback for
+  a metadata-less raw, where it degrades to text-only (invariant P7).
 - **Alpaca free per-contract option marks** — verified on this account (Phase 0.2 probe,
   2026-06-03); re-probe at P5, intrinsic-value fallback is the floor either way.
 - **Extraction quality on cluttered screenshots** (portfolio views, dark-mode crops) — the eval set

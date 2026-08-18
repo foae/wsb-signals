@@ -71,7 +71,7 @@ Per candidate, media falls into these shapes (the first three verified live):
 | Shape | How it arrives | Handling |
 |---|---|---|
 | Single image | `url` = `i.redd.it/….jpeg` | download directly |
-| Gallery | `url` = `reddit.com/gallery/<id>`, `is_gallery: true` — **Arctic-Shift archives `media_metadata` as `null`** (verified live), so the image list is NOT in the archive | resolve via Reddit's public post JSON (`permalink` + `.json`) at capture time — the post is ~5 min old, so this works live-forward; fallback on failure: text-only |
+| Gallery | `url` = `reddit.com/gallery/<id>`, `is_gallery: true` — **Arctic-Shift archives `gallery_data` + `media_metadata` for fresh posts** (P1 gate finding, 2026-08-18; the earlier "null" observation was from stale archives) | resolve locally from the archived dict (order from `gallery_data`, ext from `media_metadata` mime); Reddit's public post JSON (`permalink` + `.json`) is the fallback for a metadata-less raw — it 403s non-browser clients (verified at P1), so that path usually degrades to text-only |
 | Inline images in a self-post | text post with `media_metadata` present (images embedded in `selftext`) | resolve like a gallery — don't silently drop to text-only `[prevalence unverified — measure at P1]` |
 | Text-only | `url` empty or self-permalink, no media | no vision step; the play is analyzed from title + selftext alone |
 
