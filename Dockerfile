@@ -3,7 +3,7 @@
 # the venv + app (no uv, no toolchain). Pinned to the host's uv (0.11.18) for lockfile parity.
 
 # ---- builder: resolve + install deps and the project from uv.lock -------------------------------
-FROM python:3.12-slim-bookworm AS builder
+FROM python:3.14-slim-trixie AS builder
 COPY --from=ghcr.io/astral-sh/uv:0.11.18 /uv /uvx /bin/
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
@@ -17,7 +17,7 @@ COPY wsb_signals ./wsb_signals
 RUN uv sync --frozen
 
 # ---- runtime: venv + app only -------------------------------------------------------------------
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.14-slim-trixie AS runtime
 WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
