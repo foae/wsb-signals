@@ -35,14 +35,33 @@ Everything lands inside the existing topology — no new services:
     connect timeout, and the advisory lock permanently holds one client (`db.ts`) — a plays
     transaction held open across a 10–60 s LLM call could starve `publishCycle` silently. Hence
     also invariant P9: no transaction or pooled client is ever held across a network/LLM call.
-  - **Shared shutdown.** One AbortController spans all three loops; SIGTERM or advisory-lock loss
-    aborts all of them, the worker awaits their drain, and only then closes the pools (today's
-    `startWorker` `finally` would end the pool under in-flight plays queries). Compose gets a
-    `stop_grace_period` long enough for an in-flight vision call to finish rather than being
-    SIGKILLed at Docker's 10 s default — a killed call is paid work re-run on restart.
-  - **Memory.** A total-bytes cap plus downscaling on images per LLM request — 8 × 10 MB images is
-    ~107 MB of base64 in the same heap as the radar; an OOM kills both loops, not one.
-  No new container.
+  - **Shared shutdown — two phases, because abort-everything contradicts P8.** Aborting an
+    in-flight LLM fetch bills partial tokens *and* re-runs the stage on restart (double charge).
+    Phase 1 (drain): stop claiming new work, abort the radar's poll fetches (cheap to redo), and
+    let in-flight LLM calls **complete and commit** their child-row transaction. Phase 2 (abort):
+    after the drain deadline, abort whatever remains. The worker awaits both phases, then closes
+    the pools (today's `startWorker` `finally` would end the pool under in-flight plays queries).
+    Compose gets a `stop_grace_period` sized to phase 1 + slack, not Docker's 10 s default.
+  - **Memory & CPU.** A total-bytes cap plus downscaling on images per LLM request — 8 × 10 MB
+    images is ~107 MB of base64 in the same heap as the radar; an OOM kills both loops, not one.
+    Downscaling is **`sharp`** (libvips — native, and the workspace already pre-approves native
+    builds): pure-JS resizing or base64 of full-size images is seconds of *synchronous* CPU on the
+    one event loop the radar shares — P1 can be violated by CPU, not just memory. `sharp` does its
+    work on libvips threads, off the main loop.
+  - **Exception paths.** `loop.ts` installs a global `uncaughtException → process.exit(1)` (and a
+    guarded `unhandledRejection`) — one unguarded synchronous throw in plays code kills the radar.
+    Rules: **`index.ts` owns all process-level handlers** (the loops never install their own — a
+    second copy of today's handler block would race shutdown); every plays tick awaits every
+    promise it starts (no floating promises), and each loop's tick body is the exception boundary.
+    A repeatedly-throwing plays tick disables the plays loop with a loud log; the radar keeps
+    running.
+  - **Shared external quota.** Alpaca allows ~200 req/min account-wide; the marks job (per-contract
+    snapshots) and the radar's market overlay draw from the same bucket. One shared rate limiter,
+    and marks batches are bounded (≤ 100 contract symbols per snapshot call — the API cap — and
+    paced) so a fat marks day can't starve the radar's H_m cycle.
+  No new container. If P1 still proves leaky in practice, the escape hatch is running the plays
+  loops as a second process on the same schema — the queue design (leases, statuses) already
+  tolerates it.
 - **Media volume.** `data/media/plays/<post_id>/<n>.<ext>` on a volume mounted by both worker
   (write) and web (read) — the same shared-volume idiom the v0.0.1 snapshot used. LAN-only, so the
   web serves files straight off it via a Nitro route.
@@ -81,19 +100,30 @@ changes intentionally, regenerate fixtures from the tag (`git worktree add /tmp/
 old `oracle/dump_fixtures.py` procedure — document this in `fixtures/README`).
 
 **Reframe:** `CLAUDE.md` + `README.md` rewritten around *plays product + radar subsystem*;
-`ROADMAP.md` gains the Plays phase; `design/` gains these two docs as the active direction.
+`ROADMAP.md` gains the Plays phase; `design/` gains these two docs as the active direction;
+`design/v2-porting-spec.md` §12 (the shadow gate) gets a tombstone note, and the
+`deploy/v2/compose.yml` healthcheck comment pointing at the deleted `deploy/README.md` is fixed —
+this repo's own rule is that doc/code drift is a bug. Accepted cost, stated: `verifyPublished`
+running unconditionally adds ~4 window reads per 5-min cycle, negligible against a same-box
+Postgres.
 
 Gate: `pnpm -r typecheck` + all worker/web tests green with the tree pruned; docs describe the repo
 that actually exists.
 
 ## 3. Slice P1 — capture & media
 
-- **Ingest:** `PollResult` gains `playCandidates: RawThing[]` — the *full* raw dicts (~110 keys,
-  verified live) for posts whose `link_flair_text` matches `plays.flairs` (`RawThing` gets
-  exported). `normalizePost` and all parity behavior stay byte-identical. **Capture runs only for
-  polls the radar accepts:** an `ok=false` poll is discarded whole (architecture §5) *including
-  its candidates* — harmless, because the 5-min poll over a 1-h window re-delivers every post on
-  ~12 consecutive cycles anyway. That same re-delivery makes idempotency load-bearing
+- **Ingest:** `PollResult` gains `rawPosts: RawThing[]` — the *full* raw dicts (~110 keys,
+  verified live) for the polled posts, with `RawThing` exported. **The `Source` seam stays
+  plays-agnostic**: flair filtering happens in `plays/capture.ts`, not inside `poll()` — coupling
+  the Reddit tap to `plays.flairs` would leak product config into the one abstraction built to
+  not know about it (trivial memory cost at ~35 posts/cycle). `normalizePost` and all parity
+  behavior stay byte-identical. **Capture keys on the posts-side fetch succeeding** (`p.ok`), not
+  the whole poll: architecture §5's discard-partial-polls invariant protects the *SoV denominator*
+  — plays capture aggregates nothing, and a prolonged comments-side failure would otherwise lose
+  a whole window of plays whose media is meanwhile being deleted. The radar's own discard
+  semantics are untouched. **The enqueue is a best-effort insert *outside* every radar
+  transaction, after `publishCycle` commits** — inside it, a plays-table error would roll back the
+  radar cycle (P1). Re-delivery (~12 sightings/post) makes idempotency load-bearing
   (invariant P8): the `plays` insert is **`ON CONFLICT DO NOTHING`**, and no writer ever moves
   `status` backwards. Explicitly NOT the radar's `onConflictDoUpdate` house style — that would
   reset status and re-enqueue (and re-charge) every play 12×/hour.
@@ -115,22 +145,32 @@ that actually exists.
 
   | Table | Shape (abridged) |
   |---|---|
-  | `plays` | `id` (reddit post id, PK); all timestamps **bigint epoch seconds** (the schema-wide `int8` convention — no `timestamptz` drift): `created_utc`, `captured_at`, `published_at`; `author`, `flair`, `title`, `selftext`, `permalink`, `url`, `is_gallery`, `media` jsonb (paths+hashes), `media_status`, `raw` jsonb (full Arctic-Shift dict — provenance + reprocessing); `score`, `num_comments`, `removed` (filled by the ≥ 48 h refresh, P5 — archive-time engagement values are 0/1); **queue fields:** `status`, `attempts`, `next_attempt_at`, `claimed_at` (lease), `error`; **current-run pointers:** `current_extraction_at`, `current_interpretation_at`; denormalized board fields filled by P3: `primary_ticker`, `category`, `tags` jsonb, `confidence`, `pnl_abs`, `pnl_pct`, `realized`, `summary`, `tldr`, `extractor_version`, `interpreter_version`, `taxonomy_version`; tracking: `track_status`, `track_until`. Indexes: `status`, `published_at`, `primary_ticker`, `category`, `(track_status, track_until)`, `(author, primary_ticker)`. |
+  | `plays` | `id` (reddit post id, PK); all timestamps **bigint epoch seconds** (the schema-wide `int8` convention — no `timestamptz` drift): `created_utc`, `captured_at`, `published_at`; `author`, `flair`, `title`, `selftext`, `permalink`, `url`, `is_gallery`, `media` jsonb (paths+hashes), `media_status`, `raw` jsonb (full Arctic-Shift dict — provenance + reprocessing); `score`, `num_comments`, `removed`, `refreshed_at` (the ≥ 48 h refresh marker, P5 — without it "once per play" is unenforceable and the pass re-selects the same rows forever; archive-time engagement values are 0/1); **queue fields:** `status`, `attempts`, `next_attempt_at`, `claimed_at` (lease), `error`; **current-run pointers:** `current_extraction_at`, `current_interpretation_at`; denormalized board fields filled by P3: `primary_ticker`, `category`, `tags` jsonb, `confidence`, `pnl_abs`, `pnl_pct`, `realized`, `summary`, `tldr`, `extractor_version`, `interpreter_version`, `taxonomy_version`; tracking: `track_status`, `track_until`. Indexes: `status`, `published_at`, `primary_ticker`, `category`, `(track_status, track_until)`, `(author, primary_ticker)`. |
   | `play_extractions` | surrogate `id` PK; unique `(play_id, run_at)` with `run_at` in **milliseconds** (a fast retry in the same second must not be an insert error); `model`, `prompt_version`, `output` jsonb, `tokens_in/out`, `cost_usd` |
   | `play_interpretations` | same keying; `model`, `prompt_version`, `evidence` jsonb (the assembled radar+market block — invariant P2), `output` jsonb, `tokens_in/out`, `cost_usd` |
-  | `play_marks` | `(play_id, ts)` PK (`ts` = session date), `mark_value`, `pnl_abs`, `pnl_pct`, `source` (`close\|option_mark\|intrinsic_floor\|expiry_intrinsic`), `feed_conf`, `note` |
+  | `play_marks` | **`(play_id, position_id, ts)` PK** (`ts` = session date) — per *position*, not per play: a portfolio play holding shares and options cannot carry one `source`/`feed_conf`, and partial closes would be invisible at play grain. `mark_value`, `pnl_abs`, `pnl_pct`, `source` (`close\|option_mark\|intrinsic_floor\|expiry_intrinsic`), `feed_conf`, `note`. Play-level P&L = sum over positions. |
   | `play_links` | `(play_id, resolution_play_id)` PK, `kind` (`author-followup`), `linked_at` |
 
 - **Queue skeleton:** recursive-timeout tick (default 60 s — never `setInterval`: with
   `max_plays_per_tick` vision calls a tick can easily outlast the interval, and overlapping ticks
-  double-process the same rows, i.e. double-spend). Rows are picked under a lease (`claimed_at`)
-  with `attempts`/`next_attempt_at` backoff; `failed` is terminal **only after `max_attempts`** —
-  a single transient OpenAI 429 must not permanently kill a play, and a play that crashes the tick
-  must not burn budget on every pass. Statuses: `captured → media_ready → extracted → analyzed →
-  published`, off-ramp `failed` (with `error`). Media state lives in `media_status`, not the queue
-  status — a media failure degrades to text-only and the queue proceeds. LLM stages stubbed in P1.
+  double-process the same rows, i.e. double-spend). Rows are claimed with
+  `FOR UPDATE SKIP LOCKED` under a lease: `claimed_at` is set on claim, and a row whose
+  `claimed_at < now − lease_minutes` is **re-claimable** — without stale-lease recovery, a crash
+  mid-LLM-call strands its rows as claimed-forever. `attempts`/`next_attempt_at` drive backoff;
+  `failed` is terminal **only after `max_attempts`** — a single transient OpenAI 429 must not
+  permanently kill a play, and a play that crashes the tick must not burn budget on every pass.
+  **Each stage commits its child row + status advance + cost in one transaction** (the LLM call
+  itself stays outside any tx, per P9) — that makes crash-between-call-and-commit the *only*
+  double-charge path, bounded by `max_attempts` (P8). Statuses: `captured → media_ready →
+  extracted → analyzed → published`, off-ramp `failed` (with `error`). Media state lives in
+  `media_status`, not the queue status — a media failure degrades to text-only and the queue
+  proceeds. LLM stages stubbed in P1.
 - Web: a bare `/plays` list of captured rows (title, flair, thumbnail) — proves the volume + media
-  route end-to-end before any LLM money is spent.
+  route end-to-end before any LLM money is spent. This means the **minimal `/api/media/**` route
+  and the shared media volume land here in P1**, not P4 (the gate needs thumbnails; P4 only grows
+  the UI around them). The P1 gate also **measures gallery prevalence and Reddit-JSON fetch
+  success rate** — if galleries are common and the fetch 403s, most plays degrade to text-only
+  and the product is mostly hidden-by-default rows; better to learn that before P2 spends money.
 
 Gate: live worker captures real plays with images on disk; testcontainers IT covers capture +
 media states; radar cycle timing unaffected.
@@ -154,12 +194,20 @@ media states; radar cycle timing unaffected.
   `ai` v5+, and OpenAI strict structured outputs reject `.optional()` — the schema uses
   `.nullable()` throughout `[verify at P2]`. Deterministic validation pass per product §4.1
   (three-outcome ticker check incl. known-non-equity underlyings, P&L arithmetic cross-check at
-  2 % tolerance, confidence derivation — invariant P3).
-- **Metering:** token/cost accounting per call → `cost_usd`; per-tick count cap + daily budget cap
-  enforced *before* dispatch (invariant P6). **Per-model prices live in config next to the model
-  ids** (`[plays.llm.prices]`) — hardcoded prices silently under-meter by 10–20× the moment the
-  placeholder model is swapped for a frontier one, and the cap stops binding. A configured model
-  with no price entry logs a warning and is priced as the most expensive known entry.
+  2 % tolerance, confidence derivation — invariant P3). **The P2↔P5 pin is compile-checked, not
+  aspirational: P2 lands a pure `markPlay(extraction, quotes)` function signature + unit tests
+  over the pinned schema** (sign conventions, multiplier, per-leg summing); P5 fills in the quote
+  plumbing. Nothing else forces the pin to hold across three slices.
+- **Metering — fail-closed (invariant P6):** token/cost accounting per call → `cost_usd`.
+  **Per-model prices live in config** (`[plays.llm.prices]`), and a **zero or missing price for a
+  configured model refuses dispatch** (queue the play, log loudly) — "price as the most expensive
+  known entry" is empty when the only entries are the shipped `0.0` placeholders, and a $0 meter
+  makes the daily cap literally inert (all four external reviewers flagged this independently).
+  The daily counter is **summed from today's `cost_usd` rows in the DB** — an in-memory counter
+  re-opens the cap on every restart. Pre-dispatch enforcement reserves the worst case (input
+  tokens + configured `max_output_tokens`); actual cost reconciles after the call. The P2 gate's
+  "budget caps proven by unit test" must include the all-zero-price and restart cases —
+  otherwise it proves the cap against a $0 meter.
 - **Eval harness:** `plays-eval` runs the extractor over `fixtures/plays/` — **≥ 30 real captured
   screenshots** (a dozen gives ±20-point confidence intervals: 80 % would be indistinguishable
   from 60 %), stratified across screenshot kinds (single position / portfolio / order ticket) and
@@ -167,7 +215,13 @@ media states; radar cycle timing unaffected.
   field-by-field diff against hand-labeled expected JSON (exact match per field; a correct `null`
   scores as correct; per-field accuracy reported, not one blended number). Machine scoring makes
   the harness repeatable across model swaps, which is what it exists for — model choice is decided
-  here. A manual quality *gate*, not CI; CI covers the seam with the injected fake.
+  here. A manual quality *gate*, not CI; CI covers the seam with the injected fake. **Marking-
+  critical fields get their own near-perfect thresholds** (ticker, side, quantity, strike, expiry
+  — the fields P5's money math consumes): an aggregate 80 % can pass while every expiry is wrong.
+  Deploy ordering fixes that surfaced here: `OPENAI_API_KEY` in `deploy/v2/.env.example` and the
+  §1 `stop_grace_period` land **at P2** (live paid calls start here, not P4), and basic
+  **spend + queue-depth logging also lands at P2** — money starts moving three slices before P6's
+  ops polish.
 
 Gate: eval set ≥ 80 % field accuracy (hand-judged); budget caps proven by unit test; live queue
 extracts real plays.
@@ -191,6 +245,10 @@ extracts real plays.
   is that update (readers filter `status = 'published'`). Detail pages read child rows **by the
   pointers, never `max(run_at)`**: a reprocess that writes a new interpretation and dies before the
   row update must not leave v2 evidence displayed under a v1 category badge.
+- **Board P&L semantics, decided:** the card and `|P&L|` sort use the **posted** P&L (what the
+  screenshot showed — that *is* the play's content); open tracked plays additionally show a
+  current-mark delta badge from the latest `play_marks` row. Marks never overwrite the denormalized
+  posted P&L.
 
 Gate: ~20 live plays reviewed by hand read sensibly; `herd-following` appears only with evidence;
 versions + evidence stored on every row.
@@ -226,14 +284,29 @@ Gate: browse real plays end-to-end on the LAN deploy; web lint/typecheck/IT gree
   capture `primary_ticker` doesn't exist yet (it's filled by P3), so a capture-time join is on
   NULL. Look back for an open play by the same author + primary ticker (90 d) → `play_links` +
   `resolved-posted`. Null/`[deleted]`/bot authors (config bot list) never join — deleted-author
-  plays would otherwise cross-link freely.
-- **≥ 48 h refresh pass** (piggybacks the marks job, once per play): re-query Arctic-Shift for
+  plays would otherwise cross-link freely. **Ambiguity resolves to nothing:** one author can hold
+  several open plays on the same ticker; link only on a unique match (refined by option
+  identity/expiry where extracted), otherwise leave unresolved — a wrong resolution is worse than
+  none. When P5 lands it runs **one idempotent backlog reconciliation** over plays published
+  during P3/P4, which the linker's arrival otherwise misses.
+- **Scheduler durability:** the marks job is **calendar-driven, recomputed each wake** — fetch the
+  next session's close from `/v2/calendar` (which also handles half-days) and sleep until close
+  + 30 min; never a fixed 24 h or fixed-UTC-hour sleep. A `job_runs` ledger rows each session;
+  a missed session (worker down) leaves a **gap** — option quotes are not reconstructible after
+  the fact, so catch-up never fabricates marks. Note: `/v2/calendar` lives on the **Trading host**
+  (`api.alpaca.markets`) and per-contract option snapshots are a Data-host endpoint the radar
+  never calls — **P5 grows the `MarketData` seam** (calendar + option snapshots); the current
+  `market.ts` surface is snapshots/screeners only, and the plan must not pretend otherwise.
+- **≥ 48 h refresh pass** — its own daily tick, **not** gated on trading days (a weekend post's
+  `removed` flag must not wait for Monday's close; sets `refreshed_at`, once per play): re-query
+  Arctic-Shift for
   live `score`/`num_comments` → the `plays` columns. Not earlier: the archive ingests at creation
   and its engagement numbers stay 0/1 until ~36 h (`arctic-shift-api.md` — "do not trust
   engagement numbers on <36h-old items"); a 24 h one-shot would freeze zeros forever. The same
   pass sets `removed` when Reddit shows the post removed/deleted — an auto-published board
   otherwise accumulates 404 permalinks with locally served screenshots and no flag; the UI gets a
-  removed-post treatment.
+  removed-post treatment. **A 404 from both probes IS the removed signal** — treat it as
+  `removed`, not as a failed refresh that retries forever.
 - UI: outcome sparkline + status on the detail page; "resolved by" cross-link.
 
 Gate: a real YOLO play accrues marks across closes; expiry intrinsic finalization unit-tested;
@@ -245,11 +318,14 @@ option-feed probe outcome recorded in this doc.
   (invariant P5) an analyzing agent must repeat in its output.
 - `plays-export` CLI (`pnpm -C packages/worker plays-export -- --from … --to … --format json|csv`)
   → `data/exports/`.
-- **Reprocess path:** select rows whose `extractor_version`/`interpreter_version`/
-  `taxonomy_version` trails current → re-enqueue; new child rows land and the current-run pointers
-  advance on completion (the P3 publish rule makes this crash-safe). Budget-aware by design: a
-  full-corpus re-run competes with the daily cap (weeks of cap at scale), so it requires an
-  explicit budget override flag.
+- **Reprocess path — a separate queue mode that NEVER touches `status`** (three reviewers
+  independently flagged the contradiction with P8's "status never moves backwards"): rows whose
+  `extractor_version`/`interpreter_version`/`taxonomy_version` trails current are picked by a
+  reprocess flag while staying `published` — the board keeps serving the old child rows via the
+  current-run pointers until the new rows commit and the pointers advance (the P3 publish rule
+  makes this crash-safe; a play never blanks from the board mid-reprocess). Idempotency is per
+  **(play, stage, version)**. Budget-aware by design: a full-corpus re-run competes with the daily
+  cap (weeks of cap at scale), so it requires an explicit budget override flag.
 - `deploy/v2/README.md` + ops runbook additions (budget knob, queue-depth logging, media-volume
   sizing **~500 MB/month** — 200 KB–2 MB per screenshot at ~45 plays/day — plus a retention/
   pruning knob so the named volume isn't unbounded).
@@ -262,6 +338,7 @@ enabled = true
 flairs = ["Gain", "Loss", "YOLO", "Verified Trade"]
 queue_interval_s = 60
 max_attempts = 4               # transient-failure retries before a play is terminally `failed`
+lease_minutes = 10             # stale-claim recovery: claimed_at older than this is re-claimable
 media_retry_minutes = 10       # re-attempt window for transient media-fetch failures
 max_images_stored = 20
 max_images_llm = 8
@@ -273,11 +350,14 @@ provider = "openai"            # AI-SDK provider id; "anthropic", … later — 
 extract_model = "gpt-5-mini"   # placeholder — pick at P2 against the eval set
 interpret_model = "gpt-5-mini"
 max_plays_per_tick = 5
-daily_budget_usd = 5.0
+max_output_tokens = 2000         # per call — also the worst-case pre-dispatch cost reservation
+daily_budget_usd = 5.0           # UTC day; counter is summed from cost_usd rows in the DB
 
 [plays.llm.prices."gpt-5-mini"]  # $/Mtok per configured model — the metering source of truth
-input = 0.0                      # (invariant P6). Set real values at P2; a configured model with
-output = 0.0                     # no entry logs a warning and is priced as the most expensive one.
+input = 0.0                      # (invariant P6). FAIL-CLOSED: a zero or missing price for a
+output = 0.0                     # configured model REFUSES dispatch (loud log) — these shipped
+                                 # placeholders deliberately keep the queue parked until P2 sets
+                                 # real prices; they never mean "free".
 
 [plays.herd]
 lookback_hours = 72
@@ -292,8 +372,10 @@ Secrets: `OPENAI_API_KEY` (worker env; later `ANTHROPIC_API_KEY` etc.). Web gain
 
 ## 10. New dependencies
 
-`@wsb/worker`: `ai`, `@ai-sdk/openai`. That's the list — media archiving uses undici (present),
-charts are inline SVG, web adds nothing.
+`@wsb/worker`: `ai`, `@ai-sdk/openai`, **`sharp`** (image downscale/re-encode off the main event
+loop — pure JS cannot resize a JPEG, and shipping full-size images instead would blow both the
+token budget and the §1 memory cap; the workspace already pre-approves native builds). Media
+*fetching* uses undici (present), charts are inline SVG, web adds nothing.
 
 ## 11. Risks & open questions
 
@@ -308,3 +390,9 @@ charts are inline SVG, web adds nothing.
   count; a zero-capture day with nonzero poll volume warrants a flair-list check.
 - **Earnings/macro enrichment is thin by design** (free sources only): model-recalled events are
   labeled unverified; a free earnings-calendar source can be a later, separate proposal.
+- **Single-process isolation has accepted residual risk** (OOM, disk-full, an exception path the
+  §1 rules miss): named in invariant P1, with the second-process escape hatch pre-designed (the
+  lease-based queue already tolerates it).
+- **Movers-list evidence:** `sources/alpaca.md` marks the screeners "[uncertain free]", but the
+  Phase 0.2 probe verified them working on this account's free tier — the evidence chip is real;
+  re-confirm during P3 (entitlements change).

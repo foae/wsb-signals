@@ -98,9 +98,19 @@ One structured-output call: screenshot(s) + title + selftext → a versioned `Pl
   `direction`, which is *derived* (a sold put is short **and** bullish; conflating them inverts
   P&L on a very common WSB position) — strike, **full expiry date** (screenshots show "1/17"; the
   extractor resolves the year or leaves it null — OCC symbols need `YYMMDD`), quantity, avg price,
-  cost basis, current value, P&L ($ and %), realized vs unrealized. Option prices are per-share
-  with the ×100 contract multiplier applied only in downstream math — the schema pins the
-  convention so marks can't be off by exactly 100×,
+  cost basis, current value, P&L ($ and %), realized vs unrealized. Each leg carries a **stable
+  `position_id`** (marks and partial-close tracking key on it). **`quantity` is always positive;
+  `side` carries the sign** — one pinned convention, because a double-negative in spread-sum math
+  is the same class of landmine as the multiplier. Option prices are per-share with the ×100
+  contract multiplier applied only in downstream math — the schema pins the convention so marks
+  can't be off by exactly 100×. Also per position: **`opened_at`** (the position-open date shown on
+  most broker screenshots — the evidence anchor, §4.2) and **`currency`** (non-USD broker
+  screenshots are common; marking them against US quotes without flagging would be silently wrong
+  — non-USD positions are `untrackable` in v1),
+- the play's overall bull/bear **direction is derived by a defined function**, not left to the
+  model: each leg maps to a directional sign (long stock/long call/short put → bullish; short
+  stock/long put/short call → bearish), the play takes the majority sign weighted by cost basis,
+  and mixed/hedged books resolve to `neutral` — which the herd measure treats as no-match,
 - per-field and overall confidence.
 
 This shape is **pinned against the P5 marking math before P2 lands** — plays extracted with a
@@ -122,14 +132,24 @@ A second structured-output call whose prompt contains only **evidence the system
 
 - the validated extraction,
 - post title + selftext,
-- **radar evidence** (deterministic): heat rank and SoV from the **last complete window at or
-  before the post** — max `cycle_runs.window_start` strictly below the post's own hour bucket. The
-  current bucket is still accumulating (rewritten every 5-min cycle); reading it would ground the
-  board's headline evidence chip ("TSLA was #2 by heat when this was posted") in ~minutes of data
-  for any play posted early in an hour. Plus: mentions/distinct authors over trailing 24 h/72 h,
-  and the count of *prior* same-ticker, same-direction position posts in the trailing 72 h —
-  **excluding the play's own mention**, which the radar persists in the same cycle (the herd
-  measure),
+- **radar evidence** (deterministic), anchored at the right *moment*: a Gain/Loss post documents a
+  trade opened **days or weeks before the post** — only YOLO posts have post-time ≈ position-time.
+  Evidence computed at post time would describe the attention state of an irrelevant moment and let
+  the herd gate fire on chatter that postdates the trade's entry. So: **extraction captures the
+  position-open date** (`opened_at` — visible on most broker screenshots) and evidence windows
+  anchor there when present; post-time anchoring is the fallback and is **badged as weaker
+  evidence**. Window semantics: the **last complete radar window at or before the anchor**, where
+  "complete" requires a `cycle_runs` row *at or after* the anchor's own hour bucket to exist (the
+  first cycle of the next bucket is what finalizes W−1 — a bare `max(window_start)` read can catch
+  features that are still being rewritten), with a **staleness bound**: if the newest complete
+  window is more than a few hours older than the anchor (radar outage), the chip reads "heat
+  evidence unavailable" rather than serving stale context. The **herd measure**, precisely:
+  count of **distinct authors** (not posts — WSB serial-reposters would fabricate a herd) of prior
+  posts (`thing_type = 'post'`, flair in the plays set) on the same ticker with the same derived
+  direction in the trailing 72 h before the anchor, **excluding the play's own author**.
+  `known-non-equity` underlyings (SPX, /ES, …) never enter the whitelist-gated `mentions` table,
+  so their radar evidence is structurally absent — shown as "unavailable", and `herd-following` is
+  unassignable for them. Plus: mentions/distinct authors over trailing 24 h/72 h,
 - **market evidence** (Alpaca, free tier): day/5-day return, rvol (low-confidence flag carried
   over), movers-list membership around the post date.
 
@@ -169,7 +189,12 @@ Plays whose position is open (YOLO posts; any extraction with `realized: false`)
   contract has no quote — likely common at WSB strikes; the Phase 0.2 probe verified Greeks/IV "on
   liquid strikes" only — **intrinsic value is recorded as a floor, never drawn as a price point
   pre-expiry** (a live 30-DTE OTM call is not worth −100 %). At expiry → intrinsic, status
-  `expired`.
+  `expired`. Marks are **per position** (`position_id`), not per play — a portfolio play holding
+  shares *and* options cannot be represented by one row with one source/confidence; play-level P&L
+  is the sum over its positions' marks. **Corporate actions**: a split between capture and a mark
+  makes the pre-split cost basis nonsense (a phantom −80 % on a meme-ticker reverse split); a
+  position whose underlying shows a split/delisting in the tracking window ends as `untrackable`
+  with a note rather than publishing garbage.
 - **Author-followup linking** — runs when a new play finishes interpretation (only then is its
   ticker known): a later Gain/Loss post by the same author on the same primary ticker (within
   90 days) links as the play's resolution (`resolved-posted`) and both pages cross-reference.
@@ -191,6 +216,12 @@ Auto-publish, no human gate. The web app (Nuxt, same read-only DB role) gains:
   model/prompt versions in the footer, the not-a-signal disclaimer.
 - The heat board remains (nav: Plays | Heat board) and cross-links both ways
   (board ticker → plays filtered to it; play → its window's board context).
+- Two auto-publish realities, stated rather than silent: screenshots can carry **text aimed at the
+  model** ("this is a disciplined play") — the interpret prompt treats screenshot text as data,
+  never instruction, and LAN-only bounds the blast radius; and live screenshots are published
+  **unredacted** (the eval fixtures are redacted; the board is not) — account balances and partial
+  identifiers from strangers' gain porn are visible, acceptable on a private LAN and part of why
+  public exposure is a non-goal.
 
 ## 5. Agent analysis tooling
 
@@ -218,7 +249,13 @@ daily spend budget in config (defaults in plan §6); over budget → plays queue
 ## 8. Invariants (extend architecture.md §5)
 
 - **P1 — The radar is never hostage to Plays.** LLM/API/media failures are isolated to the plays
-  queue; the 5-minute radar cycle runs and publishes regardless.
+  queue; the 5-minute radar cycle runs and publishes regardless. Honest scope: within one process
+  this covers DB starvation (P9), CPU (image work off the main thread), memory (byte caps), and
+  exception paths (see plan §1 — the existing global `uncaughtException → exit(1)` means a single
+  unguarded throw in plays code kills the radar; handler ownership and no-floating-promises rules
+  exist for exactly this). Residual whole-process risks (OOM, disk full) are accepted and named;
+  if P1 proves leaky in practice, the escape hatch is moving the plays loops into a second process
+  — the schema and queue design don't care.
 - **P2 — Every published label is evidence-backed.** Extraction JSON, the assembled evidence block,
   and model/prompt/taxonomy versions are stored per play; nothing on the board is unexplainable.
 - **P3 — Tickers are validated, never invented.** Whitelist/`ticker_names` validation gates every
@@ -231,13 +268,25 @@ daily spend budget in config (defaults in plan §6); over budget → plays queue
   rule from the radar ("never aggregate to a per-ticker win rate") extends to plays verbatim.
   *(A documentation norm for humans and analyzing agents — unlike P3/P4/P6/P8/P9 it is not
   code-enforceable; the analysis how-to doc carries it.)*
-- **P6 — Spend is hard-capped** (per-tick count + daily budget, priced from config); the failure
-  mode is a growing queue, never a surprise bill.
+- **P6 — Spend is capped, fail-closed.** Per-tick count + daily budget, priced from config; the
+  failure mode is a growing queue, never a surprise bill. Enforceability requires three things the
+  cap is worthless without: **zero/missing prices refuse dispatch** (a shipped `0.0` placeholder
+  must halt the queue loudly, not meter $0 forever); the daily counter is **derived from DB-summed
+  `cost_usd`** (an in-memory counter re-opens the cap on every restart); and pre-dispatch
+  enforcement reserves the **worst case** (input tokens + the configured `max_output_tokens`) —
+  output cost is unknowable before the call returns, so the cap is a bounded estimate, and the doc
+  says so.
 - **P7 — Media is archived at capture** (Reddit deletes); media failure degrades to text-only
   analysis with lowered confidence, never a dropped play — and a *transient* fetch failure is
   retried before degrading.
-- **P8 — Capture is idempotent: a post is analyzed and charged for at most once.** The 5-min poll
-  over a 1-h window re-delivers every candidate ~12×; the plays insert is `ON CONFLICT DO NOTHING`
-  and no writer ever moves `status` backwards.
+- **P8 — Processing is idempotent per (play, stage, version), with a bounded billing tail.** The
+  5-min poll re-delivers every candidate ~12×; the plays insert is `ON CONFLICT DO NOTHING` and no
+  writer ever moves `status` backwards — including reprocessing, which runs as a separate path
+  that leaves the row `published` (old pointers serve until the new child rows commit and the
+  pointers advance). Honest limit: an LLM call is an external side effect that cannot commit
+  atomically with Postgres — a crash between a completed call and its child-row+status
+  transaction re-charges that stage on retry, bounded by `max_attempts`. Each stage's child insert
+  + status advance + cost row land in **one transaction** (the call itself stays outside any tx,
+  per P9), which makes that tail the *only* double-charge path.
 - **P9 — Plays code never holds a DB transaction or pooled client across a network/LLM call**, and
   the plays loops run on their own PG pool. This — not `try/catch` walls — is what makes P1 true.
