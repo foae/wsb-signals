@@ -143,7 +143,9 @@ export function strictifyJsonSchema(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(strictifyJsonSchema)
   if (node == null || typeof node !== 'object') return node
   const obj = { ...(node as Record<string, unknown>) }
-  for (const k of ['minLength', 'maxLength', 'pattern', 'minimum', 'maximum',
+  // `pattern` deliberately survives: OpenAI strict mode enforces it, and it is the only
+  // machine-readable format signal for the ISO dates (live luna failure without it, 2026-08-19).
+  for (const k of ['minLength', 'maxLength', 'minimum', 'maximum',
     'exclusiveMinimum', 'exclusiveMaximum', '$schema']) delete obj[k]
   if (obj.type === 'object' && obj.properties != null && typeof obj.properties === 'object') {
     obj.additionalProperties = false

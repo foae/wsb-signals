@@ -36,10 +36,12 @@ export const SCREENSHOT_KINDS = ['single_position', 'portfolio', 'order_ticket',
 export const INSTRUMENTS = ['shares', 'call', 'put', 'other'] as const
 export const SIDES = ['long', 'short'] as const
 
-/** ISO `YYYY-MM-DD`, validated as a REAL calendar date — zod's regex alone would admit 2026-02-31,
- *  and a phantom date poisons OCC symbol construction and expiry math downstream. */
-const isoDate = (): z.ZodType<string> => z.string().refine((s) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+/** ISO `YYYY-MM-DD`, validated as a REAL calendar date — the regex alone would admit 2026-02-31,
+ *  and a phantom date poisons OCC symbol construction and expiry math downstream. The `.regex()`
+ *  (not just the refine) matters: it emits `pattern` into the wire JSON schema, which is the only
+ *  machine-enforced format signal the model gets (a luna extraction failed on a malformed
+ *  `opened_at` when the schema carried no pattern — live, 2026-08-19). */
+const isoDate = (): z.ZodType<string> => z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
   const d = new Date(`${s}T00:00:00Z`)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
 }, 'not a real YYYY-MM-DD date')

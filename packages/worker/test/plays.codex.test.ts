@@ -46,6 +46,10 @@ describe('strictifyJsonSchema', () => {
     expect(out.$schema).toBeUndefined()
     const props = out.properties as Record<string, Record<string, unknown>>
     expect(props.t!.minLength).toBeUndefined()
+    // `pattern` SURVIVES — it's the only machine-readable format signal for the ISO dates.
+    const withPattern = strictifyJsonSchema({ type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', minLength: 1 }) as Record<string, unknown>
+    expect(withPattern.pattern).toBe('^\\d{4}-\\d{2}-\\d{2}$')
+    expect(withPattern.minLength).toBeUndefined()
     expect(props.nested!.additionalProperties).toBe(false)
     expect((props.nested!.properties as Record<string, Record<string, unknown>>).q!.exclusiveMinimum).toBeUndefined()
   })
