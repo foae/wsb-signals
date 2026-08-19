@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  derivePlayDirection, ExtractedPositionSchema, legDirectionSign, LlmExtractionSchema,
+  derivePlayDirection, ExtractedPositionSchema, legDirectionSign, LlmExtractionSchema, sanitizeRawExtraction,
   type ExtractedPosition,
 } from '../src/plays/extraction'
 
@@ -91,5 +91,26 @@ describe('direction derivation (never asked of the model)', () => {
       leg({ instrument: 'call', side: 'long', cost_basis: null }),
     ])).toBe('bullish')
     expect(derivePlayDirection([])).toBe('neutral')
+  })
+})
+
+describe('sanitizeRawExtraction (phantom-date repair, live luna failure 2026-08-19)', () => {
+  it('nulls syntactically-valid-but-phantom dates and reports them; real dates survive', () => {
+    const { value, nulled } = sanitizeRawExtraction({
+      screenshot_kind: 'single_position', broker: null, notes: null, confidence: null,
+      positions: [
+        { ...leg(), opened_at: '2026-02-30', expiry: '2026-09-18' }, // phantom opened_at, real expiry
+        { ...leg(), expiry: '2025-13-01' }, // phantom expiry
+      ],
+    })
+    expect(nulled).toEqual(['positions[0].opened_at="2026-02-30"', 'positions[1].expiry="2025-13-01"'])
+    const positions = (value as { positions: { opened_at: unknown; expiry: unknown }[] }).positions
+    expect(positions[0]!.opened_at).toBeNull()
+    expect(positions[0]!.expiry).toBe('2026-09-18')
+    expect(positions[1]!.expiry).toBeNull()
+  })
+  it('non-object/legless payloads pass through untouched', () => {
+    expect(sanitizeRawExtraction(null)).toEqual({ value: null, nulled: [] })
+    expect(sanitizeRawExtraction({ positions: 'junk' }).nulled).toEqual([])
   })
 })

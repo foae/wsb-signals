@@ -17,7 +17,7 @@ import { z } from 'zod'
 
 import { log } from '../logger'
 import { CodexAuth } from './codex-auth'
-import { LlmExtractionSchema, type LlmExtraction } from './extraction'
+import { LlmExtractionSchema, sanitizeRawExtraction, type LlmExtraction } from './extraction'
 import { EXTRACT_PROMPT_VERSION, EXTRACT_SYSTEM_PROMPT, extractUserPrompt } from './prompts/extract'
 
 export interface AnalyzerImage {
@@ -246,7 +246,9 @@ export class CodexAnalyzer implements PlayAnalyzer {
     const { text: raw, inputTokens, outputTokens } = parseCodexSse(await res.text())
     let extraction: LlmExtraction
     try {
-      extraction = LlmExtractionSchema.parse(JSON.parse(raw))
+      const { value, nulled } = sanitizeRawExtraction(JSON.parse(raw))
+      if (nulled.length) log.warn({ nulled }, 'codex extract: phantom dates nulled (kept the extraction)')
+      extraction = LlmExtractionSchema.parse(value)
     } catch (e) {
       // Malformed despite strict mode — a stage fault (queue attempts/backoff), never silent.
       log.warn({ raw: raw.slice(0, 200), err: String(e).slice(0, 200) }, 'codex extract: output failed schema parse')

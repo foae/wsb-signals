@@ -36,15 +36,45 @@ export const SCREENSHOT_KINDS = ['single_position', 'portfolio', 'order_ticket',
 export const INSTRUMENTS = ['shares', 'call', 'put', 'other'] as const
 export const SIDES = ['long', 'short'] as const
 
-/** ISO `YYYY-MM-DD`, validated as a REAL calendar date — the regex alone would admit 2026-02-31,
- *  and a phantom date poisons OCC symbol construction and expiry math downstream. The `.regex()`
- *  (not just the refine) matters: it emits `pattern` into the wire JSON schema, which is the only
- *  machine-enforced format signal the model gets (a luna extraction failed on a malformed
- *  `opened_at` when the schema carried no pattern — live, 2026-08-19). */
-const isoDate = (): z.ZodType<string> => z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
+/** A REAL `YYYY-MM-DD` calendar date — the regex alone would admit 2026-02-31, and a phantom date
+ *  poisons OCC symbol construction and expiry math downstream. */
+export function isRealIsoDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
   const d = new Date(`${s}T00:00:00Z`)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
-}, 'not a real YYYY-MM-DD date')
+}
+
+/** The `.regex()` (not just the refine) matters: it emits `pattern` into the wire JSON schema —
+ *  the only machine-enforced format signal the model gets (a luna extraction failed on a malformed
+ *  `opened_at` when the schema carried no pattern — live, 2026-08-19). */
+const isoDate = (): z.ZodType<string> =>
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealIsoDate, 'not a real YYYY-MM-DD date')
+
+/**
+ * Deterministic repair for the phantom-date class BEFORE schema parse: a model that pattern-matches
+ * `2026-02-30` (seen live — strict mode enforces the pattern, not the calendar) must not kill the
+ * whole extraction; null = unknown strictly beats both a phantom date and a burned play, and the
+ * incomplete-leg confidence penalty already prices the null. Everything else still hard-fails.
+ * Returns the repaired value + what was nulled (for the caller's log line).
+ */
+export function sanitizeRawExtraction(raw: unknown): { value: unknown; nulled: string[] } {
+  if (raw == null || typeof raw !== 'object') return { value: raw, nulled: [] }
+  const obj = raw as Record<string, unknown>
+  if (!Array.isArray(obj.positions)) return { value: raw, nulled: [] }
+  const nulled: string[] = []
+  const positions = obj.positions.map((p, i) => {
+    if (p == null || typeof p !== 'object') return p
+    const pos = { ...(p as Record<string, unknown>) }
+    for (const k of ['expiry', 'opened_at'] as const) {
+      if (typeof pos[k] === 'string' && !isRealIsoDate(pos[k] as string)) {
+        nulled.push(`positions[${i}].${k}=${JSON.stringify(pos[k])}`)
+        pos[k] = null
+      }
+    }
+    return pos
+  })
+  return { value: { ...obj, positions }, nulled }
+}
 
 const confidence = (): z.ZodNumber => z.number().min(0).max(1)
 
