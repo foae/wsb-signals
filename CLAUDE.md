@@ -137,8 +137,10 @@ serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_
   the only impl; Massive / IBKR are intended alternatives behind the same interface. Current
   surface is stock snapshots + screeners; **P5 grows it** (trading calendar + option snapshots).
 - **`PlayAnalyzer`** (`plays/analyzer.ts`) — the LLM seam: `extract(images, text)` (landed at P2;
-  `interpret(evidence)` joins at P3 with its evidence type); Vercel AI SDK behind it,
-  provider-agnostic. Pipeline code never imports `ai` directly; tests inject a fake.
+  `interpret(evidence)` joins at P3 with its evidence type). Two impls behind `buildAnalyzer`:
+  `AiSdkAnalyzer` (platform key, Vercel AI SDK) and `CodexAnalyzer` (ChatGPT-subscription OAuth
+  via pi's auth file — the LIVE provider since 2026-08-19; metering is notional there). Pipeline
+  code never imports `ai` or provider clients directly; tests inject a fake.
 
 ## Radar invariants you must not break (architecture §5; enforced in code)
 
