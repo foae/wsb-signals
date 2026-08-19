@@ -30,6 +30,8 @@ export interface PlayText {
   title: string | null
   selftext: string | null
   flair: string | null
+  /** ISO date the post was created — the model's anchor for resolving M/DD expiry years (prompt v2). */
+  postedAt?: string | null
 }
 
 export interface AnalyzerUsage {

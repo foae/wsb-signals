@@ -260,7 +260,13 @@ async function processMediaReady(
   deps: QueueDeps, analyzer: PlayAnalyzer, row: PlayRow, now: number,
 ): Promise<'extracted' | 'parked' | 'aborted' | 'fenced'> {
   const media = Array.isArray(row.media) ? (row.media as PlayMediaItem[]) : []
-  const text = { title: row.title, selftext: row.selftext, flair: row.flair }
+  const text = {
+    title: row.title,
+    selftext: row.selftext,
+    flair: row.flair,
+    // The expiry-year anchor (prompt v2): brokers show M/DD; the post date disambiguates the year.
+    postedAt: row.createdUtc != null ? new Date(row.createdUtc * 1000).toISOString().slice(0, 10) : null,
+  }
   const textChars = (row.title?.length ?? 0) + (row.selftext?.length ?? 0)
   const imageCountEstimate = Math.min(media.length, deps.config.maxImagesLlm)
 

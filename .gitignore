@@ -23,3 +23,7 @@ packages/*/.nitro/
 # (v2-plan.md §2, v2-porting-spec.md §1). Only scratch/regenerated scratch is ignored.
 fixtures/tmp/
 *.tmp.json
+.eval-staging/
+
+# Unredacted play screenshots — redact (crop usernames/account ids) before ever committing
+fixtures/plays/*/images/

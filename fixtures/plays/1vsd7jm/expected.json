@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Hyperliquid",
+ "positions": [
+  {
+   "ticker": "S&P500",
+   "instrument": "other",
+   "side": "short",
+   "quantity": 78.063,
+   "avg_price": 7688,
+   "strike": null,
+   "expiry": null,
+   "cost_basis": null,
+   "current_value": 599500.42,
+   "pnl_abs": 651.49,
+   "pnl_pct": 5.4,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

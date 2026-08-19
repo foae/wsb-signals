@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Public",
+ "positions": [
+  {
+   "ticker": "NKE",
+   "instrument": "put",
+   "side": "long",
+   "quantity": 50,
+   "avg_price": 0.01,
+   "strike": 22.5,
+   "expiry": "2026-09-18",
+   "cost_basis": 50,
+   "current_value": 500,
+   "pnl_abs": null,
+   "pnl_pct": 900,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

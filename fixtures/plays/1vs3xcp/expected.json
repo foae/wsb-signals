@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "KLAR",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 200,
+   "avg_price": 0.64,
+   "strike": 22,
+   "expiry": "2026-08-21",
+   "cost_basis": 12800,
+   "current_value": 200,
+   "pnl_abs": -12500,
+   "pnl_pct": -98.43,
+   "realized": false,
+   "opened_at": "2026-08-17",
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

@@ -1,0 +1,44 @@
+{
+ "screenshot_kind": "portfolio",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "HTZ",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 71,
+   "avg_price": null,
+   "strike": 3,
+   "expiry": "2026-08-28",
+   "cost_basis": null,
+   "current_value": 213,
+   "pnl_abs": null,
+   "pnl_pct": null,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  },
+  {
+   "ticker": "HTZ",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 80,
+   "avg_price": null,
+   "strike": 2.5,
+   "expiry": "2026-08-28",
+   "cost_basis": null,
+   "current_value": 480,
+   "pnl_abs": null,
+   "pnl_pct": null,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "PFSA",
+   "instrument": "shares",
+   "side": "long",
+   "quantity": 1,
+   "avg_price": 12.12,
+   "strike": null,
+   "expiry": null,
+   "cost_basis": 12.12,
+   "current_value": 26.81,
+   "pnl_abs": 14.69,
+   "pnl_pct": 121.2,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

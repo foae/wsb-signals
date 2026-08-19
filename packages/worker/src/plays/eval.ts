@@ -50,6 +50,8 @@ export interface CaseScore {
   positionsActual: number
   perField: Record<ScoredField, { correct: number; total: number }>
   kindOk: boolean
+  /** Human-readable `leg.field: expected ≠ actual` lines — the tuning loop's raw material. */
+  mismatches: string[]
 }
 
 /** Canonical leg order for scoring: reversed-but-identical spread legs must not score every field
@@ -69,15 +71,20 @@ export function scoreCase(name: string, expected: LlmExtraction, actual: LlmExtr
   const exp = canonical(expected.positions)
   const act = canonical(actual.positions)
   const n = Math.max(exp.length, act.length)
+  const mismatches: string[] = []
   for (let i = 0; i < n; i++) {
     const e = exp[i]
     const a = act[i]
     for (const f of SCORED_FIELDS) {
       perField[f].total++
-      if (e && a && fieldMatches(e[f as keyof ExtractedPosition], a[f as keyof ExtractedPosition])) {
-        perField[f].correct++
-      }
+      const ev = e?.[f as keyof ExtractedPosition]
+      const av = a?.[f as keyof ExtractedPosition]
+      if (e && a && fieldMatches(ev, av)) perField[f].correct++
+      else mismatches.push(`leg${i}.${f}: ${JSON.stringify(ev ?? '<missing>')} ≠ ${JSON.stringify(av ?? '<missing>')}`)
     }
+  }
+  if (expected.screenshot_kind !== actual.screenshot_kind) {
+    mismatches.push(`screenshot_kind: ${expected.screenshot_kind} ≠ ${actual.screenshot_kind}`)
   }
   return {
     name,
@@ -85,6 +92,7 @@ export function scoreCase(name: string, expected: LlmExtraction, actual: LlmExtr
     positionsActual: actual.positions.length,
     perField,
     kindOk: expected.screenshot_kind === actual.screenshot_kind,
+    mismatches,
   }
 }
 
@@ -149,16 +157,26 @@ async function main(): Promise<void> {
     // inputs production never sends.
     const images = await Promise.all(
       readdirSync(imagesDir).sort().map(async (f) => encodeForLlm(Buffer.from(readFileSync(join(imagesDir, f))))))
-    const result = await analyzer.extract(images, text)
-    const caseCost = result.usage.inputTokens != null && result.usage.outputTokens != null
-      ? costUsd(prices, result.usage.inputTokens, result.usage.outputTokens)
-      : 0
-    spentUsd += caseCost
-    const score = scoreCase(name, expected, result.extraction)
+    // Per-case boundary: one crashing extraction (provider hiccup, schema violation) scores as a
+    // fully-empty answer instead of killing the run — a model that fails a case must PAY for it in
+    // the accuracy table, not hide it by aborting the eval.
+    let actual: LlmExtraction = { screenshot_kind: 'none', broker: null, positions: [], notes: null, confidence: null }
+    try {
+      const result = await analyzer.extract(images, text)
+      actual = result.extraction
+      const caseCost = result.usage.inputTokens != null && result.usage.outputTokens != null
+        ? costUsd(prices, result.usage.inputTokens, result.usage.outputTokens)
+        : 0
+      spentUsd += caseCost
+    } catch (e) {
+      log.error({ case: name, err: String(e).slice(0, 200) }, 'case extraction FAILED — scored as empty')
+    }
+    const score = scoreCase(name, expected, actual)
     scores.push(score)
     log.info({
       case: name, positions: `${score.positionsActual}/${score.positionsExpected}`, kindOk: score.kindOk,
-      costUsd: Number(caseCost.toFixed(5)), spentUsd: Number(spentUsd.toFixed(4)),
+      ...(score.mismatches.length ? { mismatches: score.mismatches } : {}),
+      spentUsd: Number(spentUsd.toFixed(4)),
     }, 'case scored')
   }
   log.info({ model, cases: scores.length, spentUsd: Number(spentUsd.toFixed(4)), accuracy: summarize(scores) },

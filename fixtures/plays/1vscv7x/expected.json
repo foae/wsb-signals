@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "META",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 60,
+   "avg_price": 12.66,
+   "strike": 650,
+   "expiry": "2026-09-18",
+   "cost_basis": 75960,
+   "current_value": 10260,
+   "pnl_abs": -65683.2,
+   "pnl_pct": -86.49,
+   "realized": false,
+   "opened_at": "2026-08-03",
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

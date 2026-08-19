@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "VSXY",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 31,
+   "avg_price": 3.66,
+   "strike": 100,
+   "expiry": "2026-09-18",
+   "cost_basis": 11346,
+   "current_value": 9083,
+   "pnl_abs": -2271.99,
+   "pnl_pct": -20.01,
+   "realized": false,
+   "opened_at": "2026-08-14",
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

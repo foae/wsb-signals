@@ -40,6 +40,10 @@ export const SIDES = ['long', 'short'] as const
  *  poisons OCC symbol construction and expiry math downstream. */
 export function isRealIsoDate(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  // Plausibility clamp: a model emitted year 8170 live (2026-08-19) — a "real" calendar date the
+  // pure calendar check waves through. No broker screenshot ever shows a date outside this window.
+  const year = Number(s.slice(0, 4))
+  if (year < 2000 || year > 2099) return false
   const d = new Date(`${s}T00:00:00Z`)
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
 }
@@ -71,6 +75,12 @@ export function sanitizeRawExtraction(raw: unknown): { value: unknown; nulled: s
         pos[k] = null
       }
     }
+    // Non-ISO-4217 currency strings (seen live: "USDC" on a Hyperliquid perp, 2026-08-19) — null =
+    // unknown beats failing the whole extraction on the schema's 3-char pin.
+    if (typeof pos.currency === 'string' && !/^[A-Za-z]{3}$/.test(pos.currency)) {
+      nulled.push(`positions[${i}].currency=${JSON.stringify(pos.currency)}`)
+      pos.currency = null
+    }
     return pos
   })
   return { value: { ...obj, positions }, nulled }
@@ -100,7 +110,11 @@ export const ExtractedPositionSchema = z.object({
   /** Per-share/per-contract-share price (NO ×100), as shown by the broker. */
   avg_price: z.number().nonnegative().nullable(),
   strike: z.number().positive().nullable(),
-  expiry: isoDate().nullable(),
+  /** The `.describe()` rides into the wire JSON schema — the eval showed the prompt text alone
+   *  leaves M/DD expiries unresolved (63.6 % on the first labeled run); the field-level instruction
+   *  is what the model actually reads at emission time. */
+  expiry: isoDate().nullable().describe(
+    'Full expiration date YYYY-MM-DD. Brokers display M/DD (e.g. 9/18): resolve the year from the post date — an open option expires ON or AFTER the post date, an expired one at/just before it. Never omit the year when a M/DD expiry is visible.'),
   /** Absolute dollars: paid (long) / credit received (short). */
   cost_basis: z.number().nonnegative().nullable(),
   /** Absolute dollars: liquidation value (long) / cost to close (short). */

@@ -1,0 +1,44 @@
+{
+ "screenshot_kind": "order_ticket",
+ "broker": "Wealthsimple",
+ "positions": [
+  {
+   "ticker": "SPY",
+   "instrument": "put",
+   "side": "long",
+   "quantity": 10,
+   "avg_price": null,
+   "strike": 775,
+   "expiry": "2026-08-17",
+   "cost_basis": null,
+   "current_value": null,
+   "pnl_abs": null,
+   "pnl_pct": null,
+   "realized": true,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  },
+  {
+   "ticker": "AMD",
+   "instrument": "put",
+   "side": "long",
+   "quantity": 5,
+   "avg_price": null,
+   "strike": 510,
+   "expiry": "2026-08-17",
+   "cost_basis": null,
+   "current_value": null,
+   "pnl_abs": null,
+   "pnl_pct": null,
+   "realized": true,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

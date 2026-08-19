@@ -130,3 +130,7 @@ output = 2.0                       # provider these are NOTIONAL (no marginal do
 [plays.llm.prices."gpt-5-mini"]  # kept for the platform-key path ($0.25/$2.00, verified 2026-08-18)
 input = 0.25
 output = 2.0
+
+[plays.llm.prices."gpt-5.6-sol"]  # NOTIONAL (subscription) — eval comparison candidate; API list
+input = 5.0                       # price 2026-08-19
+output = 30.0

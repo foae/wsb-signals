@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "order_ticket",
+ "broker": null,
+ "positions": [
+  {
+   "ticker": "ASTS",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 38,
+   "avg_price": 16.0,
+   "strike": 130,
+   "expiry": "2027-12-17",
+   "cost_basis": 60800,
+   "current_value": null,
+   "pnl_abs": null,
+   "pnl_pct": null,
+   "realized": false,
+   "opened_at": "2026-08-18",
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}
