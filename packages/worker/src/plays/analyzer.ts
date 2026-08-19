@@ -54,13 +54,14 @@ export interface PlayAnalyzer {
 /** Per-call ceiling even without a shutdown: a hung provider must not pin the queue tick. */
 const EXTRACT_TIMEOUT_MS = 180_000
 
-/** True when the provider REJECTED the request without billing it (401 bad key / 403 missing
- *  scope — seen live at the P2 gate: a restricted key lacking `api.responses.write`). The caller
- *  may drop the attempt's cost reservation; anything ambiguous stays metered (fail-closed).
- *  Lives here because the seam is the only file allowed to know AI-SDK error types. */
+/** True when the provider REJECTED the request without billing it — 400 invalid request, 401 bad
+ *  key, 403 missing scope (both seen live at the P2 gate). The caller may drop the attempt's cost
+ *  reservation; anything ambiguous stays metered (fail-closed). Lives here because the seam is the
+ *  only file allowed to know provider error types. */
+const UNBILLED_STATUSES = new Set([400, 401, 403])
 export function isUnbilledRejection(e: unknown): boolean {
-  if (APICallError.isInstance(e) && (e.statusCode === 401 || e.statusCode === 403)) return true
-  return e instanceof CodexApiError && (e.statusCode === 401 || e.statusCode === 403)
+  if (APICallError.isInstance(e) && e.statusCode != null && UNBILLED_STATUSES.has(e.statusCode)) return true
+  return e instanceof CodexApiError && UNBILLED_STATUSES.has(e.statusCode)
 }
 
 export interface AiAnalyzerOptions {
@@ -220,7 +221,8 @@ export class CodexAnalyzer implements PlayAnalyzer {
         store: false,
         stream: true, // the codex backend is SSE-only
         instructions: EXTRACT_SYSTEM_PROMPT,
-        max_output_tokens: this.opts.maxOutputTokens,
+        // NO max_output_tokens: the codex backend 400s on it ("Unsupported parameter", seen live);
+        // the configured value still drives the pre-dispatch reservation in metering.ts.
         input: [{
           role: 'user',
           content: [

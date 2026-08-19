@@ -55,6 +55,7 @@ describe('isUnbilledRejection covers Codex errors', () => {
   it('401/403 CodexApiError is unbilled; 500 is not', () => {
     expect(isUnbilledRejection(new CodexApiError('no', 403))).toBe(true)
     expect(isUnbilledRejection(new CodexApiError('no', 401))).toBe(true)
+    expect(isUnbilledRejection(new CodexApiError('bad param', 400))).toBe(true)
     expect(isUnbilledRejection(new CodexApiError('boom', 500))).toBe(false)
     expect(isUnbilledRejection(new Error('x'))).toBe(false)
   })
