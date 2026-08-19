@@ -63,11 +63,18 @@ services:
     stop_grace_period: 60s
     network_mode: host       # runtime egress to Arctic-Shift / Alpaca / heartbeat
     env_file: .env           # provides DATABASE_URL, ALPACA_API_KEY, ALPACA_API_SECRET (see .env.example)
+    environment:
+      # Codex-subscription LLM auth (P2): the container path of the mounted pi auth file. Empty =
+      # extraction off (rows rest at media_ready). Set via .env together with PI_AUTH_JSON below.
+      CODEX_AUTH_FILE: ${CODEX_AUTH_FILE:-}
     volumes:
       - wsb-v2-data:/app/data
       # Plays media archive (plays-plan §1): worker writes screenshots under data/media/plays/<post_id>/;
       # the web mounts the SAME volume read-only and serves it via /api/media/**.
       - wsb-v2-media:/app/data/media
+      # pi's OAuth store, read-only, for [plays.llm].provider = "openai-codex". Defaults to
+      # /dev/null when PI_AUTH_JSON is unset so the mount is inert on non-codex deploys.
+      - ${PI_AUTH_JSON:-/dev/null}:/app/secrets/pi-auth.json:ro
     depends_on:
       db:
         condition: service_healthy

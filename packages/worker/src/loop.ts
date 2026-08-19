@@ -27,7 +27,7 @@ import type { MarketData } from './market'
 import { mentionsFromPoll } from './mentions'
 import { buildSignals, overlayMarket, runAggregation } from './pipeline'
 import { capturePlays } from './plays/capture'
-import { AiSdkAnalyzer } from './plays/analyzer'
+import { buildAnalyzer } from './plays/analyzer'
 import { runPlaysQueue } from './plays/queue'
 import { abortableSleep } from './timing'
 
@@ -319,26 +319,21 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
     : null
   if (!worker.plays.enabled) log.info('plays disabled ([plays].enabled = false) — radar only')
 
-  // The LLM seam (P2): wired only with a key — without it the queue runs media-only and warns per
-  // tick about the resting media_ready backlog. Fail-closed metering sits behind this regardless.
-  const openaiKey = env.OPENAI_API_KEY
+  // The LLM seam (P2): wired only with credentials — without them the queue runs media-only and
+  // warns per tick about the resting media_ready backlog. Fail-closed metering sits behind this.
   let analyzer
   try {
-    analyzer = playsHandle && openaiKey
-      ? new AiSdkAnalyzer({
+    analyzer = playsHandle
+      ? buildAnalyzer({
         provider: worker.plays.llm.provider,
         model: worker.plays.llm.extractModel,
         maxOutputTokens: worker.plays.llm.maxOutputTokens,
-        apiKey: openaiKey,
-      })
+      }, env)
       : undefined
   } catch (e) {
     // A plays-only config fault (unknown provider) must not keep the RADAR from starting (P1).
     log.error({ err: String(e) }, 'plays analyzer construction failed — extraction OFF, radar unaffected')
     analyzer = undefined
-  }
-  if (playsHandle && !openaiKey) {
-    log.warn('plays LLM extraction OFF — OPENAI_API_KEY missing; plays rest at media_ready until it is set')
   }
   const whitelistSet = loadWhitelistSet(raw, root)
   if (playsHandle && !whitelistSet) {

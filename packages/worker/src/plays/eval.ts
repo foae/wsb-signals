@@ -20,7 +20,7 @@ import { join } from 'node:path'
 
 import { findRoot, loadConfig } from '../config'
 import { log } from '../logger'
-import { AiSdkAnalyzer, type PlayText } from './analyzer'
+import { buildAnalyzer, type PlayText } from './analyzer'
 import { LlmExtractionSchema, type ExtractedPosition, type LlmExtraction } from './extraction'
 import { encodeForLlm } from './images'
 import { costUsd, usablePrices } from './metering'
@@ -109,9 +109,10 @@ async function main(): Promise<void> {
   const { worker, env } = loadConfig(root)
   const modelFlagIdx = process.argv.indexOf('--model')
   const model = modelFlagIdx > -1 ? process.argv[modelFlagIdx + 1]! : worker.plays.llm.extractModel
-  const apiKey = env.OPENAI_API_KEY
-  if (!apiKey) {
-    log.error('OPENAI_API_KEY missing — plays-eval makes real paid calls')
+  const analyzer = buildAnalyzer(
+    { provider: worker.plays.llm.provider, model, maxOutputTokens: worker.plays.llm.maxOutputTokens }, env)
+  if (!analyzer) {
+    log.error('no analyzer credentials — plays-eval makes real calls (OPENAI_API_KEY or CODEX_AUTH_FILE per provider)')
     process.exitCode = 1
     return
   }
@@ -137,9 +138,6 @@ async function main(): Promise<void> {
     log.warn({ cases: cases.length }, 'fewer than 30 cases — percentages carry ±20-point confidence intervals; collect more before trusting this run')
   }
 
-  const analyzer = new AiSdkAnalyzer({
-    provider: worker.plays.llm.provider, model, maxOutputTokens: worker.plays.llm.maxOutputTokens, apiKey,
-  })
   const scores: CaseScore[] = []
   let spentUsd = 0
   for (const name of cases) {

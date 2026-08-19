@@ -45,7 +45,7 @@ describe('config loading', () => {
   it('parses the [plays.llm] block (P2) — the extract model carries REAL positive prices (set at the gate)', () => {
     const { worker } = loadConfig(ROOT)
     const llm = worker.plays.llm
-    expect(llm.provider).toBe('openai')
+    expect(['openai', 'openai-codex']).toContain(llm.provider)
     expect(llm.extractModel.length).toBeGreaterThan(0)
     expect(llm.maxPlaysPerTick).toBe(5)
     expect(llm.maxOutputTokens).toBe(6000)
