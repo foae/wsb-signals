@@ -118,6 +118,13 @@ async function fetchOk(url: string, deps: MediaDeps): Promise<FetchOutcome> {
       // 403/404/410 = deleted/blocked (permanent — the media is not coming back); 429/5xx = transient.
       kind = res.status === 429 || res.status >= 500 ? 'transient' : 'permanent'
       detail = `status ${res.status}`
+      // Greppable rate-limit line (matches ingest.ts) — free host; tune fetch volume if this recurs.
+      if (res.status === 429) {
+        log.warn({
+          host: (() => { try { return new URL(url).host } catch { return url.slice(0, 40) } })(),
+          retryAfter: res.headers.get('retry-after'), attempt,
+        }, 'API rate limit hit — media fetch throttled')
+      }
     } catch (e) {
       if (deps.signal?.aborted) return { ok: false, kind: 'aborted', detail: 'shutdown' }
       kind = 'transient' // network error / timeout

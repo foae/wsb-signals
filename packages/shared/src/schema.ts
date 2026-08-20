@@ -167,8 +167,10 @@ export const tickerNames = pgTable('ticker_names', {
 
 /**
  * One captured play (a flair-matched Gain/Loss/YOLO post) — also the QUEUE row that carries it through
- * `captured → media_ready → extracted → published` (off-ramp `failed`, only after
- * `max_attempts`). Insert is ON CONFLICT DO NOTHING and no writer ever moves `status` backwards
+ * `captured → media_ready → extracted → published` (off-ramps: `failed`, only after
+ * `max_attempts`; `discarded`, the no-play tombstone — zero-position extraction or removed-post
+ * purge — kept as a row so poll re-delivery can't re-insert and re-charge it, hidden from the
+ * board). Insert is ON CONFLICT DO NOTHING and no writer ever moves `status` backwards
  * (invariant P8 — the 5-min poll re-delivers each post ~12×). Media state lives in `media_status`, NOT
  * `status`: a media failure degrades the play to text-only, it never parks or fails it (invariant P7).
  */
@@ -195,7 +197,7 @@ export const plays = pgTable('plays', {
   refreshedAt: int8('refreshed_at'),
   // Queue fields. `claimed_at` is the lease: a claim older than `lease_minutes` is re-claimable, so a
   // crash mid-stage can't strand its rows as claimed-forever (plays-plan §3).
-  status: text('status').notNull(), // captured | media_ready | extracted | published | failed
+  status: text('status').notNull(), // captured | media_ready | extracted | published | failed | discarded
   attempts: integer('attempts').notNull().default(0),
   nextAttemptAt: int8('next_attempt_at'),
   claimedAt: int8('claimed_at'),

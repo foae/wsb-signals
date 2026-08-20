@@ -8,7 +8,7 @@
  *  transient failures (plays-plan §3); no writer ever moves `status` backwards (invariant P8).
  *  There is deliberately no status between `extracted` and `published`: plan §5 pins the publish
  *  (denormalize + published_at + pointers) into the interpret stage's ONE advance update. */
-export const PLAY_STATUSES = ['captured', 'media_ready', 'extracted', 'published', 'failed'] as const
+export const PLAY_STATUSES = ['captured', 'media_ready', 'extracted', 'published', 'failed', 'discarded'] as const
 export type PlayStatus = (typeof PLAY_STATUSES)[number]
 
 /**

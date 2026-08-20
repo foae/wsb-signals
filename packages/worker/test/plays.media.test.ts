@@ -19,7 +19,8 @@ const TMP = join(tmpdir(), `wsb-plays-media-${process.pid}`)
 afterAll(async () => { await rm(TMP, { recursive: true, force: true }) })
 
 const cfg = (over: Partial<PlaysConfig> = {}): PlaysConfig => ({
-  enabled: true, flairs: new Set(['Gain']), queueIntervalSeconds: 60, maxAttempts: 4,
+  enabled: true, flairs: new Set(['Gain']), queueIntervalSeconds: 60,
+  captureDelaySeconds: 0, textOnlyMinChars: 0, maxAttempts: 4,
   leaseSeconds: 600, mediaRetrySeconds: 600, maxImagesStored: 20, maxImagesLlm: 8,
   maxImageBytes: 10 * 1024 * 1024, maxRequestBytes: 24 * 1024 * 1024,
   redditUserAgent: 'test-ua', mediaDir: TMP,

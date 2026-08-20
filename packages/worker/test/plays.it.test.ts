@@ -32,6 +32,8 @@ const TMP = join(tmpdir(), `wsb-plays-it-${process.pid}`)
 
 const playsCfg = (over: Partial<PlaysConfig> = {}): PlaysConfig => ({
   enabled: true, flairs: new Set(['Gain', 'Loss', 'YOLO', 'Verified Trade']), queueIntervalSeconds: 60,
+  captureDelaySeconds: 0, // delay/thin-text semantics are pinned in plays.capture.test.ts; 0 keeps fixtures simple
+  textOnlyMinChars: 0,
   maxAttempts: 4, leaseSeconds: 600, mediaRetrySeconds: 600, maxImagesStored: 20, maxImagesLlm: 8,
   maxImageBytes: 10 * 1024 * 1024, maxRequestBytes: 24 * 1024 * 1024, redditUserAgent: 'test-ua',
   mediaDir: TMP,
@@ -367,6 +369,34 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
     const out = runs[0]!.output as { direction: string; confidence: number; positions: { ticker_outcome: string }[] }
     expect(out.direction).toBe('bullish')
     expect(out.positions[0]!.ticker_outcome).toBe('validated')
+  })
+
+  it('media_ready → discarded on a zero-position extraction: terminal tombstone, no interpret call', async () => {
+    await seedMediaReady()
+    const analyzer = {
+      extract: async () => ({
+        extraction: { ...llmOut(), positions: [], screenshot_kind: 'chart' as const },
+        usage: { inputTokens: 1000, outputTokens: 50 },
+        model: 'test-model', promptVersion: 'extract-prompt-v1',
+      }),
+      interpret: interpretNotExpected, // a no-play post must never burn the second LLM call
+    }
+    const stats = await extractTick(analyzer)
+    expect(stats).toMatchObject({ extracted: 0, discarded: 1, failed: 0 })
+
+    const row = await getPlay('p1')
+    expect(row.status).toBe('discarded')
+    expect(row.nextAttemptAt).toBeNull() // terminal — never due again
+    expect(row.claimedAt).toBeNull()
+    const runs = await pg.db.select().from(playExtractions)
+    expect(runs).toHaveLength(1) // the paid run stays on the meter + audit trail
+    expect(row.currentExtractionAt).toBe(runs[0]!.runAt)
+
+    // the tombstone is invisible to every later tick (and dedupes re-delivery via ON CONFLICT)
+    const stats2 = await extractTick(analyzer)
+    expect(stats2).toMatchObject({ claimed: 0 })
+    await capturePlays(pg.db, [rawPlay('p1')], playsCfg(), NOW + 300)
+    expect((await getPlay('p1')).status).toBe('discarded')
   })
 
   it('FAIL-CLOSED: the shipped all-zero prices park the play — the analyzer is never called', async () => {

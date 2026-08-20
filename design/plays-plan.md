@@ -136,6 +136,16 @@ that actually exists.
   (invariant P8): the `plays` insert is **`ON CONFLICT DO NOTHING`**, and no writer ever moves
   `status` backwards. Explicitly NOT the radar's `onConflictDoUpdate` house style — that would
   reset status and re-enqueue (and re-charge) every play 12×/hour.
+  **Capture-time junk gates (added 2026-08-20, user decision):** a flair-matched post is (a)
+  **deferred** until it is `capture_delay_minutes` old (default 15 — mods remove junk fast; the
+  ~12×/h re-delivery enqueues it once old enough, so nothing is lost), (b) **skipped** if already
+  removed/deleted upstream (`isRemovedPost`: `[removed]`/`[deleted]` selftext or
+  `removed_by_category` — code-only, no LLM), and (c) **skipped as thin** if it has no resolvable
+  media and under `text_only_min_chars` (default 100) of selftext — a bare title can't yield
+  positions. Downstream, a **zero-position extraction tombstones the play as terminal `discarded`**
+  instead of advancing: no interpret call, hidden from the web, row kept so re-delivery can't
+  re-insert and re-charge it. A media FAILURE still degrades to text-only and proceeds (P7) — the
+  thin gate applies only to posts that never had media.
 - **Media resolver** (`plays/media.ts`), per the media shapes (product §3): direct `i.redd.it`
   download; gallery → resolve **locally from the archived raw dict first** (the P1 gate found
   Arctic-Shift DOES archive `gallery_data` + `media_metadata` for fresh gallery posts, contra the
@@ -275,6 +285,13 @@ SVG sparkline (no chart lib). The `/api/media/**` route normalizes and prefix-ch
 path before serving (the id comes from the URL; LAN-only lowers the traversal concern, it doesn't
 remove it). Compose: media volume mounted read-only into web; `OPENAI_API_KEY` added to
 `deploy/v2/.env.example` (worker only); worker `stop_grace_period` raised per §1.
+
+**Landed early (2026-08-20, user request):** shared top nav (`SiteNav.vue`, cross-linking `/` ↔
+`/plays`; the board stays at `/` until this slice moves it to `/board`), enriched cards over the P3
+denormalized fields (ticker, category, posted P&L, tldr, confidence), `/plays/:id` detail +
+`GET /api/plays/:id` (children read by the current-run pointers; lenient jsonb schemas so worker
+shape drift degrades a section, never 503s). Still this slice's: `/board` move, filters/sorts, the
+hide-low-confidence default, outcome chart placeholder.
 
 Gate: browse real plays end-to-end on the LAN deploy; web lint/typecheck/IT green.
 

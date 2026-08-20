@@ -85,6 +85,7 @@ export interface TickStats {
   retrying: number // transient media failure (still inside the retry window) or a shutdown release
   failed: number // stage crashes that hit max_attempts (terminal)
   extracted: number // media_ready → extracted this tick (P2)
+  discarded: number // media_ready → discarded this tick (zero-position extraction — no play here)
   published: number // extracted → published this tick (P3: evidence + interpret + denormalize)
   parked: number // dispatch refusals (no price / budget) — waiting, not failing
 }
@@ -271,7 +272,7 @@ async function parkForRefusal(db: Db, row: PlayRow, now: number): Promise<void> 
  */
 async function processMediaReady(
   deps: QueueDeps, analyzer: PlayAnalyzer, row: PlayRow, now: number,
-): Promise<'extracted' | 'parked' | 'aborted' | 'fenced'> {
+): Promise<'extracted' | 'discarded' | 'parked' | 'aborted' | 'fenced'> {
   const media = Array.isArray(row.media) ? (row.media as PlayMediaItem[]) : []
   const text = {
     title: row.title,
@@ -347,6 +348,12 @@ async function processMediaReady(
     ? costUsd(decision.prices, tokensIn, tokensOut)
     : decision.reservedUsd
 
+  // Zero positions = no play (chart-only, meme, empty text post) — tombstone as `discarded` instead
+  // of advancing: skips the interpret call (half the junk-post LLM spend) and keeps the row so the
+  // poll's ~12×/h re-delivery can't re-insert and re-charge it (user decision 2026-08-20). The
+  // extraction run row is still reconciled below — the money moved and the audit trail stays.
+  const noPlay = validated.positions.length === 0
+
   // One transaction (see step 3 in the doc above). A fenced-out advance still COMMITS the
   // reconcile: the money moved regardless of who owns the row now, and the cost row is the meter.
   const res = await deps.db.transaction(async (tx) => {
@@ -359,10 +366,10 @@ async function processMediaReady(
       costUsd: cost,
     }).where(eq(playExtractions.id, reserved!.id))
     return tx.update(plays).set({
-      status: 'extracted',
+      status: noPlay ? 'discarded' : 'extracted',
       currentExtractionAt: runAt,
       claimedAt: null,
-      nextAttemptAt: now, // the P3 interpret stage is due immediately
+      nextAttemptAt: noPlay ? null : now, // discarded is terminal; extracted is due for interpret now
       attempts: 0,
       error: null,
     }).where(ownedBy(row))
@@ -372,8 +379,8 @@ async function processMediaReady(
     playId: row.id, positions: validated.positions.length, direction: validated.direction,
     confidence: validated.confidence, screenshotKind: validated.screenshot_kind,
     images: prepared.images.length, tokensIn, tokensOut, costUsd: Number(cost.toFixed(5)),
-  }, 'play extracted')
-  return 'extracted'
+  }, noPlay ? 'play discarded — extraction found no positions' : 'play extracted')
+  return noPlay ? 'discarded' : 'extracted'
 }
 
 /**
@@ -533,7 +540,7 @@ async function stageDepth(db: Db, status: PlayStatus, now: number): Promise<numb
 /** One queue tick: claim due rows per stage, run each row with a per-row exception boundary. */
 export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
   const clock = deps.clock ?? nowSeconds
-  const stats: TickStats = { claimed: 0, advanced: 0, retrying: 0, failed: 0, extracted: 0, published: 0, parked: 0 }
+  const stats: TickStats = { claimed: 0, advanced: 0, retrying: 0, failed: 0, extracted: 0, discarded: 0, published: 0, parked: 0 }
 
   const captured = await claimDue(deps.db, deps.config, clock(), 'captured', CLAIM_BATCH)
   stats.claimed += captured.length
@@ -580,6 +587,7 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
         try {
           const outcome = await process(deps, deps.analyzer, row, clock())
           if (outcome === 'extracted') stats.extracted++
+          else if (outcome === 'discarded') stats.discarded++
           else if (outcome === 'published') stats.published++
           else if (outcome === 'parked') stats.parked++
           else if (outcome === 'aborted') stats.retrying++

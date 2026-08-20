@@ -143,11 +143,22 @@ export class AlpacaMarketData implements MarketData {
     const timer = setTimeout(() => ac.abort(new Error(`timeout after ${this.timeoutMs}ms`)), this.timeoutMs)
     timer.unref?.()
     try {
-      return await fetch(`${this.baseUrl}${path}?${new URLSearchParams(params).toString()}`, {
+      const res = await fetch(`${this.baseUrl}${path}?${new URLSearchParams(params).toString()}`, {
         method: 'GET',
         headers: this.headers,
         signal: ac.signal,
       })
+      // Greppable rate-limit line (matches ingest.ts/media.ts) so request volume can be tuned; the
+      // caller still sees and handles the 429 as before.
+      if (res.status === 429) {
+        log.warn({
+          path,
+          retryAfter: res.headers.get('retry-after'),
+          remaining: res.headers.get('x-ratelimit-remaining'),
+          reset: res.headers.get('x-ratelimit-reset'),
+        }, 'API rate limit hit — Alpaca throttled this request')
+      }
+      return res
     } finally {
       clearTimeout(timer)
     }

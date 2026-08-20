@@ -252,6 +252,17 @@ export class ArcticShiftSource implements Source {
           const body = await res.text().catch(() => '')
           retryable = RETRYABLE_STATUS.has(res.status)
           detail = `status ${res.status} ${body.slice(0, 140)}`.trim()
+          // Rate-limit hits get their OWN greppable line (beyond the generic retry warn below) so the
+          // request cadence can be tuned against real data — Arctic-Shift throttles as 422 "slow down",
+          // standard APIs as 429. This is a free service; every one of these lines is us over-asking.
+          if (res.status === 429 || res.status === 422) {
+            log.warn({
+              kind, status: res.status,
+              retryAfter: res.headers.get('retry-after'),
+              remaining: res.headers.get('x-ratelimit-remaining'),
+              reset: res.headers.get('x-ratelimit-reset'),
+            }, 'API rate limit hit — Arctic-Shift throttled this request')
+          }
         }
       } catch (e) {
         // A shutdown (external abort) must NOT be retried — it's an intentional stop, not a transient fault.

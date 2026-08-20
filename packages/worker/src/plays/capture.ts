@@ -40,14 +40,51 @@ export function initialMediaStatus(d: RawThing): Extract<PlayMediaStatus, 'pendi
   return 'none'
 }
 
+/** Removal markers visible in the raw dict: a mod-removed/author-deleted post has no analyzable
+ *  content ("[removed]" body, dead media) — capturing it burns media fetches + LLM calls on nothing.
+ *  Paired with the capture delay so fast-moderated junk never enters the queue at all. */
+export function isRemovedPost(d: RawThing): boolean {
+  if (d.selftext === '[removed]' || d.selftext === '[deleted]') return true
+  return typeof d.removed_by_category === 'string' && d.removed_by_category.length > 0
+}
+
 /** The flair-matched subset of a poll's raw posts, mapped to insertable rows (status `captured`).
  *  Posts without a well-formed id are dropped — an unidentifiable play can't be deduped or linked,
- *  and the id must be path-safe (PLAY_ID_RE). */
-export function playRowsFromRaw(rawPosts: readonly RawThing[], flairs: ReadonlySet<string>, now: number): PlayInsert[] {
+ *  and the id must be path-safe (PLAY_ID_RE). Posts younger than `captureDelaySeconds` are DEFERRED
+ *  (not returned; the poll re-delivers them ~12×/h and they enqueue once old enough) so moderation
+ *  has time to act first; posts already removed are SKIPPED (isRemovedPost); text-only posts with
+ *  less than `textOnlyMinChars` of selftext are SKIPPED as thin (a bare title can't yield positions
+ *  — nothing for the LLM). Null `created_utc` can't prove age — captured anyway rather than
+ *  deferred forever. */
+export function playRowsFromRaw(
+  rawPosts: readonly RawThing[], flairs: ReadonlySet<string>, now: number,
+  captureDelaySeconds: number, textOnlyMinChars: number,
+): { rows: PlayInsert[]; deferred: number; removed: number; thin: number } {
   const out: PlayInsert[] = []
+  let deferred = 0
+  let removed = 0
+  let thin = 0
   for (const d of rawPosts) {
     const flair = typeof d.link_flair_text === 'string' ? d.link_flair_text : null
     if (flair == null || !flairs.has(flair)) continue
+    if (isRemovedPost(d)) {
+      removed++
+      continue
+    }
+    const created = typeof d.created_utc === 'number' ? Math.trunc(d.created_utc) : null
+    if (created != null && created > now - captureDelaySeconds) {
+      deferred++
+      continue
+    }
+    // Thin gate only for genuinely media-less posts — a post whose media later FAILS still proceeds
+    // text-only (a fetch failure is not a content judgment, invariant P7).
+    if (initialMediaStatus(d) === 'none') {
+      const text = typeof d.selftext === 'string' ? d.selftext.trim() : ''
+      if (text.length < textOnlyMinChars) {
+        thin++
+        continue
+      }
+    }
     if (typeof d.id !== 'string' || !PLAY_ID_RE.test(d.id)) {
       // Anomalous, not routine: a flair-MATCHED post is being dropped. Silent, this looks like a
       // mysteriously missing play; logged, it names the culprit. The poll re-delivers ~12×/h, so a
@@ -76,17 +113,23 @@ export function playRowsFromRaw(rawPosts: readonly RawThing[], flairs: ReadonlyS
       nextAttemptAt: now, // due immediately — the queue's next tick picks it up
     })
   }
-  return out
+  return { rows: out, deferred, removed, thin }
 }
 
 export interface CaptureStats {
-  /** Raw posts the poll delivered (the flair-rename canary: matched=0 with seen>0 for a day ⇒ check
-   *  `plays.flairs` against the sub — plays-plan §11). */
+  /** Raw posts the poll delivered (the flair-rename canary: matched+deferred+removed all 0 with
+   *  seen>0 for a day ⇒ check `plays.flairs` against the sub — plays-plan §11). */
   seen: number
   matched: number
   inserted: number
   /** Galleries among the matched set — the P1 gate measures gallery prevalence (plays-plan §3). */
   galleries: number
+  /** Flair-matched but younger than the capture delay — will enqueue on a later poll. */
+  deferred: number
+  /** Flair-matched but already removed/deleted upstream — never enqueued. */
+  removed: number
+  /** Flair-matched text-only posts under `text_only_min_chars` — nothing for the LLM, never enqueued. */
+  thin: number
 }
 
 /**
@@ -97,12 +140,16 @@ export interface CaptureStats {
 export async function capturePlays(
   db: Db, rawPosts: readonly RawThing[], config: PlaysConfig, now: number,
 ): Promise<CaptureStats> {
-  const rows = playRowsFromRaw(rawPosts, config.flairs, now)
+  const { rows, deferred, removed, thin } = playRowsFromRaw(
+    rawPosts, config.flairs, now, config.captureDelaySeconds, config.textOnlyMinChars)
   const stats: CaptureStats = {
     seen: rawPosts.length,
     matched: rows.length,
     inserted: 0,
     galleries: rows.filter((r) => r.isGallery).length,
+    deferred,
+    removed,
+    thin,
   }
   try {
     let insertedIds: string[] = []
