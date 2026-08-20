@@ -45,6 +45,12 @@ describe('scoreCase', () => {
     expect(s.perField.expiry.correct).toBe(0)
     expect(s.perField.ticker.correct).toBe(1)
   })
+  it('currency null ≡ "USD" (schema: null = assume USD) — but a real non-USD mismatch still counts', () => {
+    const usdNull = scoreCase('c4', extraction([leg({ currency: 'USD' })]), extraction([leg({ currency: null })]))
+    expect(usdNull.perField.currency).toEqual({ correct: 1, total: 1 })
+    const cadNull = scoreCase('c5', extraction([leg({ currency: 'CAD' })]), extraction([leg({ currency: null })]))
+    expect(cadNull.perField.currency).toEqual({ correct: 0, total: 1 })
+  })
 })
 
 describe('summarize', () => {

@@ -62,6 +62,11 @@ const canonical = (positions: readonly ExtractedPosition[]): ExtractedPosition[]
     || a.side.localeCompare(b.side) || (a.strike ?? 0) - (b.strike ?? 0)
     || (a.expiry ?? '').localeCompare(b.expiry ?? ''))
 
+/** `currency: null` MEANS USD by schema convention ("null = assume USD") — an explicit "USD" and
+ *  a null are the same answer, and scoring them apart penalized correct extractions (eval round 2:
+ *  13 phantom currency misses on screens that print "USD" next to every figure). */
+const normField = (f: ScoredField, v: unknown): unknown => (f === 'currency' && v == null ? 'USD' : v)
+
 /** Score one case: both sides sorted canonically, then paired. A missing/extra position counts
  *  every field wrong. */
 export function scoreCase(name: string, expected: LlmExtraction, actual: LlmExtraction): CaseScore {
@@ -79,7 +84,7 @@ export function scoreCase(name: string, expected: LlmExtraction, actual: LlmExtr
       perField[f].total++
       const ev = e?.[f as keyof ExtractedPosition]
       const av = a?.[f as keyof ExtractedPosition]
-      if (e && a && fieldMatches(ev, av)) perField[f].correct++
+      if (e && a && fieldMatches(normField(f, ev), normField(f, av))) perField[f].correct++
       else mismatches.push(`leg${i}.${f}: ${JSON.stringify(ev ?? '<missing>')} ≠ ${JSON.stringify(av ?? '<missing>')}`)
     }
   }
