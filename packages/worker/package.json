@@ -11,6 +11,7 @@
     "build-whitelist": "tsx src/build-whitelist.ts",
     "heartbeat": "tsx src/heartbeat.ts",
     "plays-eval": "tsx src/plays/eval.ts",
+    "codex-login": "tsx src/plays/codex-login.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",

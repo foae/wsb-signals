@@ -64,3 +64,35 @@ describe('isUnbilledRejection covers Codex errors', () => {
     expect(isUnbilledRejection(new Error('x'))).toBe(false)
   })
 })
+
+describe('writeAuthFile', () => {
+  it('merges the openai-codex key into an existing file without dropping other keys, atomically', async () => {
+    const { writeAuthFile } = await import('../src/plays/codex-auth')
+    const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'codex-auth-'))
+    const path = join(dir, 'auth.json')
+    writeFileSync(path, JSON.stringify({ 'other-provider': { keep: true }, 'openai-codex': { access: 'old' } }))
+    const auth = { access: 'new', refresh: 'r', expires: 123, accountId: 'acc' }
+    await writeAuthFile(path, auth)
+    const out = JSON.parse(readFileSync(path, 'utf8'))
+    expect(out['openai-codex']).toEqual(auth)
+    expect(out['other-provider']).toEqual({ keep: true })
+  })
+  it('creates the file when absent; a garbage file is replaced, not crashed on', async () => {
+    const { writeAuthFile } = await import('../src/plays/codex-auth')
+    const { mkdtempSync, readFileSync, writeFileSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { join } = await import('node:path')
+    const dir = mkdtempSync(join(tmpdir(), 'codex-auth-'))
+    const fresh = join(dir, 'new.json')
+    const auth = { access: 'a', refresh: 'r', expires: 1, accountId: 'x' }
+    await writeAuthFile(fresh, auth)
+    expect(JSON.parse(readFileSync(fresh, 'utf8'))['openai-codex']).toEqual(auth)
+    const garbage = join(dir, 'garbage.json')
+    writeFileSync(garbage, 'not json')
+    await writeAuthFile(garbage, auth)
+    expect(JSON.parse(readFileSync(garbage, 'utf8'))['openai-codex']).toEqual(auth)
+  })
+})

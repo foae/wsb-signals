@@ -1,33 +1,47 @@
 /**
- * OpenAI Codex subscription auth (P2 — user decision 2026-08-19): the extraction provider can ride
- * the ChatGPT-subscription OAuth that the `pi` harness maintains, instead of a platform API key.
- * The token file is pi's `~/.pi/agent/auth.json`, mounted READ-ONLY into the worker:
+ * OpenAI Codex subscription auth (P2 — user decision 2026-08-19): the extraction provider rides
+ * the ChatGPT-subscription OAuth instead of a platform API key. The token file
+ * (`~/.pi/agent/auth.json` on the host — the path is historical, from the retired `pi` harness)
+ * is established by the `codex-login` CLI and OWNED BY THIS PROJECT since 2026-08-20 (pi is gone):
  *
- *  - the file is re-read on every access-token request — pi refreshes it on its own use, and the
- *    freshest source wins;
- *  - when the file's token is (nearly) expired, we refresh IN MEMORY via the same OAuth client pi
- *    uses. We NEVER write the file — racing pi's own writer could corrupt its auth store. OpenAI's
- *    refresh grant returns a new refresh token, but the old one stays valid until used again by
- *    pi, whose copy is authoritative.
+ *  - the file is re-read on every access-token request — a host-side re-login or refresh lands
+ *    without a worker restart, and the freshest source wins;
+ *  - when the file's token is (nearly) expired, we refresh via the same public OAuth client the
+ *    Codex CLI uses, and PERSIST the result back best-effort: host-side runs (eval, CLIs) keep the
+ *    file fresh; inside the worker container the mount is read-only, so persistence fails cleanly
+ *    and the refreshed token carries the process in memory (each restart re-refreshes from the
+ *    on-disk refresh token).
  */
-import { readFile } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 
 import { fetch as undiciFetch } from 'undici'
 
 import { log } from '../logger'
 
-/** Same public OAuth client the Codex CLI / pi use. */
-const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
-const TOKEN_URL = 'https://auth.openai.com/oauth/token'
+/** Same public OAuth client the Codex CLI uses (also shared by `codex-login`). */
+export const CODEX_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann'
+export const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token'
 /** Refresh when the token has less life than this left. */
 const EXPIRY_SLACK_MS = 5 * 60_000
 
-interface StoredAuth {
+export interface StoredAuth {
   access: string
   refresh: string
   /** Epoch ms. */
   expires: number
   accountId: string
+}
+
+/** Atomically write `auth` under the `openai-codex` key, preserving any other keys the file holds.
+ *  Shared by `codex-login` (initial grant) and the in-process refresh (best-effort persist). */
+export async function writeAuthFile(path: string, auth: StoredAuth): Promise<void> {
+  let existing: Record<string, unknown> = {}
+  try {
+    existing = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  } catch { /* absent or unparseable — start fresh */ }
+  const tmp = `${path}.tmp-${process.pid}`
+  await writeFile(tmp, `${JSON.stringify({ ...existing, 'openai-codex': auth }, null, 1)}\n`, { mode: 0o600 })
+  await rename(tmp, path)
 }
 
 export interface CodexCredentials {
@@ -39,7 +53,7 @@ async function readAuthFile(path: string): Promise<StoredAuth> {
   const parsed = JSON.parse(await readFile(path, 'utf8')) as { 'openai-codex'?: Partial<StoredAuth> }
   const a = parsed['openai-codex']
   if (!a?.access || !a.refresh || !a.accountId || typeof a.expires !== 'number') {
-    throw new Error(`codex auth file ${path} has no usable openai-codex entry (run \`pi\` → /login on the host)`)
+    throw new Error(`codex auth file ${path} has no usable openai-codex entry (run \`pnpm -C packages/worker codex-login\` on the host)`)
   }
   return a as StoredAuth
 }
@@ -53,25 +67,33 @@ export class CodexAuth {
   async credentials(signal?: AbortSignal): Promise<CodexCredentials> {
     const now = Date.now()
     let auth = await readAuthFile(this.filePath)
-    // Prefer whichever token lives longer — pi may have refreshed the file since our last in-memory
-    // refresh, or vice versa.
+    // Prefer whichever token lives longer — a host-side re-login/refresh may have updated the file
+    // since our last in-memory refresh, or vice versa.
     if (this.memory && this.memory.expires > auth.expires) auth = this.memory
     if (auth.expires - now < EXPIRY_SLACK_MS) {
       auth = await this.refresh(auth, signal)
       this.memory = auth
+      // Best-effort persist: succeeds on host-side runs; the worker container mounts the file
+      // read-only, where the in-memory copy carries the process and a restart re-refreshes.
+      try {
+        await writeAuthFile(this.filePath, auth)
+        log.info('codex auth: refreshed token persisted')
+      } catch (e) {
+        log.info({ err: String(e).slice(0, 120) }, 'codex auth: refreshed token NOT persisted (read-only mount?) — carrying it in memory')
+      }
     }
     return { accessToken: auth.access, accountId: auth.accountId }
   }
 
   private async refresh(auth: StoredAuth, signal?: AbortSignal): Promise<StoredAuth> {
-    log.info('codex auth: access token stale — refreshing in memory (pi\'s file is never written)')
-    const res = await undiciFetch(TOKEN_URL, {
+    log.info('codex auth: access token stale — refreshing')
+    const res = await undiciFetch(CODEX_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: auth.refresh,
-        client_id: CLIENT_ID,
+        client_id: CODEX_CLIENT_ID,
       }).toString(),
       signal,
     })

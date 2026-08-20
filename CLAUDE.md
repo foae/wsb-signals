@@ -138,8 +138,9 @@ serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_
   surface is stock snapshots + screeners; **P5 grows it** (trading calendar + option snapshots).
 - **`PlayAnalyzer`** (`plays/analyzer.ts`) — the LLM seam: `extract(images, text)` (landed at P2;
   `interpret(evidence)` joins at P3 with its evidence type). Two impls behind `buildAnalyzer`:
-  `AiSdkAnalyzer` (platform key, Vercel AI SDK) and `CodexAnalyzer` (ChatGPT-subscription OAuth
-  via pi's auth file — the LIVE provider since 2026-08-19; metering is notional there). Pipeline
+  `AiSdkAnalyzer` (platform key, Vercel AI SDK) and `CodexAnalyzer` (ChatGPT-subscription OAuth —
+  the LIVE provider since 2026-08-19; metering is notional there; auth established via
+  `pnpm -C packages/worker codex-login`, self-refreshed by `codex-auth.ts`). Pipeline
   code never imports `ai` or provider clients directly; tests inject a fake.
 
 ## Radar invariants you must not break (architecture §5; enforced in code)
