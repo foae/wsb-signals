@@ -94,23 +94,38 @@ describe('direction derivation (never asked of the model)', () => {
   })
 })
 
-describe('sanitizeRawExtraction (phantom-date repair, live luna failure 2026-08-19)', () => {
+describe('sanitizeRawExtraction (non-marking-field repair, live failures 2026-08-19)', () => {
   it('nulls syntactically-valid-but-phantom dates and reports them; real dates survive', () => {
-    const { value, nulled } = sanitizeRawExtraction({
+    const { value, repaired } = sanitizeRawExtraction({
       screenshot_kind: 'single_position', broker: null, notes: null, confidence: null,
       positions: [
         { ...leg(), opened_at: '2026-02-30', expiry: '2026-09-18' }, // phantom opened_at, real expiry
         { ...leg(), expiry: '2025-13-01' }, // phantom expiry
       ],
     })
-    expect(nulled).toEqual(['positions[0].opened_at="2026-02-30"', 'positions[1].expiry="2025-13-01"'])
+    expect(repaired).toEqual(['positions[0].opened_at="2026-02-30"', 'positions[1].expiry="2025-13-01"'])
     const positions = (value as { positions: { opened_at: unknown; expiry: unknown }[] }).positions
     expect(positions[0]!.opened_at).toBeNull()
     expect(positions[0]!.expiry).toBe('2026-09-18')
     expect(positions[1]!.expiry).toBeNull()
   })
-  it('non-object/legless payloads pass through untouched', () => {
-    expect(sanitizeRawExtraction(null)).toEqual({ value: null, nulled: [] })
-    expect(sanitizeRawExtraction({ positions: 'junk' }).nulled).toEqual([])
+  it('truncates overlong notes/broker instead of failing the parse (1vsmryk burned 4 attempts on this)', () => {
+    const { value, repaired } = sanitizeRawExtraction({
+      screenshot_kind: 'single_position', broker: 'B'.repeat(60), notes: 'n'.repeat(700), confidence: null,
+      positions: [leg()],
+    })
+    expect(repaired).toEqual(['notes: truncated 700→500 chars', 'broker: truncated 60→40 chars'])
+    const parsed = LlmExtractionSchema.parse(value)
+    expect(parsed.notes).toHaveLength(500)
+    expect(parsed.broker).toHaveLength(40)
+  })
+  it('truncation still applies when positions are missing/junk (top-level repair is independent)', () => {
+    const out = sanitizeRawExtraction({ positions: 'junk', notes: 'n'.repeat(501) })
+    expect(out.repaired).toEqual(['notes: truncated 501→500 chars'])
+    expect((out.value as { notes: string }).notes).toHaveLength(500)
+  })
+  it('non-object payloads and in-bounds free-text pass through untouched', () => {
+    expect(sanitizeRawExtraction(null)).toEqual({ value: null, repaired: [] })
+    expect(sanitizeRawExtraction({ positions: 'junk', notes: 'short' }).repaired).toEqual([])
   })
 })

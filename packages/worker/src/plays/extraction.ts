@@ -54,36 +54,50 @@ export function isRealIsoDate(s: string): boolean {
 const isoDate = (): z.ZodType<string> =>
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealIsoDate, 'not a real YYYY-MM-DD date')
 
+/** Free-text length pins — shared by the schema (they ride into the wire JSON schema as
+ *  `maxLength`) and the pre-parse repair (which truncates instead of failing). */
+export const BROKER_MAX_LEN = 40
+export const NOTES_MAX_LEN = 500
+
 /**
- * Deterministic repair for the phantom-date class BEFORE schema parse: a model that pattern-matches
- * `2026-02-30` (seen live — strict mode enforces the pattern, not the calendar) must not kill the
- * whole extraction; null = unknown strictly beats both a phantom date and a burned play, and the
- * incomplete-leg confidence penalty already prices the null. Everything else still hard-fails.
- * Returns the repaired value + what was nulled (for the caller's log line).
+ * Deterministic repair for model output that would fail the pinned schema on a NON-marking field,
+ * applied BEFORE schema parse — none of these may kill the whole extraction:
+ *  - phantom calendar dates (`2026-02-30`, seen live — strict mode enforces the pattern, not the
+ *    calendar) → null; null = unknown strictly beats both a phantom date and a burned play, and
+ *    the incomplete-leg confidence penalty already prices the null;
+ *  - non-ISO-4217 currency strings ("USDC" on a Hyperliquid perp, live 2026-08-19) → null;
+ *  - overlong free-text (`notes`/`broker`) → truncated, not nulled — a chatty `notes` burned a
+ *    play live (1vsmryk, 2026-08-19: four attempts, all "expected string to have <=500 chars").
+ * Everything marking-critical still hard-fails. Returns the repaired value + what was repaired
+ * (for the caller's log line).
  */
-export function sanitizeRawExtraction(raw: unknown): { value: unknown; nulled: string[] } {
-  if (raw == null || typeof raw !== 'object') return { value: raw, nulled: [] }
-  const obj = raw as Record<string, unknown>
-  if (!Array.isArray(obj.positions)) return { value: raw, nulled: [] }
-  const nulled: string[] = []
+export function sanitizeRawExtraction(raw: unknown): { value: unknown; repaired: string[] } {
+  if (raw == null || typeof raw !== 'object') return { value: raw, repaired: [] }
+  const obj = { ...(raw as Record<string, unknown>) }
+  const repaired: string[] = []
+  for (const [k, max] of [['notes', NOTES_MAX_LEN], ['broker', BROKER_MAX_LEN]] as const) {
+    if (typeof obj[k] === 'string' && (obj[k] as string).length > max) {
+      repaired.push(`${k}: truncated ${(obj[k] as string).length}→${max} chars`)
+      obj[k] = (obj[k] as string).slice(0, max)
+    }
+  }
+  if (!Array.isArray(obj.positions)) return { value: obj, repaired }
   const positions = obj.positions.map((p, i) => {
     if (p == null || typeof p !== 'object') return p
     const pos = { ...(p as Record<string, unknown>) }
     for (const k of ['expiry', 'opened_at'] as const) {
       if (typeof pos[k] === 'string' && !isRealIsoDate(pos[k] as string)) {
-        nulled.push(`positions[${i}].${k}=${JSON.stringify(pos[k])}`)
+        repaired.push(`positions[${i}].${k}=${JSON.stringify(pos[k])}`)
         pos[k] = null
       }
     }
-    // Non-ISO-4217 currency strings (seen live: "USDC" on a Hyperliquid perp, 2026-08-19) — null =
-    // unknown beats failing the whole extraction on the schema's 3-char pin.
     if (typeof pos.currency === 'string' && !/^[A-Za-z]{3}$/.test(pos.currency)) {
-      nulled.push(`positions[${i}].currency=${JSON.stringify(pos.currency)}`)
+      repaired.push(`positions[${i}].currency=${JSON.stringify(pos.currency)}`)
       pos.currency = null
     }
     return pos
   })
-  return { value: { ...obj, positions }, nulled }
+  return { value: { ...obj, positions }, repaired }
 }
 
 const confidence = (): z.ZodNumber => z.number().min(0).max(1)
@@ -135,10 +149,10 @@ export const ExtractedPositionSchema = z.object({
  *  the persisted extraction by adding derived `position_id`s + the deterministic verdicts. */
 export const LlmExtractionSchema = z.object({
   screenshot_kind: z.enum(SCREENSHOT_KINDS),
-  broker: z.string().max(40).nullable(),
+  broker: z.string().max(BROKER_MAX_LEN).nullable(),
   positions: z.array(ExtractedPositionSchema).max(30),
   /** Free-text caveats the model wants on record (cropped columns, ambiguous rows). */
-  notes: z.string().max(500).nullable(),
+  notes: z.string().max(NOTES_MAX_LEN).nullable(),
   confidence: confidence().nullable(),
 })
 

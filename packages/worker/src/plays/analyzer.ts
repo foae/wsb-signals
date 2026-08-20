@@ -248,8 +248,8 @@ export class CodexAnalyzer implements PlayAnalyzer {
     const { text: raw, inputTokens, outputTokens } = parseCodexSse(await res.text())
     let extraction: LlmExtraction
     try {
-      const { value, nulled } = sanitizeRawExtraction(JSON.parse(raw))
-      if (nulled.length) log.warn({ nulled }, 'codex extract: phantom dates nulled (kept the extraction)')
+      const { value, repaired } = sanitizeRawExtraction(JSON.parse(raw))
+      if (repaired.length) log.warn({ repaired }, 'codex extract: non-marking fields repaired (kept the extraction)')
       extraction = LlmExtractionSchema.parse(value)
     } catch (e) {
       // Malformed despite strict mode — a stage fault (queue attempts/backoff), never silent.
