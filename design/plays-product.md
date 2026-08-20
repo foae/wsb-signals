@@ -219,7 +219,8 @@ Auto-publish, no human gate. The web app (Nuxt, same read-only DB role) gains:
 - **`/plays/:id` detail** — screenshot viewer, extracted position table, TLDR + summary,
   interpretation with **evidence chips** (heat rank, herd count, day move — each traceable to the
   stored evidence, invariant P2), outcome chart for tracked plays, resolution link, Reddit permalink,
-  model/prompt versions in the footer, the not-a-signal disclaimer.
+  model/prompt versions in the footer. (The not-a-signal disclaimer was dropped from all UI copy —
+  owner decision 2026-08-20; the framing lives in the docs, not on the pages.)
 - The heat board remains (nav: Plays | Heat board) and cross-links both ways
   (board ticker → plays filtered to it; play → its window's board context).
 - Two auto-publish realities, stated rather than silent: screenshots can carry **text aimed at the

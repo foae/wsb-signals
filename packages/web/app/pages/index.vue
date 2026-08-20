@@ -33,7 +33,7 @@ const generatedAgo = computed(() => {
       <h1 class="text-2xl font-bold">
         WSB Signals
       </h1>
-      <span class="text-sm text-muted">trending radar — observational research, NOT a trading signal</span>
+      <span class="text-sm text-muted">trending radar</span>
     </div>
 
     <!-- Error state -->

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// Slice-8: UI delegated to pages/index.vue
+// App shell: shared top nav + the routed page (pages/).
 </script>
 
 <template>
   <UApp>
+    <SiteNav />
     <NuxtPage />
   </UApp>
 </template>

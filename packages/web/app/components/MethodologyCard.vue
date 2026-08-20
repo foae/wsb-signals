@@ -30,7 +30,7 @@ const marketGlossary = [
         Column &amp; methodology guide
       </h2>
       <p class="text-xs text-muted mt-0.5">
-        What each column means and how it's computed. Observational research — NOT a trading signal.
+        What each column means and how it's computed.
       </p>
     </template>
 
@@ -66,8 +66,7 @@ const marketGlossary = [
           <code>rvol</code> is low-confidence on the free IEX feed.
         </li>
         <li>
-          <strong>Not financial advice.</strong> This measures the attention↔market relationship;
-          it doesn't predict it. Divergence quadrants, STEALTH, and lead-lag are observational research, NOT a trading signal.
+          <strong>This measures the attention↔market relationship</strong> — it doesn't predict it.
         </li>
       </ul>
 

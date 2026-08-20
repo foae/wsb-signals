@@ -7,8 +7,9 @@ extract the positions from the broker screenshots (vision LLM), interpret how th
 against real market data, categorize it, track its outcome, and publish a browseable board. The
 existing **trending radar** (share-of-voice → WSB Heat `H_e`, Alpaca overlay → Market Heat `H_m`,
 divergence badges) keeps running as the Plays **data subsystem** — its mentions history is the
-herd/trend evidence. Both are observational research, **not** a trading signal — keep that framing
-in any user-facing copy.
+herd/trend evidence. Both are observational research, **not** a trading signal — that framing holds
+in docs and analysis output, but the owner removed the disclaimer taglines from the web UI
+(2026-08-20): do NOT re-add "observational research / not a trading signal" copy to pages.
 
 ## ⚠ Current state — READ THIS FIRST
 
@@ -121,7 +122,9 @@ validate → evidence build → LLM interpret/categorize → publish → daily o
 
 Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`. Landed at P1:
 `capture.ts` (flair filter + ON CONFLICT DO NOTHING enqueue, called from `runCycle` AFTER
-`publishCycle` commits), `media.ts` (resolver/archiver: direct + gallery-from-archived-raw (Reddit-JSON fallback, 403-prone) + inline
+`publishCycle` commits; since 2026-08-20 also the junk gates — 15-min capture delay, removed-post
+skip, thin text-only skip — and a zero-position extraction tombstones as terminal `discarded`,
+hidden from the web, plays-plan §3), `media.ts` (resolver/archiver: direct + gallery-from-archived-raw (Reddit-JSON fallback, 403-prone) + inline
 self-post images; transient-vs-permanent split), `queue.ts` (the second loop: `FOR UPDATE SKIP
 LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff). Landed at P2:
 `extraction.ts` (the PINNED zod schema + derived direction), `marking.ts` (the pure P2↔P5 markPlay
@@ -134,7 +137,10 @@ radar/herd/market evidence; anchor at `opened_at` else post-time-badged-weaker; 
 STRUCTURAL herd gate, invariant P4) + `prompts/interpret.ts`; the queue runs `captured →
 media_ready → extracted → published` (interpret+denormalize+publish is ONE stage/row-update —
 there is deliberately no `analyzed` status). Still to land: marks (P5). The web
-serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`).
+serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`), and
+(P4 partial, landed early) has a shared top nav, board-field play cards, and a `/plays/:id`
+detail page (`server/utils/plays.ts` — children read by current-run pointers, lenient jsonb
+schemas); P4 proper still owes the `/board` move, filters/sorts, and the outcome chart.
 
 ## Pluggable interfaces (the extension seams)
 

@@ -42,6 +42,27 @@ export function fmtRankDelta(v: number | null | undefined): string {
   return String(v)
 }
 
+/** Absolute dollars (plays P&L — already-signed values): null → '—', else "$1,234.56" / "-$12.30".
+ *  Locale pinned to en-US so SSR and client render identically (no hydration mismatch). */
+export function fmtUsd(v: number | null | undefined): string {
+  if (v == null) return '—'
+  const abs = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return (v < 0 ? '-$' : '$') + abs
+}
+
+/** Signed dollars: like fmtUsd but gains carry an explicit '+' ("+$318.00"). */
+export function fmtSignedUsd(v: number | null | undefined): string {
+  if (v == null) return '—'
+  return (v >= 0 ? '+' : '') + fmtUsd(v)
+}
+
+/** Percent for values ALREADY in percent units (plays pnl_pct — unlike fmtRet's fractions):
+ *  null → '—', else signed "+42.3%" / "-88.0%". */
+export function fmtPctPoints(v: number | null | undefined): string {
+  if (v == null) return '—'
+  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+}
+
 /** Relative time: "Xm ago" / "Xs ago" / "Xh ago" */
 export function fmtAgo(epochSeconds: number, nowSeconds: number): string {
   const diff = nowSeconds - epochSeconds
