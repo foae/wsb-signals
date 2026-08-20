@@ -11,7 +11,7 @@
    "strike": null,
    "expiry": null,
    "cost_basis": null,
-   "current_value": null,
+   "current_value": 1871477.3,
    "pnl_abs": -8582.52,
    "pnl_pct": -23.0,
    "realized": false,
