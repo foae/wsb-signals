@@ -1,13 +1,17 @@
 /**
  * Web plays read-path integration tests on real Postgres. Pins the list contract (newest-first order,
- * thumbnail = first media item, media/text-only tolerance, P3's denormalized board fields on the card)
- * and the detail contract (children read BY the current-run pointers; a dangling pointer degrades the
- * section to null; lenient jsonb parse), plus that assembled payloads pass the API response schemas.
+ * thumbnail = first media item, media/text-only tolerance, P3's denormalized board fields on the card,
+ * P4's server-side filters/sorts + the hide-low-confidence default) and the detail contract (children
+ * read BY the current-run pointers; a dangling pointer degrades the section to null; lenient jsonb
+ * parse), plus that assembled payloads pass the API response schemas.
  */
 import { playExtractions, playInterpretations, plays } from '@wsb/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { PlayDetailSchema, PlaysResponseSchema, readPlayDetail, readPlays } from '../server/utils/plays'
+import {
+  PlayDetailSchema, PlaysQuerySchema, PlaysResponseSchema, readPlayDetail, readPlays,
+  type PlaysQuery,
+} from '../server/utils/plays'
 import { startPg, type PgHarness } from './helpers/pg'
 
 let pg: PgHarness
@@ -17,9 +21,12 @@ beforeEach(async () => { await pg.reset() })
 
 const T = 1_755_500_000
 
+/** A parsed query with defaults (`all: false`, `sort: 'newest'`) + overrides. */
+const Q = (over: Partial<PlaysQuery> = {}): PlaysQuery => ({ ...PlaysQuerySchema.parse({}), ...over })
+
 describe('readPlays — the bare P1 list', () => {
   it('returns [] with no rows and validates against the schema', async () => {
-    const rows = await readPlays(pg.db)
+    const rows = await readPlays(pg.db, Q())
     expect(rows).toEqual([])
     expect(() => PlaysResponseSchema.parse({ plays: rows })).not.toThrow()
   })
@@ -42,7 +49,7 @@ describe('readPlays — the bare P1 list', () => {
       },
     ])
 
-    const rows = await readPlays(pg.db)
+    const rows = await readPlays(pg.db, Q())
     expect(rows.map((r) => r.id)).toEqual(['new1', 'old1'])
     expect(rows[0]).toMatchObject({ thumb: null, imageCount: 0, mediaStatus: 'none', flair: 'YOLO' })
     expect(rows[1]).toMatchObject({ thumb: 'old1/0.jpg', imageCount: 2, mediaStatus: 'archived' })
@@ -56,7 +63,7 @@ describe('readPlays — the bare P1 list', () => {
       { id: 'live1', createdUtc: T, capturedAt: T, status: 'published', mediaStatus: 'none', attempts: 0 },
       { id: 'dead1', createdUtc: T + 10, capturedAt: T, status: 'discarded', mediaStatus: 'none', attempts: 0 },
     ])
-    const rows = await readPlays(pg.db)
+    const rows = await readPlays(pg.db, Q())
     expect(rows.map((r) => r.id)).toEqual(['live1'])
   })
 
@@ -70,12 +77,77 @@ describe('readPlays — the bare P1 list', () => {
       pnlAbs: 12_345.67, pnlPct: 210.5, realized: true, tldr: 'one line', summary: 'longer text',
     })
 
-    const rows = await readPlays(pg.db)
+    const rows = await readPlays(pg.db, Q())
     expect(rows[0]).toMatchObject({
       id: 'pub1', publishedAt: T + 900, primaryTicker: 'NVDA', category: 'high-risk-high-reward',
       confidence: 0.8, pnlAbs: 12_345.67, pnlPct: 210.5, realized: true, tldr: 'one line',
     })
     expect(() => PlaysResponseSchema.parse({ plays: rows })).not.toThrow()
+  })
+})
+
+describe('readPlays — P4 filters & sorts', () => {
+  /** Fixture set spanning the filter axes; `pending1` has no board fields yet (in-pipeline). */
+  const seed = () => pg.db.insert(plays).values([
+    {
+      id: 'gain1', createdUtc: T, capturedAt: T, status: 'published', mediaStatus: 'none', attempts: 0,
+      primaryTicker: 'NVDA', category: 'high-risk-high-reward', tags: ['0dte', 'options'],
+      confidence: 0.8, pnlAbs: 5000, pnlPct: 100, realized: true,
+    },
+    {
+      id: 'loss1', createdUtc: T - 100, capturedAt: T, status: 'published', mediaStatus: 'none', attempts: 0,
+      primaryTicker: 'MRNA', category: 'herd-following', tags: ['options'],
+      confidence: 0.7, pnlAbs: -12_000, pnlPct: -60, realized: true,
+    },
+    {
+      id: 'weak1', createdUtc: T - 200, capturedAt: T, status: 'published', mediaStatus: 'none', attempts: 0,
+      primaryTicker: 'GME', category: 'dumb-luck', tags: [], confidence: 0.5, pnlAbs: 100, realized: true,
+    },
+    {
+      id: 'uncl1', createdUtc: T - 300, capturedAt: T, status: 'published', mediaStatus: 'none', attempts: 0,
+      primaryTicker: null, category: 'unclassifiable', tags: [], confidence: 0.9, pnlAbs: null,
+    },
+    { id: 'pending1', createdUtc: T - 400, capturedAt: T, status: 'extracted', mediaStatus: 'none', attempts: 0 },
+    {
+      id: 'old2', createdUtc: T - 10 * 86_400, capturedAt: T, status: 'published', mediaStatus: 'none',
+      attempts: 0, primaryTicker: 'NVDA', category: 'bag-holding', tags: [], confidence: 0.9,
+      pnlAbs: -300, realized: false,
+    },
+  ])
+
+  it('default view hides unclassifiable and low-confidence rows but keeps in-pipeline ones; all=1 reveals', async () => {
+    await seed()
+    const byDefault = await readPlays(pg.db, Q())
+    expect(byDefault.map((r) => r.id)).toEqual(['gain1', 'loss1', 'pending1', 'old2'])
+    const revealed = await readPlays(pg.db, Q({ all: true }))
+    expect(revealed.map((r) => r.id)).toEqual(['gain1', 'loss1', 'weak1', 'uncl1', 'pending1', 'old2'])
+  })
+
+  it('filters by category, ticker, tag containment, P&L sign, confidence floor, and since', async () => {
+    await seed()
+    expect((await readPlays(pg.db, Q({ category: 'herd-following' }))).map((r) => r.id)).toEqual(['loss1'])
+    expect((await readPlays(pg.db, Q({ ticker: 'NVDA' }))).map((r) => r.id)).toEqual(['gain1', 'old2'])
+    expect((await readPlays(pg.db, Q({ tag: 'options' }))).map((r) => r.id)).toEqual(['gain1', 'loss1'])
+    // sign is on the play's posted P&L; rows without one (pending/unclassifiable) drop out.
+    expect((await readPlays(pg.db, Q({ sign: 'gain' }))).map((r) => r.id)).toEqual(['gain1'])
+    expect((await readPlays(pg.db, Q({ sign: 'loss' }))).map((r) => r.id)).toEqual(['loss1', 'old2'])
+    expect((await readPlays(pg.db, Q({ minConf: 0.8 }))).map((r) => r.id)).toEqual(['gain1', 'old2'])
+    expect((await readPlays(pg.db, Q({ since: T - 86_400 }))).map((r) => r.id))
+      .toEqual(['gain1', 'loss1', 'pending1'])
+  })
+
+  it('sort=pnl orders by |posted P&L| desc with null-P&L rows last', async () => {
+    await seed()
+    const rows = await readPlays(pg.db, Q({ sort: 'pnl' }))
+    expect(rows.map((r) => r.id)).toEqual(['loss1', 'gain1', 'old2', 'pending1'])
+  })
+
+  it('the query schema uppercases tickers, defaults, and rejects junk', () => {
+    expect(PlaysQuerySchema.parse({ ticker: 'nvda', all: '1' })).toMatchObject({
+      ticker: 'NVDA', all: true, sort: 'newest',
+    })
+    expect(PlaysQuerySchema.safeParse({ sort: 'sideways' }).success).toBe(false)
+    expect(PlaysQuerySchema.safeParse({ minConf: '2' }).success).toBe(false)
   })
 })
 

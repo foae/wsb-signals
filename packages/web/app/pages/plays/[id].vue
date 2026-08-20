@@ -29,7 +29,7 @@ const cellTxt = 'px-2 py-1.5'
 <template>
   <main class="max-w-4xl mx-auto px-4 py-8 space-y-6">
     <nav class="text-sm text-muted">
-      <NuxtLink to="/plays" class="hover:text-highlighted">← Plays</NuxtLink>
+      <NuxtLink to="/" class="hover:text-highlighted">← Plays</NuxtLink>
     </nav>
 
     <UAlert
@@ -94,6 +94,7 @@ const cellTxt = 'px-2 py-1.5'
           {{ data.play.realized ? 'realized' : 'open position' }}
         </span>
         <span class="text-xs text-muted">posted P&L — what the screenshot showed</span>
+        <NuxtLink to="/board" class="text-xs text-muted hover:text-highlighted">heat board ↗</NuxtLink>
       </div>
 
       <!-- Interpretation -->
@@ -222,6 +223,16 @@ const cellTxt = 'px-2 py-1.5'
         <p v-if="evidence.radar?.note || evidence.market?.note || evidence.note" class="text-xs text-muted">
           {{ [evidence.note, evidence.radar?.note, evidence.market?.note].filter(Boolean).join(' · ') }}
         </p>
+      </section>
+
+      <!-- Outcome placeholder (P4) — real marks + chart land with P5 outcome tracking -->
+      <section v-if="data.play.status === 'published' && data.play.realized === false" class="space-y-2">
+        <h2 class="text-sm font-semibold">
+          Outcome
+        </h2>
+        <div class="rounded-lg border border-dashed border-default p-4 text-sm text-muted">
+          Open position — daily marks and an outcome chart land with outcome tracking.
+        </div>
       </section>
 
       <!-- Screenshots -->

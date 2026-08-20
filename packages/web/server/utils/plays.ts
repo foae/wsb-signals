@@ -8,9 +8,10 @@
  * must not mix runs). Child `output`/`evidence` jsonb are WORKER-owned shapes (extraction.ts /
  * interpretation.ts / evidence.ts): parsed here with LENIENT schemas — `.catch()` fallbacks
  * throughout — so a version drift degrades a section to null/'—' instead of 503ing the page.
- * P4 proper grows filters/sorts around this read.
+ * P4 filters/sorts run server-side in this read (the list is LIMIT-capped, so client-side filtering
+ * would silently miss rows past the cap).
  */
-import { and, desc, eq, ne, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, lt, ne, sql, type SQL } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { z } from 'zod'
 
@@ -48,6 +49,29 @@ export const PlaysResponseSchema = z.object({
 
 export type PlayCard = z.infer<typeof PlayCardSchema>
 export type PlaysResponse = z.infer<typeof PlaysResponseSchema>
+
+// --- list query contract ----------------------------------------------------------------------------
+
+/** Below this derived confidence a published play is hidden by default (product §4.5). The cut sits
+ *  between validate.ts's two `deriveConfidence` clusters: unvalidated/text-only plays base at 0.5,
+ *  clean validated ones at 0.9. */
+export const LOW_CONFIDENCE = 0.6
+
+/** `/api/plays` query params — every field optional; unknown values fail the parse → 400, never a
+ *  silent full-list fallback. `all=1` reveals what the default filter hides. */
+export const PlaysQuerySchema = z.object({
+  category: z.string().trim().min(1).max(40).optional(),
+  tag: z.string().trim().min(1).max(40).optional(),
+  ticker: z.string().trim().min(1).max(12).transform((s) => s.toUpperCase()).optional(),
+  sign: z.enum(['gain', 'loss']).optional(),
+  minConf: z.coerce.number().min(0).max(1).optional(),
+  /** Unix seconds lower bound on the post's created_utc (the UI sends now − N days). */
+  since: z.coerce.number().int().nonnegative().optional(),
+  sort: z.enum(['newest', 'pnl']).default('newest'),
+  all: z.enum(['1', 'true']).optional().transform((v) => v != null),
+})
+
+export type PlaysQuery = z.infer<typeof PlaysQuerySchema>
 
 // --- detail contract --------------------------------------------------------------------------------
 
@@ -200,15 +224,38 @@ const cardColumns = {
   pnlPct: plays.pnlPct, realized: plays.realized, tldr: plays.tldr,
 }
 
-/** Newest captured plays (single ORDER BY-stable read; no cycle coupling — plays publish row-by-row).
- *  Tombstoned rows (`discarded`: removed posts, zero-position extractions) are excluded — they exist
- *  only so poll re-delivery can't re-insert them, not for display. */
-export async function readPlays(db: NodePgDatabase): Promise<PlayCard[]> {
+/** Captured plays, filtered/sorted server-side (single ORDER BY-stable read; no cycle coupling —
+ *  plays publish row-by-row). Tombstoned rows (`discarded`: removed posts, zero-position
+ *  extractions) are excluded — they exist only so poll re-delivery can't re-insert them, not for
+ *  display. The default view also hides published-but-weak rows (`unclassifiable` or derived
+ *  confidence < LOW_CONFIDENCE) while keeping still-in-pipeline rows (null category/confidence)
+ *  visible — hence IS NULL / IS DISTINCT FROM, not a bare NOT(...) that NULLs would swallow. */
+export async function readPlays(db: NodePgDatabase, query: PlaysQuery): Promise<PlayCard[]> {
+  const conds: SQL[] = [ne(plays.status, 'discarded')]
+  if (!query.all) {
+    conds.push(
+      sql`${plays.category} is distinct from 'unclassifiable'`,
+      sql`(${plays.confidence} is null or ${plays.confidence} >= ${LOW_CONFIDENCE})`,
+    )
+  }
+  if (query.category != null) conds.push(eq(plays.category, query.category))
+  // tags is a worker-written jsonb string array; containment matches one exact tag.
+  if (query.tag != null) conds.push(sql`${plays.tags} @> ${JSON.stringify([query.tag])}::jsonb`)
+  if (query.ticker != null) conds.push(eq(plays.primaryTicker, query.ticker))
+  if (query.sign === 'gain') conds.push(gte(plays.pnlAbs, 0))
+  if (query.sign === 'loss') conds.push(lt(plays.pnlAbs, 0))
+  if (query.minConf != null) conds.push(gte(plays.confidence, query.minConf))
+  if (query.since != null) conds.push(gte(plays.createdUtc, query.since))
+
+  // NULLS LAST throughout: Postgres DESC sorts NULLs first, and capture null-fills a junk
+  // created_utc — those rows belong at the bottom, not pinned above every real play.
+  const order = query.sort === 'pnl'
+    ? [sql`abs(${plays.pnlAbs}) desc nulls last`, sql`${plays.createdUtc} desc nulls last`, desc(plays.id)]
+    : [sql`${plays.createdUtc} desc nulls last`, desc(plays.id)]
+
   const rows = await db.select(cardColumns).from(plays)
-    .where(ne(plays.status, 'discarded'))
-    // NULLS LAST: Postgres DESC sorts NULLs first, and capture null-fills a junk created_utc — those
-    // rows belong at the bottom, not pinned above every real play.
-    .orderBy(sql`${plays.createdUtc} desc nulls last`, desc(plays.id))
+    .where(and(...conds))
+    .orderBy(...order)
     .limit(LIST_LIMIT)
 
   return rows.map(toCard)

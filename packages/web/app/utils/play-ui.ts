@@ -2,6 +2,18 @@
 
 type BadgeColor = 'success' | 'error' | 'warning' | 'info' | 'neutral' | 'primary'
 
+/** Mirrors taxonomy-v1 in worker plays/interpretation.ts (CATEGORIES). Web is drift-lenient by
+ *  design — an unknown category still renders via categoryColor's neutral default. */
+export const CATEGORIES = [
+  'dumb-luck',
+  'high-risk-high-reward',
+  'herd-following',
+  'earnings-gamble',
+  'bag-holding',
+  'disciplined-play',
+  'unclassifiable',
+] as const
+
 /** Flair → badge color (Gain green / Loss red / YOLO amber). */
 export function flairColor(flair: string | null): BadgeColor {
   if (flair === 'Gain') return 'success'

@@ -24,7 +24,10 @@ in docs and analysis output, but the owner removed the disclaimer taglines from 
   gate MET 2026-08-20** (labeled eval n=36, marking-critical fields 100%; live extraction on
   `gpt-5.6-sol` via ChatGPT-subscription OAuth — `codex-login`); the owner spot-check of the
   labeled sample is the one open human step. **P3 (interpretation/categorization/publish,
-  issue #4) is BUILT — live gate (~20 hand-reviewed published plays) pending.**
+  issue #4) is BUILT — live gate (~20 hand-reviewed published plays) pending.** **P4 (web board,
+  issue #5) is BUILT 2026-08-20** — plays are the primary UI at `/` (heat board at `/board`),
+  server-side filters/sorts, default hide of low-confidence/`unclassifiable`; the owner
+  browse-the-LAN-deploy gate is pending.
 - **The radar — v2 full-stack TypeScript; BUILT, cutover-approved (2026-06-09), running.** Node
   worker + Nuxt 4 SSR web + Postgres in a pnpm monorepo (`packages/{shared,worker,web}`); deploy is
   `deploy/v2/` (db + worker + web). The radar's behavior is **stable** — Plays adds beside it, and
@@ -136,11 +139,12 @@ radar/herd/market evidence; anchor at `opened_at` else post-time-badged-weaker; 
 + staleness bound; distinct-author herd measure), `interpretation.ts` (per-call category enum — the
 STRUCTURAL herd gate, invariant P4) + `prompts/interpret.ts`; the queue runs `captured →
 media_ready → extracted → published` (interpret+denormalize+publish is ONE stage/row-update —
-there is deliberately no `analyzed` status). Still to land: marks (P5). The web
-serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`), and
-(P4 partial, landed early) has a shared top nav, board-field play cards, and a `/plays/:id`
-detail page (`server/utils/plays.ts` — children read by current-run pointers, lenient jsonb
-schemas); P4 proper still owes the `/board` move, filters/sorts, and the outcome chart.
+there is deliberately no `analyzed` status). Still to land: marks (P5). Landed at P4: the web
+serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`); plays are
+the primary UI at `/` (heat board at `/board`; board tickers cross-link `/?ticker=X`) with
+**server-side** filters/sorts and the default low-confidence/`unclassifiable` hide
+(`PlaysQuerySchema`/`LOW_CONFIDENCE` in `server/utils/plays.ts` — children read by current-run
+pointers, lenient jsonb schemas), plus a `/plays/:id` detail page with the P5 outcome placeholder.
 
 ## Pluggable interfaces (the extension seams)
 

@@ -41,6 +41,11 @@ const columns = [
 <template>
   <div class="overflow-x-auto">
     <UTable :data="props.rows" :columns="columns">
+      <template #ticker-cell="{ row }">
+        <NuxtLink :to="`/?ticker=${row.original.ticker}`" class="font-mono font-semibold hover:underline">
+          {{ row.original.ticker }}
+        </NuxtLink>
+      </template>
       <template #mentions-cell="{ row }">
         {{ fmtInt(row.original.mentions) }}
       </template>

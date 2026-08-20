@@ -1,16 +1,16 @@
 <script setup lang="ts">
-// Top nav — the P4 "Plays | Heat board" cross-link (product §4.5), landed early so the two screens
-// are mutually reachable. Active state is computed by path prefix so /plays/:id keeps Plays lit
-// (router-link active-class on '/' would light Heat board everywhere).
+// Top nav — the P4 "Plays | Heat board" cross-link (product §4.5). Plays is now the primary UI at
+// '/'; the heat board lives at '/board'. Active state keeps Plays lit on /plays/:id detail pages
+// (a plain exact-match on '/' would light nothing there).
 const route = useRoute()
 
 const links = [
-  { to: '/', label: 'Heat board' },
-  { to: '/plays', label: 'Plays' },
+  { to: '/', label: 'Plays' },
+  { to: '/board', label: 'Heat board' },
 ]
 
 const isActive = (to: string): boolean =>
-  to === '/' ? route.path === '/' : route.path === to || route.path.startsWith(to + '/')
+  to === '/' ? (route.path === '/' || route.path.startsWith('/plays')) : route.path === to || route.path.startsWith(to + '/')
 </script>
 
 <template>

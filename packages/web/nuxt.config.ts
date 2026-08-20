@@ -21,5 +21,7 @@ export default defineNuxtConfig({
   // (server/utils/board.ts) keeps each cached response internally consistent. Thrown errors aren't cached.
   routeRules: {
     '/api/board': { cache: { maxAge: 60, swr: true } },
+    // Old plays index URL — exact path only (no /** glob), so /plays/:id detail routes are untouched.
+    '/plays': { redirect: '/' },
   },
 })

@@ -293,6 +293,17 @@ denormalized fields (ticker, category, posted P&L, tldr, confidence), `/plays/:i
 shape drift degrades a section, never 503s). Still this slice's: `/board` move, filters/sorts, the
 hide-low-confidence default, outcome chart placeholder.
 
+**Built (2026-08-20):** plays are the primary UI at `/` (the old `/plays` URL redirects; the heat
+board moved to `/board`, board tickers cross-link to `/?ticker=X`). Filters (category, ticker, tag,
+gain/loss, confidence floor, date preset) and sorts (newest, |posted P&L|) run **server-side** in
+`readPlays` (`PlaysQuerySchema`; the list is LIMIT-capped, so client-side filtering would silently
+miss rows past the cap); every control writes to the URL query, which is the single source of
+truth. The default view hides `unclassifiable` and derived confidence < `LOW_CONFIDENCE` (0.6 — the
+cut between validate.ts's unvalidated-base-0.5 and validated-base-0.9 clusters) while keeping
+still-in-pipeline rows visible; a toggle (`all=1`) reveals. Open published plays get the outcome
+placeholder section (real marks + the sparkline land with P5). Compose items (media volume ro into
+web, `stop_grace_period`, `OPENAI_API_KEY` in `.env.example`) had already landed with P1–P2.
+
 Gate: browse real plays end-to-end on the LAN deploy; web lint/typecheck/IT green.
 
 ## 7. Slice P5 — outcomes
