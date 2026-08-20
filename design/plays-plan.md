@@ -174,7 +174,8 @@ that actually exists.
   **Each stage commits its child row + status advance + cost in one transaction** (the LLM call
   itself stays outside any tx, per P9) — that makes crash-between-call-and-commit the *only*
   double-charge path, bounded by `max_attempts` (P8). Statuses: `captured → media_ready →
-  extracted → analyzed → published`, off-ramp `failed` (with `error`). Media state lives in
+  extracted → published` (no status between interpret and publish — §5 pins them into one row
+  update), off-ramp `failed` (with `error`). Media state lives in
   `media_status`, not the queue status — a media failure degrades to text-only and the queue
   proceeds. LLM stages stubbed in P1.
 - Web: a bare `/plays` list of captured rows (title, flair, thumbnail) — proves the volume + media

@@ -128,7 +128,9 @@ export function parseInterpretation(raw: unknown, allowHerd: boolean): { value: 
   const { value, repaired } = sanitizeRawInterpretation(raw)
   const parsed = buildInterpretationSchema(allowHerd).parse(value)
   if (!allowHerd) {
-    const kept = parsed.tags.filter((t) => !t.includes('herd'))
+    // Substring 'herd' alone missed synonyms a model actually reaches for (review 2026-08-20).
+    const herdish = /herd|crowd|bandwagon|follow-the/
+    const kept = parsed.tags.filter((t) => !herdish.test(t))
     if (kept.length !== parsed.tags.length) {
       repaired.push('tags: stripped herd claim (below threshold — invariant P4)')
       parsed.tags = kept

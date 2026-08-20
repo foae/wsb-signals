@@ -20,12 +20,13 @@ const leg = (over: Partial<ValidatedPosition> = {}): ValidatedPosition => ({
 })
 
 describe('deriveAnchor (product §4.2 — evidence anchors at the entry, not the post)', () => {
-  it('anchors at the end of the EARLIEST opened_at day, badged opened_at', () => {
+  it('anchors at the end of the EARLIEST opened_at day (inside its last hour bucket), badged opened_at', () => {
     const a = deriveAnchor([
       leg({ opened_at: '2026-08-12' }), leg({ opened_at: '2026-08-10' }),
     ], POST)
     expect(a.basis).toBe('opened_at')
-    expect(a.utc).toBe(Date.parse('2026-08-11T00:00:00Z') / 1000) // end of the 08-10 UTC day
+    // 23:59:59 of the 08-10 UTC day — NOT the next midnight, which would bucket one window over
+    expect(a.utc).toBe(Date.parse('2026-08-11T00:00:00Z') / 1000 - 1)
   })
 
   it('never anchors after the post: a same-day open clamps to post time, still badged opened_at', () => {
@@ -84,6 +85,18 @@ describe('derivePostedPnl (plan §5 board semantics — the screenshot IS the pl
   it('nothing reported → nulls, never zeros (0 would read as break-even)', () => {
     expect(derivePostedPnl([leg({ pnl_abs: null, cost_basis: null, pnl_pct: null })]))
       .toEqual({ pnlAbs: null, pnlPct: null })
+  })
+
+  it('mixed currencies never sum (a CAD leg + a USD leg is not a dollar total); null ≡ USD', () => {
+    expect(derivePostedPnl([
+      leg({ pnl_abs: 1000, cost_basis: 1000, currency: 'CAD' }),
+      leg({ pnl_abs: 500, cost_basis: 1000, currency: null }),
+    ])).toEqual({ pnlAbs: null, pnlPct: null })
+    // explicit USD + null-USD still aggregate — same currency by convention
+    expect(derivePostedPnl([
+      leg({ pnl_abs: 1000, cost_basis: 1000, currency: 'USD' }),
+      leg({ pnl_abs: 500, cost_basis: 1000, currency: null }),
+    ])).toEqual({ pnlAbs: 1500, pnlPct: 75 })
   })
 })
 

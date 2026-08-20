@@ -63,7 +63,9 @@ export function deriveAnchor(positions: readonly ValidatedPosition[], postUtc: n
     if (earliest == null || dayStart < earliest) earliest = dayStart
   }
   if (earliest == null) return { utc: postUtc, basis: 'post_time' }
-  return { utc: Math.min(earliest + DAY_S, postUtc), basis: 'opened_at' }
+  // −1s keeps the anchor INSIDE the opened day's last hour bucket (a flat +DAY_S is the next day's
+  // midnight, which would bucket the heat lookup one window past the entry day — review 2026-08-20).
+  return { utc: Math.min(earliest + DAY_S - 1, postUtc), basis: 'opened_at' }
 }
 
 /** The board's headline ticker: cost-basis-weighted dominant ticker (a $10k position outranks a $50
@@ -91,19 +93,25 @@ export function derivePrimaryTicker(positions: readonly ValidatedPosition[]): st
  * overwrite it). Absolute: the sum over legs that report one. Percent: aggregate over the legs that
  * carry BOTH pnl_abs and cost_basis (Σpnl/Σbasis — per-leg percents don't sum); when no leg has
  * that pair but exactly one leg reports a percent, that percent IS the play's. Nulls mean the
- * screenshot didn't say — never computed from thin air.
+ * screenshot didn't say — never computed from thin air. **Mixed currencies never sum** (review
+ * 2026-08-20: a CAD leg + a USD leg is not a dollar total — seen live on Webull screenshots);
+ * null = assume USD per the schema convention.
  */
 export function derivePostedPnl(
   positions: readonly ValidatedPosition[],
 ): { pnlAbs: number | null; pnlPct: number | null } {
+  const oneCurrency = (legs: readonly ValidatedPosition[]): boolean =>
+    new Set(legs.map((p) => p.currency ?? 'USD')).size <= 1
   const withAbs = positions.filter((p) => p.pnl_abs != null)
-  const pnlAbs = withAbs.length ? withAbs.reduce((s, p) => s + p.pnl_abs!, 0) : null
+  const pnlAbs = withAbs.length && oneCurrency(withAbs)
+    ? withAbs.reduce((s, p) => s + p.pnl_abs!, 0)
+    : null
   const paired = positions.filter((p) => p.pnl_abs != null && p.cost_basis != null && p.cost_basis > 0)
   let pnlPct: number | null = null
-  if (paired.length) {
+  if (paired.length && oneCurrency(paired)) {
     const basis = paired.reduce((s, p) => s + p.cost_basis!, 0)
     pnlPct = (paired.reduce((s, p) => s + p.pnl_abs!, 0) / basis) * 100
-  } else {
+  } else if (!paired.length) {
     const withPct = positions.filter((p) => p.pnl_pct != null)
     if (withPct.length === 1) pnlPct = withPct[0]!.pnl_pct
   }
@@ -214,6 +222,10 @@ async function buildRadarEvidence(
 
   // "Complete" = a LATER cycle_runs row exists (the next bucket's first cycle finalizes W−1). Any
   // window below the global max qualifies; the max itself is still being rewritten every 5 min.
+  // Known approximation (review 2026-08-20): a window bordering a radar OUTAGE gap has a later row
+  // but was never re-aggregated by it (the resume cycle finalizes ITS OWN W−1, not the pre-gap
+  // window) — its features undercount by at most the window's final poll slice (~5 min of
+  // mentions). The staleness bound catches long gaps; the residual short-gap skew is accepted.
   // Raw-`sql` aggregates bypass drizzle's bigint→number mapping (pg returns bigint as a STRING) —
   // Number() here keeps the evidence field and the staleness arithmetic honestly numeric.
   const [maxRow] = await deps.db.select({ w: sql<string | null>`max(${cycleRuns.windowStart})` }).from(cycleRuns)
@@ -315,11 +327,15 @@ async function buildMarketEvidence(
     return out
   }
   try {
-    // Bars up to the post day's end; ~16 calendar days back guarantees ≥6 sessions for the 5-day
-    // return across holidays. The POST-day bar (not today's) carries the returns — see module doc.
+    // ~16 calendar days back guarantees ≥6 sessions for the 5-day return across holidays. The bar
+    // that carries the returns is the last SESSION UNDERWAY at post time — see module doc. Alpaca
+    // stamps a daily bar at midnight ET (~04–05 Z), hours BEFORE its session trades, so a plain
+    // date filter would hand a pre-market post the coming session's move once that bar exists
+    // (review 2026-08-20). The offset approximates midnight-ET → the 13:30 Z open; a post during
+    // the session gets that session day-to-date (the radar's own `ret` semantics).
+    const SESSION_OPEN_OFFSET_S = 9 * 3600
     const bars = await deps.market.dailyBars(ticker, postUtc - 16 * DAY_S, postUtc + DAY_S)
-    const endOfPostDay = (Math.floor(postUtc / DAY_S) + 1) * DAY_S
-    const upTo = bars.filter((b) => b.ts <= endOfPostDay)
+    const upTo = bars.filter((b) => b.ts + SESSION_OPEN_OFFSET_S <= postUtc)
     const day = upTo[upTo.length - 1]
     const prev = upTo[upTo.length - 2]
     if (day) out.as_of = day.ts

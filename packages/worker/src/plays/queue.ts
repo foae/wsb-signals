@@ -260,9 +260,11 @@ async function parkForRefusal(db: Db, row: PlayRow, now: number): Promise<void> 
  *     with the worst-case `cost_usd` up front and reconciled to real usage after. A crash (or
  *     SIGKILL) mid-call leaves the reservation row counted by `todaySpendUsd` — the cap
  *     over-counts instead of reopening, and a concurrent dispatcher sees the reservation too.
- *  3. **NO transaction spans the LLM call** (invariant P9); the reconcile and the advance are
- *     separate autocommit writes. A crash between them re-runs extraction: the unique
- *     `(play_id, run_at)` key keeps runs distinct and `current_extraction_at` names the winner.
+ *  3. **NO transaction spans the LLM call** (invariant P9); the post-call reconcile and the
+ *     advance land in ONE transaction (P8's letter — review 2026-08-20), so the only re-charge
+ *     window left is a crash between the completed call and that transaction, the tail P8 names
+ *     as unavoidable. The unique `(play_id, run_at)` key keeps re-runs distinct and
+ *     `current_extraction_at` names the winner.
  *  4. **Shutdown aborts the call** (the seam threads the signal); an abort releases the claim
  *     unchanged and DELETES the unreconciled reservation — the provider does not bill an aborted
  *     request, and keeping it would leak budget on every deploy.
@@ -345,23 +347,26 @@ async function processMediaReady(
     ? costUsd(decision.prices, tokensIn, tokensOut)
     : decision.reservedUsd
 
-  await deps.db.update(playExtractions).set({
-    model: result.model,
-    promptVersion: `${result.promptVersion}/${validated.schema_version}`,
-    output: validated,
-    tokensIn,
-    tokensOut,
-    costUsd: cost,
-  }).where(eq(playExtractions.id, reserved!.id))
-
-  const res = await deps.db.update(plays).set({
-    status: 'extracted',
-    currentExtractionAt: runAt,
-    claimedAt: null,
-    nextAttemptAt: now, // the P3 interpret stage is due immediately once it exists
-    attempts: 0,
-    error: null,
-  }).where(ownedBy(row))
+  // One transaction (see step 3 in the doc above). A fenced-out advance still COMMITS the
+  // reconcile: the money moved regardless of who owns the row now, and the cost row is the meter.
+  const res = await deps.db.transaction(async (tx) => {
+    await tx.update(playExtractions).set({
+      model: result.model,
+      promptVersion: `${result.promptVersion}/${validated.schema_version}`,
+      output: validated,
+      tokensIn,
+      tokensOut,
+      costUsd: cost,
+    }).where(eq(playExtractions.id, reserved!.id))
+    return tx.update(plays).set({
+      status: 'extracted',
+      currentExtractionAt: runAt,
+      claimedAt: null,
+      nextAttemptAt: now, // the P3 interpret stage is due immediately
+      attempts: 0,
+      error: null,
+    }).where(ownedBy(row))
+  })
   if (warnIfFenced(res, row, 'extract-advance')) return 'fenced'
   log.info({
     playId: row.id, positions: validated.positions.length, direction: validated.direction,
@@ -398,22 +403,17 @@ async function processExtracted(
     throw new Error(`current extraction row (run_at ${row.currentExtractionAt}) missing or outputless`)
   }
 
-  // Evidence: deterministic DB/market reads, no LLM — cheap enough to rebuild on every retry.
-  const evidence = await buildPlayEvidence({
-    db: deps.db, market: deps.market, flairs: deps.config.flairs,
-    herdLookbackHours: deps.config.herd.lookbackHours, herdMinAuthors: deps.config.herd.minAuthors,
-    heatStalenessSeconds: deps.config.heatStalenessSeconds,
-    windowSeconds: deps.windowSeconds ?? 3600,
-  }, { id: row.id, author: row.author, createdUtc: row.createdUtc ?? now }, extraction)
-  const allowHerd = evidence.herd?.eligible === true
-
   const text = {
     title: row.title, selftext: row.selftext, flair: row.flair,
     postedAt: row.createdUtc != null ? new Date(row.createdUtc * 1000).toISOString().slice(0, 10) : null,
   }
-  // The real payload is text-only: post text + the two serialized JSON blocks.
-  const textChars = (row.title?.length ?? 0) + (row.selftext?.length ?? 0)
-    + JSON.stringify(extraction).length + JSON.stringify(evidence).length
+  // Dispatch gate FIRST, same discipline as the extract stage (review 2026-08-20): a budget-parked
+  // play must not rebuild evidence — one Alpaca call included — on every 15-min re-check. The
+  // payload is text-only: post text (the prompt caps selftext at 4k chars) + the extraction JSON +
+  // a flat reserve for the evidence block, whose serialized size is bounded by construction.
+  const EVIDENCE_CHARS_RESERVE = 2500
+  const textChars = (row.title?.length ?? 0) + Math.min(row.selftext?.length ?? 0, 4000)
+    + JSON.stringify(extraction).length + EVIDENCE_CHARS_RESERVE
   const decision = await canDispatch(
     deps.db, deps.config.llm, deps.config.llm.interpretModel,
     estimateInputTokens(0, textChars), now * 1000)
@@ -423,6 +423,15 @@ async function processExtracted(
     await parkForRefusal(deps.db, row, now)
     return 'parked'
   }
+
+  // Evidence: deterministic DB/market reads, no LLM — cheap to rebuild on a stage retry.
+  const evidence = await buildPlayEvidence({
+    db: deps.db, market: deps.market, flairs: deps.config.flairs,
+    herdLookbackHours: deps.config.herd.lookbackHours, herdMinAuthors: deps.config.herd.minAuthors,
+    heatStalenessSeconds: deps.config.heatStalenessSeconds,
+    windowSeconds: deps.windowSeconds ?? 3600,
+  }, { id: row.id, author: row.author, createdUtc: row.createdUtc ?? now }, extraction)
+  const allowHerd = evidence.herd?.eligible === true
 
   const runAt = Date.now() // real wall-clock ms — the unique (play_id, run_at) key (same as extract)
   const [reserved] = await deps.db.insert(playInterpretations).values({
@@ -465,42 +474,46 @@ async function processExtracted(
     ? costUsd(decision.prices, tokensIn, tokensOut)
     : decision.reservedUsd
 
-  await deps.db.update(playInterpretations).set({
-    model: result.model,
-    promptVersion: `${result.promptVersion}/${INTERPRET_SCHEMA_VERSION}`,
-    output,
-    tokensIn,
-    tokensOut,
-    costUsd: cost,
-  }).where(eq(playInterpretations.id, reserved!.id))
-
-  // THE publish update (plan §5) — board denormalization + published_at + the current-run pointers
-  // + status, one atomic row write. Posted P&L is what the screenshot showed; P5 marks never
-  // overwrite these fields.
+  // Reconcile + publish in ONE transaction (P8's letter — review 2026-08-20): the only re-charge
+  // window left is a crash between the completed call and this tx. The publish half is plan §5's
+  // one row update — board denormalization + published_at + the current-run pointer + status
+  // together, so a reader can never observe a published play with half its board fields. Posted
+  // P&L is what the screenshot showed; P5 marks never overwrite these fields. A fenced-out publish
+  // still commits the reconcile — the money moved regardless of who owns the row now.
   const { pnlAbs, pnlPct } = derivePostedPnl(extraction.positions)
-  const res = await deps.db.update(plays).set({
-    status: 'published',
-    publishedAt: now,
-    currentInterpretationAt: runAt,
-    primaryTicker: derivePrimaryTicker(extraction.positions),
-    category: output.category,
-    tags: output.tags,
-    // The board confidence is the extraction's DERIVED one (validate.ts) — evidence-grounded;
-    // the interpretation's self-report stays inside the output jsonb for calibration.
-    confidence: extraction.confidence,
-    pnlAbs,
-    pnlPct,
-    realized: deriveRealized(extraction.positions),
-    summary: output.summary,
-    tldr: output.tldr,
-    extractorVersion: extRow!.promptVersion,
-    interpreterVersion: `${result.promptVersion}/${INTERPRET_SCHEMA_VERSION}`,
-    taxonomyVersion: TAXONOMY_VERSION,
-    claimedAt: null,
-    nextAttemptAt: null,
-    attempts: 0,
-    error: null,
-  }).where(ownedBy(row))
+  const res = await deps.db.transaction(async (tx) => {
+    await tx.update(playInterpretations).set({
+      model: result.model,
+      promptVersion: `${result.promptVersion}/${INTERPRET_SCHEMA_VERSION}`,
+      output,
+      tokensIn,
+      tokensOut,
+      costUsd: cost,
+    }).where(eq(playInterpretations.id, reserved!.id))
+    return tx.update(plays).set({
+      status: 'published',
+      publishedAt: now,
+      currentInterpretationAt: runAt,
+      primaryTicker: derivePrimaryTicker(extraction.positions),
+      category: output.category,
+      tags: output.tags,
+      // The board confidence is the extraction's DERIVED one (validate.ts) — evidence-grounded;
+      // the interpretation's self-report stays inside the output jsonb for calibration.
+      confidence: extraction.confidence,
+      pnlAbs,
+      pnlPct,
+      realized: deriveRealized(extraction.positions),
+      summary: output.summary,
+      tldr: output.tldr,
+      extractorVersion: extRow!.promptVersion,
+      interpreterVersion: `${result.promptVersion}/${INTERPRET_SCHEMA_VERSION}`,
+      taxonomyVersion: TAXONOMY_VERSION,
+      claimedAt: null,
+      nextAttemptAt: null,
+      attempts: 0,
+      error: null,
+    }).where(ownedBy(row))
+  })
   if (warnIfFenced(res, row, 'publish')) return 'fenced'
   log.info({
     playId: row.id, ticker: derivePrimaryTicker(extraction.positions), category: output.category,
@@ -545,15 +558,17 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
     let llmWork = 0
     // DOWNSTREAM FIRST: interpret the already-extracted backlog before extracting more. The other
     // order would run a fresh extraction's interpret in the SAME tick (extract sets the row due
-    // immediately) — two LLM calls per play per tick, so `max_plays_per_tick` would bound half of
-    // what its name says, and a budget-refusal mid-pipeline would land unevenly.
+    // immediately) — two LLM calls per play per tick, and a budget-refusal mid-pipeline would land
+    // unevenly. `max_plays_per_tick` is ONE budget across both LLM stages (review 2026-08-20: two
+    // independent claims would permit twice the configured calls per tick).
     for (const [status, process] of [
       ['extracted', processExtracted] as const, // → published (P3)
       ['media_ready', processMediaReady] as const, // → extracted (P2)
     ]) {
       if (deps.signal?.aborted) break
-      const batch = await claimDue(
-        deps.db, deps.config, clock(), status, Math.min(CLAIM_BATCH, deps.config.llm.maxPlaysPerTick))
+      const budget = Math.min(CLAIM_BATCH, deps.config.llm.maxPlaysPerTick - llmWork)
+      if (budget <= 0) break
+      const batch = await claimDue(deps.db, deps.config, clock(), status, budget)
       stats.claimed += batch.length
       llmWork += batch.length
       for (const row of batch) {

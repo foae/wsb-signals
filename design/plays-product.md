@@ -84,7 +84,8 @@ posts under other flairs (`DD`, `Discussion`) even when they contain position sc
 
 ## 4. Pipeline stages (product view)
 
-Statuses advance `captured → media_ready → extracted → analyzed → published`, with `failed` as the
+Statuses advance `captured → media_ready → extracted → published` (interpret + denormalize +
+publish are ONE stage advance — plan §5 pins them into a single row update), with `failed` as the
 only off-ramp — and only after bounded retries (media state is tracked separately; a media failure
 degrades the play to text-only, it doesn't park it). Each play is processed by a queue that is
 **structurally isolated and budget-capped so the radar cycle is never delayed or broken by LLM
@@ -144,9 +145,9 @@ A second structured-output call whose prompt contains only **evidence the system
   position-open date** (`opened_at` — visible on most broker screenshots) and evidence windows
   anchor there when present; post-time anchoring is the fallback and is **badged as weaker
   evidence**. Window semantics: the **last complete radar window at or before the anchor**, where
-  "complete" requires a `cycle_runs` row *at or after* the anchor's own hour bucket to exist (the
-  first cycle of the next bucket is what finalizes W−1 — a bare `max(window_start)` read can catch
-  features that are still being rewritten), with a **staleness bound**: if the newest complete
+  "complete" requires a LATER `cycle_runs` row to exist (the first cycle of the next bucket is
+  what finalizes W−1 — a bare `max(window_start)` read can catch features that are still being
+  rewritten), with a **staleness bound**: if the newest complete
   window is more than a few hours older than the anchor (radar outage), the chip reads "heat
   evidence unavailable" rather than serving stale context. The **herd measure**, precisely:
   count of **distinct authors** (not posts — WSB serial-reposters would fabricate a herd) of prior

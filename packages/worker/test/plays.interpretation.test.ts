@@ -62,9 +62,9 @@ describe('sanitizeRawInterpretation — truncation repair, never a burned call',
 })
 
 describe('parseInterpretation — the shared gate both analyzer impls ride', () => {
-  it('strips herd TAGS below threshold (the machine-consumed leak path), leaving the rest', () => {
+  it('strips herd TAGS below threshold (the machine-consumed leak path), synonyms included', () => {
     const { value, repaired } = parseInterpretation(
-      { ...valid, tags: ['herd', 'meme-stock', 'herd-following'] }, false)
+      { ...valid, tags: ['herd', 'meme-stock', 'crowd-following', 'bandwagon'] }, false)
     expect(value.tags).toEqual(['meme-stock'])
     expect(repaired.some((r) => r.includes('herd'))).toBe(true)
   })

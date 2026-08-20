@@ -639,9 +639,12 @@ describe('interpret/publish stage (P3): evidence + herd gate + the one-update pu
   it('market evidence rides daily bars + persisted movers; a dead provider degrades, never crashes the stage', async () => {
     await seedExtracted()
     await pg.db.insert(marketMovers).values({ ts: NOW - 600, kind: 'gainer', rank: 3, symbol: 'NVDA' })
+    // The post lands at 01:01 Z (evening US of the PRIOR calendar day): the last session UNDERWAY
+    // by post time is the previous day's — the same-UTC-date bar (stamped ~05 Z, session not yet
+    // open) must NOT carry the returns.
     const day = Math.floor((WS + 10) / 86400) * 86400
     const closes = [100, 101, 102, 103, 104, 105, 110]
-    const volumes = [1, 1, 1, 1, 1, 1000, 2000]
+    const volumes = [1, 1, 1, 1, 500, 1000, 2000]
     const market = {
       name: 'fake', snapshots: async () => new Map(), screeners: async () => [], close: async () => {},
       dailyBars: async () => closes.map((c, i) => ({ ts: day - (6 - i) * 86400 + 5 * 3600, close: c, volume: volumes[i]! })),
@@ -650,8 +653,8 @@ describe('interpret/publish stage (P3): evidence + herd gate + the one-update pu
     await interpretTick(analyzer, { market })
     const ev = analyzer.reqs[0]!.evidence.market!
     expect(ev.movers).toEqual(['gainer'])
-    expect(ev.day_ret).toBeCloseTo((110 - 105) / 105, 9)
-    expect(ev.five_day_ret).toBeCloseTo((110 - 101) / 101, 9)
+    expect(ev.day_ret).toBeCloseTo((105 - 104) / 104, 9)
+    expect(ev.five_day_ret).toBeCloseTo((105 - 100) / 100, 9)
     expect(ev.rvol).toBeCloseTo(2, 9)
     expect(ev.rvol_conf).toBe('low')
 
@@ -731,6 +734,19 @@ describe('interpret/publish stage (P3): evidence + herd gate + the one-update pu
     expect(row.attempts).toBe(1)
     expect(row.status).toBe('extracted')
     expect(await pg.db.select().from(playInterpretations)).toHaveLength(0)
+  })
+
+  it('max_plays_per_tick is ONE budget across both LLM stages — never 2× the configured calls', async () => {
+    await seedExtracted() // p1 at extracted
+    await capturePlays(pg.db, [rawPlay('p2')], playsCfg(), NOW)
+    await pg.db.update(plays)
+      .set({ status: 'media_ready', mediaStatus: 'none', media: null, nextAttemptAt: NOW })
+      .where(eq(plays.id, 'p2'))
+    const analyzer = fakeInterpreter()
+    const stats = await interpretTick(analyzer, { config: playsCfg({ llm: { ...playsCfg().llm, maxPlaysPerTick: 1 } }) })
+    // The single slot goes to the downstream (extracted) row; p2 waits for the next tick.
+    expect(stats).toMatchObject({ published: 1, extracted: 0 })
+    expect((await getPlay('p2')).status).toBe('media_ready')
   })
 
   it('a broken pointer (missing extraction row) is a stage fault, not a silent publish', async () => {
