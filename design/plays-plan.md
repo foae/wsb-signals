@@ -375,6 +375,10 @@ output = 0.0                     # configured model REFUSES dispatch (loud log) 
 lookback_hours = 72
 min_authors = 5                # herd-following unlockable only at/above this (invariant P4)
 
+[plays.evidence]               # landed with P3
+heat_staleness_hours = 6       # newest complete radar window older than this vs the anchor →
+                               # "heat evidence unavailable" (product §4.2's staleness bound)
+
 [plays.outcomes]
 horizon_days = 60
 resolution_lookback_days = 90

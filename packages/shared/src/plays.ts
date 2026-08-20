@@ -5,8 +5,10 @@
  */
 
 /** Queue statuses, in pipeline order. `failed` is terminal and only reachable after `max_attempts`
- *  transient failures (plays-plan §3); no writer ever moves `status` backwards (invariant P8). */
-export const PLAY_STATUSES = ['captured', 'media_ready', 'extracted', 'analyzed', 'published', 'failed'] as const
+ *  transient failures (plays-plan §3); no writer ever moves `status` backwards (invariant P8).
+ *  There is deliberately no status between `extracted` and `published`: plan §5 pins the publish
+ *  (denormalize + published_at + pointers) into the interpret stage's ONE advance update. */
+export const PLAY_STATUSES = ['captured', 'media_ready', 'extracted', 'published', 'failed'] as const
 export type PlayStatus = (typeof PLAY_STATUSES)[number]
 
 /**

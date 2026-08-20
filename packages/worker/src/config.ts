@@ -76,6 +76,13 @@ interface RawConfig {
       daily_budget_usd: number
       prices: Record<string, { input: number; output: number }>
     }
+    herd: {
+      lookback_hours: number
+      min_authors: number
+    }
+    evidence?: {
+      heat_staleness_hours?: number
+    }
   }
 }
 
@@ -117,6 +124,15 @@ export interface PlaysConfig {
   /** Absolute media root — files land at `<mediaDir>/<post_id>/<n>.<ext>` (the shared volume). */
   mediaDir: string
   llm: PlaysLlmConfig
+  /** The herd gate (plays-plan §9 [plays.herd]; invariant P4): `herd-following` is offered to the
+   *  model only at/above `minAuthors` distinct same-direction authors in the lookback. */
+  herd: {
+    lookbackHours: number
+    minAuthors: number
+  }
+  /** Staleness bound for the radar heat chip ([plays.evidence].heat_staleness_hours, default 6 h):
+   *  a complete window older than this vs the anchor reads "heat evidence unavailable". */
+  heatStalenessSeconds: number
 }
 
 /** The flattened, typed config the loop/cycle consume. */
@@ -182,6 +198,7 @@ export function loadConfig(root: string): LoadedConfig {
   // Required since P1 — fail with a clear message, not a TypeError deep in the flattening below.
   if (!raw.plays) throw new Error("config.toml is missing the [plays] section (required since P1 — see plays-plan §9)")
   if (!raw.plays.llm) throw new Error("config.toml is missing the [plays.llm] section (required since P2 — see plays-plan §9)")
+  if (!raw.plays.herd) throw new Error("config.toml is missing the [plays.herd] section (required since P3 — see plays-plan §9)")
   // Real env vars WIN over the .env file (container-native secrets — Python overlays os.environ).
   const env: Record<string, string> = { ...readDotenv(root) }
   for (const [k, v] of Object.entries(process.env)) if (v != null) env[k] = v
@@ -239,6 +256,11 @@ export function loadConfig(root: string): LoadedConfig {
         dailyBudgetUsd: raw.plays.llm.daily_budget_usd,
         prices: raw.plays.llm.prices ?? {},
       },
+      herd: {
+        lookbackHours: raw.plays.herd.lookback_hours,
+        minAuthors: raw.plays.herd.min_authors,
+      },
+      heatStalenessSeconds: (raw.plays.evidence?.heat_staleness_hours ?? 6) * 3600,
     },
   }
   return { raw, env, worker, root }

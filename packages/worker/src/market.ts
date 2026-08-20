@@ -50,10 +50,22 @@ export interface MarketWeights {
   iv?: number
 }
 
+/** One daily bar (plays evidence, P3). `ts` = bar timestamp, epoch seconds. */
+export interface DailyBar {
+  ts: number
+  close: number | null
+  volume: number | null
+}
+
 export interface MarketData {
   readonly name: string
   snapshots(tickers: readonly string[], now?: number): Promise<Map<string, StockSnapshot>>
   screeners(top?: number, now?: number): Promise<MarketMoverInsert[]>
+  /** Daily bars for ONE symbol over [startUtc, endUtc] — the plays evidence's post-date returns
+   *  (P3; P5 grows this interface further with calendar + option snapshots). OPTIONAL so radar-only
+   *  fakes/impls stay untouched; evidence degrades to "unavailable" without it. Unlike the radar
+   *  methods above, errors PROPAGATE — the plays caller degrades, it has no cycle to protect. */
+  dailyBars?(symbol: string, startUtc: number, endUtc: number): Promise<DailyBar[]>
   close(): Promise<void>
 }
 
@@ -174,6 +186,29 @@ export class AlpacaMarketData implements MarketData {
       }
     }
     return out
+  }
+
+  /** Plays-evidence daily bars (P3) — one symbol, `/v2/stocks/{symbol}/bars` timeframe=1Day. A
+   *  non-200 THROWS (unlike the best-effort radar calls above): the plays caller catches and
+   *  degrades its evidence; swallowing here would silently blank it. */
+  async dailyBars(symbol: string, startUtc: number, endUtc: number): Promise<DailyBar[]> {
+    const r = await this.get(`/v2/stocks/${encodeURIComponent(symbol)}/bars`, {
+      timeframe: '1Day',
+      start: new Date(startUtc * 1000).toISOString(),
+      end: new Date(Math.min(endUtc, Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+      limit: '50',
+      feed: this.feed,
+      adjustment: 'split', // a raw close across a split would fabricate a huge phantom day return
+    })
+    if (r.status !== 200) {
+      const body = await r.text().catch(() => '')
+      throw new Error(`alpaca daily bars ${symbol}: status ${r.status} ${body.slice(0, 140)}`)
+    }
+    const j = (await r.json()) as { bars?: Array<{ t?: string; c?: number; v?: number }> | null }
+    return (j.bars ?? []).flatMap((b) => {
+      const ts = b.t ? Date.parse(b.t) / 1000 : NaN
+      return Number.isNaN(ts) ? [] : [{ ts, close: b.c ?? null, volume: b.v ?? null }]
+    })
   }
 
   async screeners(top = 25, now: number = Math.floor(Date.now() / 1000)): Promise<MarketMoverInsert[]> {

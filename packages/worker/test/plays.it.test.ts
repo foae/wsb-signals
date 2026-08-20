@@ -2,7 +2,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { playExtractions, plays, type PlayMediaItem, type PlayRow } from '@wsb/shared'
+import {
+  cycleRuns, empiricalFeatures, marketMovers, mentions, playExtractions, playInterpretations, plays,
+  signals, type PlayMediaItem, type PlayRow,
+} from '@wsb/shared'
 import { APICallError } from 'ai'
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
@@ -14,6 +17,7 @@ import { TickerExtractor } from '../src/extract'
 import type { PollResult, RawThing, Source } from '../src/ingest'
 import { runCycle, type CycleDeps } from '../src/loop'
 import { capturePlays } from '../src/plays/capture'
+import type { InterpretRequest } from '../src/plays/analyzer'
 import { runQueueTick, type QueueDeps } from '../src/plays/queue'
 import { startPg, type PgHarness } from './helpers/pg'
 
@@ -36,8 +40,16 @@ const playsCfg = (over: Partial<PlaysConfig> = {}): PlaysConfig => ({
     maxOutputTokens: 2000, dailyBudgetUsd: 5,
     prices: { 'test-model': { input: 1, output: 4 } }, // $/Mtok — usable by default; tests override to refuse
   },
+  herd: { lookbackHours: 72, minAuthors: 5 },
+  heatStalenessSeconds: 6 * 3600,
   ...over,
 })
+
+/** The P2-stage tests never reach interpret (downstream-first tick ordering) — a stub that trips
+ *  loudly if that ever stops being true. */
+const interpretNotExpected = async (): Promise<never> => {
+  throw new Error('interpret called — not expected in this test')
+}
 
 const rawPlay = (id: string, over: RawThing = {}): RawThing => ({
   id, created_utc: WS + 10, author: 'degen', title: `${id} gain`, selftext: '',
@@ -312,6 +324,7 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
           model: 'test-model', promptVersion: 'extract-prompt-v1',
         }
       },
+      interpret: interpretNotExpected,
     }
   }
 
@@ -387,7 +400,7 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
 
   it('an analyzer crash is a stage fault: attempts bump + backoff, then terminal at max_attempts — and every attempt’s RESERVATION stays on the meter (fail-closed)', async () => {
     await seedMediaReady()
-    const boom = { extract: async () => { throw new Error('provider 500') } }
+    const boom = { extract: async () => { throw new Error('provider 500') }, interpret: interpretNotExpected }
     await extractTick(boom)
     let row = await getPlay('p1')
     expect(row.status).toBe('media_ready')
@@ -419,6 +432,7 @@ describe('extraction stage (P2): fail-closed metering + the LLM seam on real Pos
         stop.abort() // SIGTERM lands mid-flight
         throw Object.assign(new Error('aborted'), { name: 'AbortError', cause: opts?.signal })
       },
+      interpret: interpretNotExpected,
     }
     const stats = await extractTick(analyzer, { signal: stop.signal })
     expect(stats).toMatchObject({ retrying: 1, extracted: 0, failed: 0 })
@@ -450,6 +464,7 @@ describe('unbilled provider rejections (P2 live finding: restricted key, 403 mis
           requestBodyValues: {}, statusCode: 403, responseHeaders: {}, responseBody: '',
         })
       },
+      interpret: interpretNotExpected,
     }
     await runQueueTick({
       db: pg.db, config: playsCfg(), clock: () => NOW, analyzer: rejected, isListedTicker: () => true,
@@ -458,5 +473,275 @@ describe('unbilled provider rejections (P2 live finding: restricted key, 403 mis
     expect(row.attempts).toBe(1) // still a fault — backoff applies
     expect(row.status).toBe('media_ready')
     expect(await pg.db.select().from(playExtractions)).toHaveLength(0) // rejected ≠ billed ≠ metered
+  })
+})
+
+describe('interpret/publish stage (P3): evidence + herd gate + the one-update publish on real Postgres', () => {
+  const EXT_RUN = NOW * 1000
+  const validatedLeg = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ticker: 'NVDA', instrument: 'call', side: 'long', quantity: 2, avg_price: 3.5,
+    strike: 150, expiry: '2026-09-18', cost_basis: 700, current_value: 1200, pnl_abs: 500,
+    pnl_pct: 71.4, realized: false, opened_at: null, currency: null, confidence: 0.9,
+    field_confidence: null, position_id: 'nvda:call:long:150:2026-09-18',
+    ticker_outcome: 'validated', arithmetic_ok: true,
+    ...over,
+  })
+  const storedExtraction = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    schema_version: 'extract-schema-v1', screenshot_kind: 'single_position', broker: 'Robinhood',
+    positions: [validatedLeg()], notes: null, direction: 'bullish', confidence: 0.85,
+    model_confidence: 0.85, ...over,
+  })
+
+  const seedExtracted = async (extraction = storedExtraction(), id = 'p1'): Promise<void> => {
+    await capturePlays(pg.db, [rawPlay(id)], playsCfg(), NOW)
+    await pg.db.insert(playExtractions).values({
+      playId: id, runAt: EXT_RUN, model: 'test-model',
+      promptVersion: 'extract-prompt-v4/extract-schema-v1',
+      output: extraction, tokensIn: 100, tokensOut: 50, costUsd: 0.001,
+    })
+    await pg.db.update(plays)
+      .set({ status: 'extracted', mediaStatus: 'none', currentExtractionAt: EXT_RUN, nextAttemptAt: NOW })
+      .where(eq(plays.id, id))
+  }
+
+  /** Recording fake: captures each InterpretRequest so tests can assert what the seam SAW. */
+  const fakeInterpreter = (over: Record<string, unknown> = {}) => {
+    const reqs: InterpretRequest[] = []
+    return {
+      reqs,
+      extract: async (): Promise<never> => { throw new Error('extract not expected in this test') },
+      interpret: async (req: InterpretRequest) => {
+        reqs.push(req)
+        return {
+          interpretation: {
+            thesis: 'Bought NVDA calls.', outcome: 'Up 71% at post time.', context: null,
+            category: 'high-risk-high-reward' as const, tags: ['gain-porn'],
+            summary: 'A leveraged call bet on NVDA, well in profit when posted.',
+            tldr: 'NVDA calls up 71%.', confidence: 0.8, ...over,
+          },
+          usage: { inputTokens: 2000, outputTokens: 300 },
+          model: 'test-model', promptVersion: 'interpret-prompt-v1',
+        }
+      },
+    }
+  }
+
+  const interpretTick = (analyzer: QueueDeps['analyzer'], over: Partial<QueueDeps> = {}): ReturnType<typeof runQueueTick> =>
+    runQueueTick({
+      db: pg.db, config: playsCfg(), clock: () => NOW, analyzer,
+      isListedTicker: (t) => t === 'NVDA', windowSeconds: 3600, ...over,
+    })
+
+  it('extracted → published: ONE row update carries status+published_at+pointer+board fields; the child row holds evidence and versions', async () => {
+    await seedExtracted()
+    const analyzer = fakeInterpreter()
+    const stats = await interpretTick(analyzer)
+    expect(stats).toMatchObject({ published: 1, parked: 0, failed: 0 })
+    expect(analyzer.reqs).toHaveLength(1)
+    // no herd mentions seeded → the gate is CLOSED and the seam saw it closed (invariant P4)
+    expect(analyzer.reqs[0]!.allowHerd).toBe(false)
+    expect(analyzer.reqs[0]!.evidence.anchor_basis).toBe('post_time') // no opened_at → weaker badge
+
+    const row = await getPlay('p1')
+    expect(row.status).toBe('published')
+    expect(row.publishedAt).toBe(NOW)
+    expect(row.claimedAt).toBeNull()
+    expect(row).toMatchObject({
+      primaryTicker: 'NVDA', category: 'high-risk-high-reward', tags: ['gain-porn'],
+      confidence: 0.85, // the EXTRACTION's derived confidence — not the interpretation self-report
+      pnlAbs: 500, realized: false,
+      tldr: 'NVDA calls up 71%.',
+      extractorVersion: 'extract-prompt-v4/extract-schema-v1',
+      interpreterVersion: 'interpret-prompt-v1/interpret-schema-v1',
+      taxonomyVersion: 'taxonomy-v1',
+    })
+    expect(row.pnlPct).toBeCloseTo((500 / 700) * 100, 6)
+
+    const runs = await pg.db.select().from(playInterpretations)
+    expect(runs).toHaveLength(1)
+    expect(row.currentInterpretationAt).toBe(runs[0]!.runAt) // the pointer names the winning run
+    expect(runs[0]).toMatchObject({
+      playId: 'p1', model: 'test-model', promptVersion: 'interpret-prompt-v1/interpret-schema-v1',
+      tokensIn: 2000, tokensOut: 300,
+    })
+    // 2000 in @ $1/M + 300 out @ $4/M (playsCfg test prices) = $0.0032, reconciled from usage
+    expect(runs[0]!.costUsd).toBeCloseTo(0.0032, 9)
+    const evidence = runs[0]!.evidence as { evidence_version: string; ticker: string; herd: { eligible: boolean } }
+    expect(evidence.evidence_version).toBe('evidence-v1')
+    expect(evidence.ticker).toBe('NVDA')
+    const output = runs[0]!.output as { schema_version: string; taxonomy_version: string; herd_allowed: boolean }
+    expect(output).toMatchObject({
+      schema_version: 'interpret-schema-v1', taxonomy_version: 'taxonomy-v1', herd_allowed: false,
+    })
+  })
+
+  it('herd gate on real rows: 5 distinct same-direction post authors open it; own author/own post/comments/wrong direction/[deleted]/stale/off-flair never count', async () => {
+    await seedExtracted()
+    const at = NOW - 3600
+    await pg.db.insert(mentions).values([
+      // the herd: 5 distinct authors, posts, plays flair, same (bull) direction, inside 72 h
+      ...['a1', 'a2', 'a3', 'a4', 'a5'].map((author, i) => ({
+        ticker: 'NVDA', thingId: `h${i}`, thingType: 'post', createdUtc: at, author, flair: 'Gain', direction: 'bull',
+      })),
+      // pollution — none of these may count:
+      { ticker: 'NVDA', thingId: 'own', thingType: 'post', createdUtc: at, author: 'degen', flair: 'Gain', direction: 'bull' }, // the play's own author
+      { ticker: 'NVDA', thingId: 'p1', thingType: 'post', createdUtc: at, author: 'x9', flair: 'Gain', direction: 'bull' }, // the play's own post
+      { ticker: 'NVDA', thingId: 'c1', thingType: 'comment', createdUtc: at, author: 'c1', flair: null, direction: 'bull' }, // comment, not a post
+      { ticker: 'NVDA', thingId: 'b1', thingType: 'post', createdUtc: at, author: 'b1', flair: 'Loss', direction: 'bear' }, // wrong direction
+      { ticker: 'NVDA', thingId: 'd1', thingType: 'post', createdUtc: at, author: '[deleted]', flair: 'Gain', direction: 'bull' },
+      { ticker: 'NVDA', thingId: 'o1', thingType: 'post', createdUtc: NOW - 73 * 3600, author: 'old1', flair: 'Gain', direction: 'bull' }, // outside lookback
+      { ticker: 'NVDA', thingId: 'dd', thingType: 'post', createdUtc: at, author: 'dd1', flair: 'DD', direction: 'bull' }, // not a plays flair
+    ])
+    const analyzer = fakeInterpreter({ category: 'herd-following', tags: ['herd'] })
+    await interpretTick(analyzer)
+    expect(analyzer.reqs[0]!.allowHerd).toBe(true)
+    expect(analyzer.reqs[0]!.evidence.herd).toMatchObject({
+      direction: 'bull', distinct_authors: 5, threshold: 5, eligible: true,
+    })
+    const row = await getPlay('p1')
+    expect(row.category).toBe('herd-following') // gate open → the label is legitimate
+    // trailing counts see ALL mentions (they measure attention, not the herd)
+    expect(analyzer.reqs[0]!.evidence.radar!.mentions_72h).toBeGreaterThanOrEqual(10)
+  })
+
+  it('radar heat reads the last COMPLETE window and honors the staleness bound', async () => {
+    await seedExtracted()
+    // Three cycle_runs rows: WS is the newest (still being rewritten) → the complete one is WS−3600.
+    await pg.db.insert(cycleRuns).values([
+      { windowStart: WS - 7200, generatedAt: NOW }, { windowStart: WS - 3600, generatedAt: NOW },
+      { windowStart: WS, generatedAt: NOW },
+    ])
+    await pg.db.insert(empiricalFeatures).values({
+      ticker: 'NVDA', windowStart: WS - 3600, sov: 0.4, hE: 0.9, mentions: 12, authors: 7,
+    })
+    await pg.db.insert(signals).values({ ticker: 'NVDA', windowStart: WS - 3600, rank: 2 })
+    const analyzer = fakeInterpreter()
+    await interpretTick(analyzer)
+    expect(analyzer.reqs[0]!.evidence.radar).toMatchObject({
+      window_start: WS - 3600,
+      heat: { rank: 2, sov: 0.4, h_e: 0.9, mentions: 12, authors: 7 },
+      note: null,
+    })
+
+    // Staleness: only windows ≥ 10 h older than the anchor exist → "heat evidence unavailable".
+    await pg.reset()
+    await seedExtracted()
+    await pg.db.insert(cycleRuns).values([
+      { windowStart: WS - 12 * 3600, generatedAt: NOW }, { windowStart: WS - 11 * 3600, generatedAt: NOW },
+    ])
+    const stale = fakeInterpreter()
+    await interpretTick(stale)
+    expect(stale.reqs[0]!.evidence.radar!.heat).toBeNull()
+    expect(stale.reqs[0]!.evidence.radar!.window_start).toBeNull()
+    expect(stale.reqs[0]!.evidence.radar!.note).toContain('unavailable')
+  })
+
+  it('market evidence rides daily bars + persisted movers; a dead provider degrades, never crashes the stage', async () => {
+    await seedExtracted()
+    await pg.db.insert(marketMovers).values({ ts: NOW - 600, kind: 'gainer', rank: 3, symbol: 'NVDA' })
+    const day = Math.floor((WS + 10) / 86400) * 86400
+    const closes = [100, 101, 102, 103, 104, 105, 110]
+    const volumes = [1, 1, 1, 1, 1, 1000, 2000]
+    const market = {
+      name: 'fake', snapshots: async () => new Map(), screeners: async () => [], close: async () => {},
+      dailyBars: async () => closes.map((c, i) => ({ ts: day - (6 - i) * 86400 + 5 * 3600, close: c, volume: volumes[i]! })),
+    }
+    const analyzer = fakeInterpreter()
+    await interpretTick(analyzer, { market })
+    const ev = analyzer.reqs[0]!.evidence.market!
+    expect(ev.movers).toEqual(['gainer'])
+    expect(ev.day_ret).toBeCloseTo((110 - 105) / 105, 9)
+    expect(ev.five_day_ret).toBeCloseTo((110 - 101) / 101, 9)
+    expect(ev.rvol).toBeCloseTo(2, 9)
+    expect(ev.rvol_conf).toBe('low')
+
+    // Provider failure → note + nulls, the play still publishes (evidence degrades, stage survives).
+    await pg.reset()
+    await seedExtracted()
+    const broken = {
+      ...market, dailyBars: async (): Promise<never> => { throw new Error('alpaca down') },
+    }
+    const analyzer2 = fakeInterpreter()
+    const stats = await interpretTick(analyzer2, { market: broken })
+    expect(stats).toMatchObject({ published: 1, failed: 0 })
+    expect(analyzer2.reqs[0]!.evidence.market!.day_ret).toBeNull()
+    expect(analyzer2.reqs[0]!.evidence.market!.note).toContain('market fetch failed')
+  })
+
+  it('non-equity primary ticker: radar/herd/market structurally absent, herd unassignable, still published', async () => {
+    await seedExtracted(storedExtraction({
+      positions: [validatedLeg({ ticker: 'SPX', ticker_outcome: 'known_non_equity' })],
+    }))
+    const analyzer = fakeInterpreter()
+    const stats = await interpretTick(analyzer)
+    expect(stats).toMatchObject({ published: 1 })
+    const ev = analyzer.reqs[0]!.evidence
+    expect(ev.radar).toBeNull()
+    expect(ev.herd).toBeNull()
+    expect(ev.market).toBeNull()
+    expect(ev.note).toContain('structurally absent')
+    expect(analyzer.reqs[0]!.allowHerd).toBe(false)
+    expect((await getPlay('p1')).primaryTicker).toBe('SPX')
+  })
+
+  it('budget refusal parks the play — no reservation, no interpret call', async () => {
+    await seedExtracted()
+    await pg.db.insert(playExtractions).values({
+      playId: 'p1', runAt: EXT_RUN - 1000, model: 'test-model', promptVersion: 'x',
+      output: {}, tokensIn: 1, tokensOut: 1, costUsd: 4.999,
+    })
+    const analyzer = fakeInterpreter()
+    const stats = await interpretTick(analyzer)
+    expect(stats).toMatchObject({ published: 0, parked: 1 })
+    expect(analyzer.reqs).toHaveLength(0)
+    expect((await getPlay('p1')).status).toBe('extracted')
+    expect(await pg.db.select().from(playInterpretations)).toHaveLength(0)
+  })
+
+  it('an interpret crash keeps its reservation on the meter (fail-closed), with the null-prompt crash marker', async () => {
+    await seedExtracted()
+    const boom = {
+      extract: interpretNotExpected,
+      interpret: async (): Promise<never> => { throw new Error('provider 500') },
+    }
+    await interpretTick(boom)
+    const row = await getPlay('p1')
+    expect(row.status).toBe('extracted')
+    expect(row.attempts).toBe(1)
+    const runs = await pg.db.select().from(playInterpretations)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.promptVersion).toBeNull()
+    expect(runs[0]!.costUsd).toBeGreaterThan(0)
+    expect(runs[0]!.evidence).not.toBeNull() // the crash still leaves an auditable evidence record
+  })
+
+  it('an unbilled rejection (403) drops the reservation but still counts as a stage fault', async () => {
+    await seedExtracted()
+    const rejected = {
+      extract: interpretNotExpected,
+      interpret: async (): Promise<never> => {
+        throw new APICallError({
+          message: 'Missing scopes', url: 'x', requestBodyValues: {},
+          statusCode: 403, responseHeaders: {}, responseBody: '',
+        })
+      },
+    }
+    await interpretTick(rejected)
+    const row = await getPlay('p1')
+    expect(row.attempts).toBe(1)
+    expect(row.status).toBe('extracted')
+    expect(await pg.db.select().from(playInterpretations)).toHaveLength(0)
+  })
+
+  it('a broken pointer (missing extraction row) is a stage fault, not a silent publish', async () => {
+    await seedExtracted()
+    await pg.db.update(plays).set({ currentExtractionAt: 12345 }).where(eq(plays.id, 'p1'))
+    const analyzer = fakeInterpreter()
+    await interpretTick(analyzer)
+    const row = await getPlay('p1')
+    expect(row.status).toBe('extracted')
+    expect(row.attempts).toBe(1)
+    expect(row.error).toContain('missing')
+    expect(analyzer.reqs).toHaveLength(0)
   })
 })

@@ -19,7 +19,11 @@ in any user-facing copy.
   gate passed 2026-08-18** (issue #2) — flair-matched capture, media archive, plays queue skeleton,
   bare `/plays` web list, all verified live. Gate findings: galleries resolve **locally from the
   archived raw** (Reddit's post-JSON endpoint 403s non-browser clients — fallback only); the stack
-  runs in the dedicated `wsb-signals` incus CT. **P2 (LLM seam & extraction, issue #3) is next.**
+  runs in the dedicated `wsb-signals` incus CT. **P2 (LLM seam & extraction, issue #3): machine
+  gate MET 2026-08-20** (labeled eval n=36, marking-critical fields 100%; live extraction on
+  `gpt-5.6-sol` via ChatGPT-subscription OAuth — `codex-login`); the owner spot-check of the
+  labeled sample is the one open human step. **P3 (interpretation/categorization/publish,
+  issue #4) is BUILT — live gate (~20 hand-reviewed published plays) pending.**
 - **The radar — v2 full-stack TypeScript; BUILT, cutover-approved (2026-06-09), running.** Node
   worker + Nuxt 4 SSR web + Postgres in a pnpm monorepo (`packages/{shared,worker,web}`); deploy is
   `deploy/v2/` (db + worker + web). The radar's behavior is **stable** — Plays adds beside it, and
@@ -124,8 +128,12 @@ LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff). Landed 
 pin), `validate.ts` (three-outcome ticker check, arithmetic cross-check, derived confidence,
 deterministic position_ids), `analyzer.ts` (the seam; sole `ai` importer) + `prompts/`,
 `images.ts` (sharp prep), `metering.ts` (fail-closed pricing + DB-summed daily budget),
-`eval.ts` (`plays-eval` over `fixtures/plays/`); queue runs `captured → media_ready → extracted`.
-Still to land: evidence/interpret (P3), marks (P5). The web
+`eval.ts` (`plays-eval` over `fixtures/plays/`). Landed at P3: `evidence.ts` (deterministic
+radar/herd/market evidence; anchor at `opened_at` else post-time-badged-weaker; last-complete-window
++ staleness bound; distinct-author herd measure), `interpretation.ts` (per-call category enum — the
+STRUCTURAL herd gate, invariant P4) + `prompts/interpret.ts`; the queue runs `captured →
+media_ready → extracted → published` (interpret+denormalize+publish is ONE stage/row-update —
+there is deliberately no `analyzed` status). Still to land: marks (P5). The web
 serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`).
 
 ## Pluggable interfaces (the extension seams)
@@ -135,9 +143,10 @@ serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_
   capture happens in plays code, never inside `poll()` (plays-plan §3).
 - **`MarketData`** (`market.ts`) — the funnel over market providers. `AlpacaMarketData` (free) is
   the only impl; Massive / IBKR are intended alternatives behind the same interface. Current
-  surface is stock snapshots + screeners; **P5 grows it** (trading calendar + option snapshots).
-- **`PlayAnalyzer`** (`plays/analyzer.ts`) — the LLM seam: `extract(images, text)` (landed at P2;
-  `interpret(evidence)` joins at P3 with its evidence type). Two impls behind `buildAnalyzer`:
+  surface is stock snapshots + screeners + optional `dailyBars` (plays evidence, P3); **P5 grows
+  it** (trading calendar + option snapshots).
+- **`PlayAnalyzer`** (`plays/analyzer.ts`) — the LLM seam: `extract(images, text)` (P2) and
+  `interpret(req)` (P3; text-only, `allowHerd` decided by the caller). Two impls behind `buildAnalyzer`:
   `AiSdkAnalyzer` (platform key, Vercel AI SDK) and `CodexAnalyzer` (ChatGPT-subscription OAuth —
   the LIVE provider since 2026-08-19; metering is notional there; auth established via
   `pnpm -C packages/worker codex-login`, self-refreshed by `codex-auth.ts`). Pipeline

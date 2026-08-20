@@ -326,7 +326,8 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
     analyzer = playsHandle
       ? buildAnalyzer({
         provider: worker.plays.llm.provider,
-        model: worker.plays.llm.extractModel,
+        extractModel: worker.plays.llm.extractModel,
+        interpretModel: worker.plays.llm.interpretModel,
         maxOutputTokens: worker.plays.llm.maxOutputTokens,
       }, env)
       : undefined
@@ -382,14 +383,20 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
       if (playsHandle) {
         // The EXTERNAL stop signal, not `internal` — internal is already aborted by radar completing
         // (the .finally above), which must not suppress the tick; SIGTERM still must abort it.
-        await runPlaysQueue({ db: playsHandle.db, config: worker.plays, analyzer, isListedTicker }, {
+        await runPlaysQueue({
+          db: playsHandle.db, config: worker.plays, analyzer, isListedTicker,
+          market, windowSeconds: worker.windowSeconds,
+        }, {
           once: true, stopSignal: opts.stopSignal ?? new AbortController().signal,
         })
       }
     } else {
       const queue = playsHandle
         ? runPlaysQueue(
-          { db: playsHandle.db, config: worker.plays, analyzer, isListedTicker },
+          {
+            db: playsHandle.db, config: worker.plays, analyzer, isListedTicker,
+            market, windowSeconds: worker.windowSeconds,
+          },
           { stopSignal: internal.signal })
         : Promise.resolve()
       // allSettled, not all: if one loop rejects, the other must still wind down BEFORE the finally

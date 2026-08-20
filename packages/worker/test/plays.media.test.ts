@@ -27,6 +27,8 @@ const cfg = (over: Partial<PlaysConfig> = {}): PlaysConfig => ({
     provider: 'openai', extractModel: 'test-model', interpretModel: 'test-model', maxPlaysPerTick: 5,
     maxOutputTokens: 2000, dailyBudgetUsd: 5, prices: {},
   },
+  herd: { lookbackHours: 72, minAuthors: 5 },
+  heatStalenessSeconds: 6 * 3600,
   ...over,
 })
 

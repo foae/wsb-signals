@@ -122,8 +122,10 @@ async function main(): Promise<void> {
   const { worker, env } = loadConfig(root)
   const modelFlagIdx = process.argv.indexOf('--model')
   const model = modelFlagIdx > -1 ? process.argv[modelFlagIdx + 1]! : worker.plays.llm.extractModel
-  const analyzer = buildAnalyzer(
-    { provider: worker.plays.llm.provider, model, maxOutputTokens: worker.plays.llm.maxOutputTokens }, env)
+  const analyzer = buildAnalyzer({
+    provider: worker.plays.llm.provider, extractModel: model,
+    interpretModel: worker.plays.llm.interpretModel, maxOutputTokens: worker.plays.llm.maxOutputTokens,
+  }, env)
   if (!analyzer) {
     log.error('no analyzer credentials — plays-eval makes real calls (OPENAI_API_KEY or CODEX_AUTH_FILE per provider)')
     process.exitCode = 1

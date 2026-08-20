@@ -93,8 +93,8 @@ max_staleness_seconds = 1800  # alarm if newest Arctic-Shift item older than thi
 data_dir = "data"
 
 [plays]
-# WSB Plays capture + queue + LLM (plays-plan §3/§4/§9). The [plays.herd]/[plays.outcomes] blocks
-# land with their slices (P3/P5). Media archives under <data_dir>/media/plays/<post_id>/ (the
+# WSB Plays capture + queue + LLM + evidence (plays-plan §3/§4/§5/§9). The [plays.outcomes] block
+# lands with P5. Media archives under <data_dir>/media/plays/<post_id>/ (the
 # shared worker↔web volume).
 enabled = true
 flairs = ["Gain", "Loss", "YOLO", "Verified Trade"]  # link_flair_text capture gate (product §3)
@@ -136,3 +136,16 @@ output = 2.0
 [plays.llm.prices."gpt-5.6-sol"]  # NOTIONAL (subscription) — eval comparison candidate; API list
 input = 5.0                       # price 2026-08-19
 output = 30.0
+
+[plays.herd]
+# The structural herd gate (P3, invariant P4): `herd-following` enters the category enum offered to
+# the model ONLY at/above min_authors DISTINCT same-direction post authors (never post counts —
+# serial reposters would fabricate a herd) in the lookback before the evidence anchor.
+lookback_hours = 72
+min_authors = 5
+
+[plays.evidence]
+# Radar-heat staleness bound (product §4.2): when the newest COMPLETE radar window is older than
+# this vs the anchor (radar outage), the evidence reads "heat evidence unavailable" — stale
+# attention context is never served as current.
+heat_staleness_hours = 6

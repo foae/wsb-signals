@@ -17,24 +17,29 @@
  *  - **The tick body is the exception boundary**: a repeatedly-throwing tick disables the plays loop
  *    with a loud log; the radar keeps running (plays-plan §1).
  *
- * P1 processes exactly one stage, `captured → media_ready`. The LLM stages (`media_ready → extracted →
- * analyzed → published`) land at P2/P3 behind the PlayAnalyzer seam — rows rest at `media_ready` until
- * then. No transaction is ever held across the media fetches (invariant P9): the claim is one short tx,
- * the stage is fetch+fs only, the advance is one autocommit UPDATE.
+ * Three stages: `captured → media_ready` (P1, media), `media_ready → extracted` (P2, vision LLM),
+ * `extracted → published` (P3, evidence + interpret LLM + the denormalize/publish row update).
+ * There is deliberately NO intermediate status between interpret and publish — plan §5 pins
+ * `published_at` + the current-run pointers + the denormalized board fields into ONE row update, so
+ * publish IS the interpret stage's advance. No transaction is ever held across media fetches or LLM
+ * calls (invariant P9).
  */
 import { and, asc, count, eq, inArray, isNull, lt, lte, or } from 'drizzle-orm'
 
-import { playExtractions, plays, type PlayMediaItem, type PlayRow, type PlayStatus } from '@wsb/shared'
+import { playExtractions, playInterpretations, plays, type PlayMediaItem, type PlayRow, type PlayStatus } from '@wsb/shared'
 
 import type { PlaysConfig } from '../config'
 import type { Db } from '../db'
 import { log } from '../logger'
+import type { MarketData } from '../market'
 import { abortableSleep } from '../timing'
 import { isUnbilledRejection, type PlayAnalyzer } from './analyzer'
+import { buildPlayEvidence, deriveAnchor, derivePostedPnl, derivePrimaryTicker, deriveRealized } from './evidence'
 import { preparePlayImages } from './images'
+import { INTERPRET_SCHEMA_VERSION, TAXONOMY_VERSION, type PlayInterpretation } from './interpretation'
 import { runMediaStage, type Fetcher, type MediaStageResult } from './media'
 import { canDispatch, costUsd, estimateInputTokens, todaySpendUsd } from './metering'
-import { validateExtraction } from './validate'
+import { validateExtraction, type PlayExtraction } from './validate'
 
 /** Rows claimed per tick. A constant, not config: the media stage is cheap I/O (P2's LLM stages get the
  *  configured `max_plays_per_tick` knob instead). At ~45 plays/day this clears any realistic backlog. */
@@ -60,6 +65,11 @@ export interface QueueDeps {
   /** Whitelist membership for the validation pass (product §4.1). Absent → everything that isn't a
    *  known non-equity is `unvalidated` (fail-conservative). */
   isListedTicker?: (ticker: string) => boolean
+  /** Market provider for the evidence block (P3). Shared with the radar (stateless HTTP client);
+   *  absent (--no-market / no creds) → market evidence degrades to "unavailable". */
+  market?: MarketData | null
+  /** The radar's window size ([window].seconds) — evidence bucketing only. Defaults to 3600. */
+  windowSeconds?: number
   /** Injectable for tests. */
   clock?: () => number
   fetchImpl?: Fetcher
@@ -75,6 +85,7 @@ export interface TickStats {
   retrying: number // transient media failure (still inside the retry window) or a shutdown release
   failed: number // stage crashes that hit max_attempts (terminal)
   extracted: number // media_ready → extracted this tick (P2)
+  published: number // extracted → published this tick (P3: evidence + interpret + denormalize)
   parked: number // dispatch refusals (no price / budget) — waiting, not failing
 }
 
@@ -360,17 +371,156 @@ async function processMediaReady(
   return 'extracted'
 }
 
-/** Due `media_ready` backlog — the queue-depth signal the tick logs once LLM stages exist (P2). */
-async function mediaReadyDepth(db: Db, now: number): Promise<number> {
+/**
+ * The `extracted` stage (P3, plays-plan §5): load the CURRENT extraction (by pointer, never
+ * `max(run_at)`), assemble the deterministic evidence block, interpret via the seam, then publish —
+ * the same money discipline as `processMediaReady` (gate first, reservation persisted before the
+ * call, no tx across the LLM, abort drops the reservation), plus:
+ *
+ *  - **The evidence is INSERTED WITH the reservation row** — it is deterministic and it is what the
+ *    prompt will see, so a crash mid-call leaves an auditable record of exactly what was sent
+ *    (invariant P2); `prompt_version` stays null as the crash marker, same as extraction.
+ *  - **The herd gate is decided HERE, from the evidence** (invariant P4): `allowHerd` shapes the
+ *    category enum inside the seam; the model never sees `herd-following` below threshold.
+ *  - **Publish is ONE row update** (plan §5): status/`published_at`/pointer/denormalized board
+ *    fields together — a reader can never observe a published play with half its board fields.
+ */
+async function processExtracted(
+  deps: QueueDeps, analyzer: PlayAnalyzer, row: PlayRow, now: number,
+): Promise<'published' | 'parked' | 'aborted' | 'fenced'> {
+  if (row.currentExtractionAt == null) {
+    throw new Error('extracted play has no current_extraction_at pointer — cannot interpret (P8 violation upstream?)')
+  }
+  const [extRow] = await deps.db.select().from(playExtractions).where(and(
+    eq(playExtractions.playId, row.id), eq(playExtractions.runAt, row.currentExtractionAt)))
+  const extraction = extRow?.output as PlayExtraction | null | undefined
+  if (extraction == null || !Array.isArray(extraction.positions)) {
+    throw new Error(`current extraction row (run_at ${row.currentExtractionAt}) missing or outputless`)
+  }
+
+  // Evidence: deterministic DB/market reads, no LLM — cheap enough to rebuild on every retry.
+  const evidence = await buildPlayEvidence({
+    db: deps.db, market: deps.market, flairs: deps.config.flairs,
+    herdLookbackHours: deps.config.herd.lookbackHours, herdMinAuthors: deps.config.herd.minAuthors,
+    heatStalenessSeconds: deps.config.heatStalenessSeconds,
+    windowSeconds: deps.windowSeconds ?? 3600,
+  }, { id: row.id, author: row.author, createdUtc: row.createdUtc ?? now }, extraction)
+  const allowHerd = evidence.herd?.eligible === true
+
+  const text = {
+    title: row.title, selftext: row.selftext, flair: row.flair,
+    postedAt: row.createdUtc != null ? new Date(row.createdUtc * 1000).toISOString().slice(0, 10) : null,
+  }
+  // The real payload is text-only: post text + the two serialized JSON blocks.
+  const textChars = (row.title?.length ?? 0) + (row.selftext?.length ?? 0)
+    + JSON.stringify(extraction).length + JSON.stringify(evidence).length
+  const decision = await canDispatch(
+    deps.db, deps.config.llm, deps.config.llm.interpretModel,
+    estimateInputTokens(0, textChars), now * 1000)
+  if (!decision.ok) {
+    log.warn({ playId: row.id, reason: decision.reason, detail: decision.detail },
+      'plays interpret dispatch REFUSED — parking the play (fail-closed metering, invariant P6)')
+    await parkForRefusal(deps.db, row, now)
+    return 'parked'
+  }
+
+  const runAt = Date.now() // real wall-clock ms — the unique (play_id, run_at) key (same as extract)
+  const [reserved] = await deps.db.insert(playInterpretations).values({
+    playId: row.id,
+    runAt,
+    model: deps.config.llm.interpretModel,
+    promptVersion: null, // reconciled on success; a null-prompt row IS the crash marker
+    evidence, // stored at reservation time — deterministic, and exactly what the prompt sees (P2)
+    output: null,
+    tokensIn: null,
+    tokensOut: null,
+    costUsd: decision.reservedUsd,
+  }).returning({ id: playInterpretations.id })
+
+  let result
+  try {
+    result = await analyzer.interpret({ text, extraction, evidence, allowHerd }, { signal: deps.signal })
+  } catch (e) {
+    if (deps.signal?.aborted) {
+      await deps.db.delete(playInterpretations).where(eq(playInterpretations.id, reserved!.id))
+      log.info({ playId: row.id }, 'plays interpret aborted (shutdown) — releasing claim, reservation dropped')
+      await releaseClaim(deps.db, row, [], now)
+      return 'aborted'
+    }
+    if (isUnbilledRejection(e)) {
+      await deps.db.delete(playInterpretations).where(eq(playInterpretations.id, reserved!.id))
+    }
+    throw e // real provider failure keeps its reservation (fail-closed), stage crash path
+  }
+
+  const output: PlayInterpretation = {
+    schema_version: INTERPRET_SCHEMA_VERSION,
+    taxonomy_version: TAXONOMY_VERSION,
+    herd_allowed: allowHerd,
+    ...result.interpretation,
+  }
+  const tokensIn = result.usage.inputTokens
+  const tokensOut = result.usage.outputTokens
+  const cost = tokensIn != null && tokensOut != null
+    ? costUsd(decision.prices, tokensIn, tokensOut)
+    : decision.reservedUsd
+
+  await deps.db.update(playInterpretations).set({
+    model: result.model,
+    promptVersion: `${result.promptVersion}/${INTERPRET_SCHEMA_VERSION}`,
+    output,
+    tokensIn,
+    tokensOut,
+    costUsd: cost,
+  }).where(eq(playInterpretations.id, reserved!.id))
+
+  // THE publish update (plan §5) — board denormalization + published_at + the current-run pointers
+  // + status, one atomic row write. Posted P&L is what the screenshot showed; P5 marks never
+  // overwrite these fields.
+  const { pnlAbs, pnlPct } = derivePostedPnl(extraction.positions)
+  const res = await deps.db.update(plays).set({
+    status: 'published',
+    publishedAt: now,
+    currentInterpretationAt: runAt,
+    primaryTicker: derivePrimaryTicker(extraction.positions),
+    category: output.category,
+    tags: output.tags,
+    // The board confidence is the extraction's DERIVED one (validate.ts) — evidence-grounded;
+    // the interpretation's self-report stays inside the output jsonb for calibration.
+    confidence: extraction.confidence,
+    pnlAbs,
+    pnlPct,
+    realized: deriveRealized(extraction.positions),
+    summary: output.summary,
+    tldr: output.tldr,
+    extractorVersion: extRow!.promptVersion,
+    interpreterVersion: `${result.promptVersion}/${INTERPRET_SCHEMA_VERSION}`,
+    taxonomyVersion: TAXONOMY_VERSION,
+    claimedAt: null,
+    nextAttemptAt: null,
+    attempts: 0,
+    error: null,
+  }).where(ownedBy(row))
+  if (warnIfFenced(res, row, 'publish')) return 'fenced'
+  log.info({
+    playId: row.id, ticker: derivePrimaryTicker(extraction.positions), category: output.category,
+    tags: output.tags, allowHerd, herdAuthors: evidence.herd?.distinct_authors ?? null,
+    anchorBasis: evidence.anchor_basis, tokensIn, tokensOut, costUsd: Number(cost.toFixed(5)),
+  }, 'play published')
+  return 'published'
+}
+
+/** Due backlog at a status — the queue-depth signal the tick logs for the LLM stages (P2/P3). */
+async function stageDepth(db: Db, status: PlayStatus, now: number): Promise<number> {
   const [row] = await db.select({ n: count() }).from(plays)
-    .where(and(eq(plays.status, 'media_ready'), or(isNull(plays.nextAttemptAt), lte(plays.nextAttemptAt, now))))
+    .where(and(eq(plays.status, status), or(isNull(plays.nextAttemptAt), lte(plays.nextAttemptAt, now))))
   return row?.n ?? 0
 }
 
 /** One queue tick: claim due rows per stage, run each row with a per-row exception boundary. */
 export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
   const clock = deps.clock ?? nowSeconds
-  const stats: TickStats = { claimed: 0, advanced: 0, retrying: 0, failed: 0, extracted: 0, parked: 0 }
+  const stats: TickStats = { claimed: 0, advanced: 0, retrying: 0, failed: 0, extracted: 0, published: 0, parked: 0 }
 
   const captured = await claimDue(deps.db, deps.config, clock(), 'captured', CLAIM_BATCH)
   stats.claimed += captured.length
@@ -390,37 +540,54 @@ export async function runQueueTick(deps: QueueDeps): Promise<TickStats> {
     }
   }
 
-  // P2: media_ready → extracted, only with a wired analyzer (no OPENAI_API_KEY → rows rest, loudly).
+  // P2/P3: the LLM stages, only with a wired analyzer (no credentials → rows rest, loudly).
   if (deps.analyzer && !deps.signal?.aborted) {
-    const batch = await claimDue(
-      deps.db, deps.config, clock(), 'media_ready', Math.min(CLAIM_BATCH, deps.config.llm.maxPlaysPerTick))
-    stats.claimed += batch.length
-    for (const row of batch) {
-      if (deps.signal?.aborted) {
-        await releaseClaim(deps.db, row, [], clock())
-        stats.retrying++
-        continue
-      }
-      try {
-        const outcome = await processMediaReady(deps, deps.analyzer, row, clock())
-        if (outcome === 'extracted') stats.extracted++
-        else if (outcome === 'parked') stats.parked++
-        else if (outcome === 'aborted') stats.retrying++
-      } catch (e) {
-        const { terminal, fenced } = await recordStageFailure(deps.db, row, deps.config, clock(), e)
-        if (terminal) stats.failed++
-        log.error(
-          { playId: row.id, err: String(e), attempts: (row.attempts ?? 0) + 1, terminal, ...(fenced ? { fenced } : {}) },
-          'plays stage crashed')
+    let llmWork = 0
+    // DOWNSTREAM FIRST: interpret the already-extracted backlog before extracting more. The other
+    // order would run a fresh extraction's interpret in the SAME tick (extract sets the row due
+    // immediately) — two LLM calls per play per tick, so `max_plays_per_tick` would bound half of
+    // what its name says, and a budget-refusal mid-pipeline would land unevenly.
+    for (const [status, process] of [
+      ['extracted', processExtracted] as const, // → published (P3)
+      ['media_ready', processMediaReady] as const, // → extracted (P2)
+    ]) {
+      if (deps.signal?.aborted) break
+      const batch = await claimDue(
+        deps.db, deps.config, clock(), status, Math.min(CLAIM_BATCH, deps.config.llm.maxPlaysPerTick))
+      stats.claimed += batch.length
+      llmWork += batch.length
+      for (const row of batch) {
+        if (deps.signal?.aborted) {
+          await releaseClaim(deps.db, row, [], clock())
+          stats.retrying++
+          continue
+        }
+        try {
+          const outcome = await process(deps, deps.analyzer, row, clock())
+          if (outcome === 'extracted') stats.extracted++
+          else if (outcome === 'published') stats.published++
+          else if (outcome === 'parked') stats.parked++
+          else if (outcome === 'aborted') stats.retrying++
+        } catch (e) {
+          const { terminal, fenced } = await recordStageFailure(deps.db, row, deps.config, clock(), e)
+          if (terminal) stats.failed++
+          log.error(
+            { playId: row.id, err: String(e), attempts: (row.attempts ?? 0) + 1, terminal, ...(fenced ? { fenced } : {}) },
+            'plays stage crashed')
+        }
       }
     }
-    if (batch.length > 0) {
-      // The P2 ops signal: realized UTC-day spend + what's still waiting (plays-plan §4).
-      const [spent, depth] = await Promise.all([todaySpendUsd(deps.db, clock() * 1000), mediaReadyDepth(deps.db, clock())])
-      log.info({ spendTodayUsd: Number(spent.toFixed(4)), mediaReadyDepth: depth }, 'plays llm spend')
+    if (llmWork > 0) {
+      // The LLM-stage ops signal: realized UTC-day spend + what's still waiting (plays-plan §4).
+      const [spent, mediaDepth, extractedDepth] = await Promise.all([
+        todaySpendUsd(deps.db, clock() * 1000),
+        stageDepth(deps.db, 'media_ready', clock()), stageDepth(deps.db, 'extracted', clock()),
+      ])
+      log.info({ spendTodayUsd: Number(spent.toFixed(4)), mediaReadyDepth: mediaDepth, extractedDepth },
+        'plays llm spend')
     }
   } else if (!deps.analyzer) {
-    const depth = await mediaReadyDepth(deps.db, clock())
+    const depth = await stageDepth(deps.db, 'media_ready', clock())
     if (depth > 0) log.warn({ queued: depth }, 'plays extraction OFF (no analyzer — set OPENAI_API_KEY); media_ready backlog waiting')
   }
 
