@@ -91,6 +91,10 @@ export class AiSdkAnalyzer implements PlayAnalyzer {
 
   async extract(images: AnalyzerImage[], text: PlayText, opts?: { signal?: AbortSignal }): Promise<ExtractResult> {
     const timeout = AbortSignal.timeout(EXTRACT_TIMEOUT_MS)
+    // KNOWN ASYMMETRY: this path has no `sanitizeRawExtraction` hook — `generateObject` validates
+    // the raw zod schema internally, so the phantom-date/overlong-notes repairs that protect the
+    // codex path do not run here. Dormant while codex is the live provider; wiring the repair in
+    // means catching NoObjectGeneratedError and re-parsing its `text` through the sanitizer.
     const result = await generateObject({
       model: this.model,
       schema: LlmExtractionSchema,
@@ -122,7 +126,8 @@ export class AiSdkAnalyzer implements PlayAnalyzer {
 
 // ── Codex subscription implementation (user decision 2026-08-19) ────────────────────────────────────
 //
-// Rides the ChatGPT-subscription OAuth that `pi` maintains (see codex-auth.ts) against the Codex
+// Rides the ChatGPT-subscription OAuth (established by `codex-login`, self-refreshed — see
+// codex-auth.ts) against the Codex
 // backend — probed live 2026-08-19: strict `json_schema` structured outputs AND `input_image` both
 // work on gpt-5.6-luna. The backend dialect differs from the platform Responses API just enough
 // that @ai-sdk/openai can't be pointed at it (SSE-only, `instructions`, header set), so this is a
@@ -205,7 +210,17 @@ export class CodexAnalyzer implements PlayAnalyzer {
   async extract(images: AnalyzerImage[], text: PlayText, callOpts?: { signal?: AbortSignal }): Promise<ExtractResult> {
     const timeout = AbortSignal.timeout(EXTRACT_TIMEOUT_MS)
     const signal = callOpts?.signal ? AbortSignal.any([callOpts.signal, timeout]) : timeout
-    const { accessToken, accountId } = await this.auth.credentials(signal)
+    // Auth acquisition/refresh happens BEFORE any dispatch: its failures (dead refresh token,
+    // unreadable file, refresh-endpoint 4xx) are unbilled by definition — surface them as a 401
+    // CodexApiError so the queue drops the pre-dispatch cost reservation instead of burning the
+    // daily budget on attempts that never reached the provider (review 2026-08-20). Shutdown
+    // aborts are unaffected: the queue checks its own signal before classifying the error.
+    let accessToken: string, accountId: string
+    try {
+      ({ accessToken, accountId } = await this.auth.credentials(signal))
+    } catch (e) {
+      throw new CodexApiError(`codex auth (pre-dispatch): ${String(e).slice(0, 200)}`, 401)
+    }
     const fetchImpl = this.opts.fetchImpl ?? undiciFetch
 
     const res = await fetchImpl(CODEX_URL, {
@@ -214,7 +229,9 @@ export class CodexAnalyzer implements PlayAnalyzer {
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'chatgpt-account-id': accountId,
-        'originator': 'pi',
+        // Must match the OAuth client's originator: tokens are now granted via codex-login's
+        // authorization flow (the Codex CLI's own), not pi's (retired 2026-08-20).
+        'originator': 'codex_cli_rs',
         'User-Agent': 'wsb-signals-plays/1.0',
         'OpenAI-Beta': 'responses=experimental',
         'accept': 'text/event-stream',
@@ -273,7 +290,8 @@ export interface BuildAnalyzerEnv {
 /**
  * The one factory both the worker loop and `plays-eval` use. Providers:
  *  - `openai` — platform API key (`OPENAI_API_KEY`)
- *  - `openai-codex` — pi's subscription OAuth (`CODEX_AUTH_FILE`, the mounted auth.json)
+ *  - `openai-codex` — ChatGPT-subscription OAuth (`CODEX_AUTH_FILE`, the mounted auth.json;
+ *    established once via `codex-login`)
  * Returns undefined (never throws for MISSING credentials) so the queue can rest loudly instead.
  */
 export function buildAnalyzer(

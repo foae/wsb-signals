@@ -155,8 +155,18 @@ async function main(): Promise<void> {
   let spentUsd = 0
   for (const name of cases) {
     const dir = join(fixturesDir, name)
-    const text = JSON.parse(readFileSync(join(dir, 'post.json'), 'utf8')) as PlayText
-    const expected = LlmExtractionSchema.parse(JSON.parse(readFileSync(join(dir, 'expected.json'), 'utf8')))
+    // A malformed KEY is a fixture bug, not a model result: skip the case loudly rather than
+    // aborting a run other cases already paid for (review 2026-08-20). CI parses every key
+    // offline (plays.fixtures.test.ts), so this firing at all means CI was skipped.
+    let text: PlayText
+    let expected: LlmExtraction
+    try {
+      text = JSON.parse(readFileSync(join(dir, 'post.json'), 'utf8')) as PlayText
+      expected = LlmExtractionSchema.parse(JSON.parse(readFileSync(join(dir, 'expected.json'), 'utf8')))
+    } catch (e) {
+      log.error({ case: name, err: String(e).slice(0, 300) }, 'fixture unreadable/schema-invalid — case SKIPPED (fix the key and re-run)')
+      continue
+    }
     const imagesDir = join(dir, 'images')
     // The PRODUCTION encoding (images.ts) — scoring raw fixtures would measure the model on
     // inputs production never sends.

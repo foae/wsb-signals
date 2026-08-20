@@ -96,3 +96,18 @@ describe('writeAuthFile', () => {
     expect(JSON.parse(readFileSync(garbage, 'utf8'))['openai-codex']).toEqual(auth)
   })
 })
+
+describe('CodexAnalyzer pre-dispatch auth failures', () => {
+  it('an unusable auth file surfaces as an UNBILLED CodexApiError 401 — no request was dispatched', async () => {
+    const { CodexAnalyzer, CodexApiError, isUnbilledRejection } = await import('../src/plays/analyzer')
+    const analyzer = new CodexAnalyzer({
+      model: 'gpt-5.6-sol', maxOutputTokens: 4096,
+      authFile: '/nonexistent/path/auth.json',
+      fetchImpl: () => { throw new Error('must not dispatch') },
+    } as never)
+    const err = await analyzer.extract([], { title: 't', selftext: null, flair: null }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(CodexApiError)
+    expect((err as InstanceType<typeof CodexApiError>).statusCode).toBe(401)
+    expect(isUnbilledRejection(err)).toBe(true)
+  })
+})

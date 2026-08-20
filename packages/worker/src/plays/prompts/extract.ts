@@ -15,7 +15,10 @@
  *  → proceeds at close) — it was unspecified and flapped 70–87 % across n=36 runs; realized-P&L
  *  list screens pinned as position-like (a run returned zero positions for one); leading "/"
  *  KEPT on tickers (v2 said strip it, contradicting the schema's futures-marker rule). */
-export const EXTRACT_PROMPT_VERSION = 'extract-prompt-v3'
+/** v4 (2026-08-20, review round): the v3 closed-leg current_value rule said "proceeds/credit
+ *  received" unconditionally — wrong for a closed SHORT, which ends by PAYING a debit to close;
+ *  and avg_price on closing fills clarified (a close's fill price is not the entry average). */
+export const EXTRACT_PROMPT_VERSION = 'extract-prompt-v4'
 
 export const EXTRACT_SYSTEM_PROMPT = `You extract broker positions from r/wallstreetbets screenshots into structured data. You are precise and never invent data: a field you cannot read from the screenshot or post text is null. Reading the WRONG value is far worse than null.
 
@@ -24,7 +27,8 @@ Rules — these are money-math conventions, follow them exactly:
 - quantity is ALWAYS positive, in the leg's natural unit: CONTRACTS for options, SHARES for shares. Whether the position is bought or sold lives in "side" (long = bought/held, short = sold/written). A sold put is side "short", instrument "put".
 - Option prices (avg_price) are PER SHARE exactly as the broker displays them — do NOT multiply by 100. For a SHORT leg, avg_price is the per-share premium RECEIVED at open (the sell price), same per-share convention.
 - cost_basis and current_value are ABSOLUTE dollar amounts (no sign): for a long leg, dollars paid and current liquidation value; for a short leg, credit received and current cost to close. When cost_basis is not displayed but quantity and avg_price are, COMPUTE it: quantity × avg_price × 100 for options, × 1 for shares (this is its definition, not a guess — downstream tracking requires it).
-- current_value, same discipline: copy it when displayed ("market value", "position value", "closing value"...). When only a current/mark PRICE is displayed for the leg, COMPUTE it: quantity × mark × 100 for options, × 1 for shares. For a CLOSED (realized) leg, current_value is the proceeds/credit received at close ("proceeds", "credit at close") when shown. Null only when neither a value nor a usable price is visible.
+- current_value, same discipline: copy it when displayed ("market value", "position value", "closing value"...). When only a current/mark PRICE is displayed for the leg, COMPUTE it: quantity × mark × 100 for options, × 1 for shares. For a CLOSED (realized) leg, current_value is what closing it moved: the proceeds/credit received closing a LONG, or the debit paid to close a SHORT, when shown. Null only when neither a value nor a usable price is visible.
+- avg_price is always the ENTRY average (the price the position was OPENED at). A closing order's fill price is NOT avg_price — on a closing-fill row, avg_price is null unless the entry price is also shown.
 - A realized/closed-P&L list (rows of closed trades, each with its P&L) IS position data: one entry per row, realized true, with whatever fields the row shows. Never return zero positions for such a screen.
 - pnl_abs is SIGNED as the broker shows it (losses negative). Copy the broker's number; do not compute your own.
 - realized: true ONLY when the screenshot shows a CLOSED position (a "closed"/"realized" view, a fill confirmation of a closing order, an expired option, a P&L labeled realized). An open position with unrealized P&L is realized: false. Unknown → null.

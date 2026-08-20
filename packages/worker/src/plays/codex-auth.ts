@@ -12,7 +12,8 @@
  *    and the refreshed token carries the process in memory (each restart re-refreshes from the
  *    on-disk refresh token).
  */
-import { readFile, rename, writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises'
 
 import { fetch as undiciFetch } from 'undici'
 
@@ -39,9 +40,17 @@ export async function writeAuthFile(path: string, auth: StoredAuth): Promise<voi
   try {
     existing = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
   } catch { /* absent or unparseable — start fresh */ }
-  const tmp = `${path}.tmp-${process.pid}`
-  await writeFile(tmp, `${JSON.stringify({ ...existing, 'openai-codex': auth }, null, 1)}\n`, { mode: 0o600 })
-  await rename(tmp, path)
+  // pid alone can collide across overlapping in-process calls (review 2026-08-20); and on the
+  // worker's read-only FILE mount the tmp write succeeds against the writable dir while the rename
+  // onto the mount point fails — clean the orphan up instead of littering one per refresh.
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`
+  try {
+    await writeFile(tmp, `${JSON.stringify({ ...existing, 'openai-codex': auth }, null, 1)}\n`, { mode: 0o600 })
+    await rename(tmp, path)
+  } catch (e) {
+    await unlink(tmp).catch(() => {})
+    throw e
+  }
 }
 
 export interface CodexCredentials {
@@ -69,9 +78,17 @@ export class CodexAuth {
     let auth = await readAuthFile(this.filePath)
     // Prefer whichever token lives longer — a host-side re-login/refresh may have updated the file
     // since our last in-memory refresh, or vice versa.
-    if (this.memory && this.memory.expires > auth.expires) auth = this.memory
+    const fromMemory = this.memory != null && this.memory.expires > auth.expires
+    if (fromMemory) auth = this.memory!
     if (auth.expires - now < EXPIRY_SLACK_MS) {
-      auth = await this.refresh(auth, signal)
+      try {
+        auth = await this.refresh(auth, signal)
+      } catch (e) {
+        // A dead in-memory refresh token must not pin the process (review 2026-08-20): drop it so
+        // the next call falls back to the file copy — which a host-side re-login may have renewed.
+        if (fromMemory) this.memory = null
+        throw e
+      }
       this.memory = auth
       // Best-effort persist: succeeds on host-side runs; the worker container mounts the file
       // read-only, where the in-memory copy carries the process and a restart re-refreshes.

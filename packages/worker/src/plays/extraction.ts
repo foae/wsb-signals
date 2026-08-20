@@ -54,8 +54,11 @@ export function isRealIsoDate(s: string): boolean {
 const isoDate = (): z.ZodType<string> =>
   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isRealIsoDate, 'not a real YYYY-MM-DD date')
 
-/** Free-text length pins — shared by the schema (they ride into the wire JSON schema as
- *  `maxLength`) and the pre-parse repair (which truncates instead of failing). */
+/** Free-text length pins — shared by the schema and the pre-parse repair (which truncates instead
+ *  of failing). NOTE: on the live codex path the model never sees these — `strictifyJsonSchema`
+ *  strips `maxLength` (with the other constraint keywords) from the wire schema, so the pins are
+ *  enforced only at parse time and the truncation repair is the ONLY thing standing between a
+ *  chatty model and a burned extraction (review 2026-08-20). */
 export const BROKER_MAX_LEN = 40
 export const NOTES_MAX_LEN = 500
 
