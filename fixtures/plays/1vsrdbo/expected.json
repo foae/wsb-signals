@@ -1,0 +1,44 @@
+{
+ "screenshot_kind": "order_ticket",
+ "broker": "IBKR",
+ "positions": [
+  {
+   "ticker": "MRNA",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 1,
+   "avg_price": 63.5,
+   "strike": 105,
+   "expiry": "2027-01-15",
+   "cost_basis": null,
+   "current_value": 6350,
+   "pnl_abs": 6058.65,
+   "pnl_pct": null,
+   "realized": true,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  },
+  {
+   "ticker": "MRNA",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 2,
+   "avg_price": 54,
+   "strike": 105,
+   "expiry": "2027-01-15",
+   "cost_basis": null,
+   "current_value": 10800,
+   "pnl_abs": 10217.49,
+   "pnl_pct": null,
+   "realized": true,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

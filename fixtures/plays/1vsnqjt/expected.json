@@ -1,0 +1,44 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "MRNA",
+   "instrument": "shares",
+   "side": "long",
+   "quantity": 165.824406,
+   "avg_price": 43.74,
+   "strike": null,
+   "expiry": null,
+   "cost_basis": 7253.48,
+   "current_value": 23838.92,
+   "pnl_abs": 16585.44,
+   "pnl_pct": 228.65,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  },
+  {
+   "ticker": "MRK",
+   "instrument": "shares",
+   "side": "long",
+   "quantity": 103.620165,
+   "avg_price": 86.52,
+   "strike": null,
+   "expiry": null,
+   "cost_basis": 8965.39,
+   "current_value": 15694.83,
+   "pnl_abs": 6729.44,
+   "pnl_pct": 75.06,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

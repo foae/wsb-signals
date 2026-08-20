@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "META",
+   "instrument": "put",
+   "side": "long",
+   "quantity": 15,
+   "avg_price": 2.95,
+   "strike": 450,
+   "expiry": "2026-10-16",
+   "cost_basis": 4425,
+   "current_value": 4545.00,
+   "pnl_abs": 120.00,
+   "pnl_pct": 2.71,
+   "realized": false,
+   "opened_at": "2026-08-19",
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

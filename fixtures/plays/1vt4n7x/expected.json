@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Robinhood",
+ "positions": [
+  {
+   "ticker": "MRNA",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 1,
+   "avg_price": 0.17,
+   "strike": 80,
+   "expiry": "2026-08-21",
+   "cost_basis": 17.00,
+   "current_value": 6515.00,
+   "pnl_abs": 6498.00,
+   "pnl_pct": 38223.53,
+   "realized": true,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

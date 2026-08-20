@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Trading 212",
+ "positions": [
+  {
+   "ticker": "RDDT",
+   "instrument": "shares",
+   "side": "long",
+   "quantity": 561.57671308,
+   "avg_price": 127.78,
+   "strike": null,
+   "expiry": null,
+   "cost_basis": 71757.20,
+   "current_value": 65310.40,
+   "pnl_abs": -6446.80,
+   "pnl_pct": -8.98,
+   "realized": false,
+   "opened_at": null,
+   "currency": "GBP",
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

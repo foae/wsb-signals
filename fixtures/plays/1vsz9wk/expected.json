@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "Wealthsimple",
+ "positions": [
+  {
+   "ticker": "BMNR",
+   "instrument": "call",
+   "side": "long",
+   "quantity": 350,
+   "avg_price": 1.1689,
+   "strike": 20,
+   "expiry": "2026-09-18",
+   "cost_basis": 40910.67,
+   "current_value": 65450.00,
+   "pnl_abs": 24539.33,
+   "pnl_pct": 59.98,
+   "realized": false,
+   "opened_at": null,
+   "currency": null,
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}

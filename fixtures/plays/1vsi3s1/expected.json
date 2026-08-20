@@ -1,0 +1,26 @@
+{
+ "screenshot_kind": "single_position",
+ "broker": "IG",
+ "positions": [
+  {
+   "ticker": "XPEV",
+   "instrument": "other",
+   "side": "long",
+   "quantity": 1078.77,
+   "avg_price": 1209.0,
+   "strike": null,
+   "expiry": null,
+   "cost_basis": null,
+   "current_value": null,
+   "pnl_abs": -13359.97,
+   "pnl_pct": null,
+   "realized": false,
+   "opened_at": null,
+   "currency": "GBP",
+   "confidence": null,
+   "field_confidence": null
+  }
+ ],
+ "notes": null,
+ "confidence": null
+}
