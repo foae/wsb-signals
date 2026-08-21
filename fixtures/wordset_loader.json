@@ -1,9 +1,11 @@
 {
   "ambiguous": {
-    "count": 1,
+    "count": 3,
     "path": "whitelist/ambiguous.txt",
     "tokens": [
-      "DRAM"
+      "BTC",
+      "DRAM",
+      "ETH"
     ]
   },
   "stoplist": {

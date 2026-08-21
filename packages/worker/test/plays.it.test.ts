@@ -257,8 +257,15 @@ describe('radar-cycle integration (invariant P1)', () => {
   const okPoll = (over: Partial<PollResult> = {}): PollResult => ({
     posts: [{ id: 'p1', createdUtc: WS + 10, author: 'degen', title: 'NVDA gain', selftext: '',
       linkFlairText: 'Gain', score: null, numComments: null, retrievedOn: NOW, source: 'fake' }],
-    comments: [], rawPosts: [rawPlay('p1', { title: 'NVDA gain' })],
-    newestUtc: WS + 10, capped: false, ok: true, postsOk: true, ...over,
+    comments: [{
+      id: 'c1', createdUtc: WS + 5, author: 'reader', linkId: null, parentId: null,
+      body: 'fresh comment', score: null, retrievedOn: NOW, source: 'fake',
+    }],
+    rawPosts: [rawPlay('p1', { title: 'NVDA gain' })],
+    newestUtc: WS + 10, newestPostUtc: WS + 10, newestCommentUtc: WS + 5,
+    oldestPostUtc: WS + 10, oldestCommentUtc: WS + 5,
+    postPages: 1, commentPages: 1, postsCapped: false, commentsCapped: false,
+    capped: false, ok: true, postsOk: true, commentsOk: true, ...over,
   })
 
   const deps = (over: Partial<CycleDeps> = {}): CycleDeps => ({
@@ -279,14 +286,14 @@ describe('radar-cycle integration (invariant P1)', () => {
   })
 
   it('a comments-side-failed poll still captures plays (keys on postsOk), radar discards whole', async () => {
-    const res = await runCycle(deps({ source: new FakeSource(() => okPoll({ ok: false, postsOk: true })) }), NOW)
+    const res = await runCycle(deps({ source: new FakeSource(() => okPoll({ ok: false, commentsOk: false })) }), NOW)
     expect(res.skipped).toBe(true)
     expect(await latestCompleteWindow(pg.db)).toBeNull() // radar window discarded whole
     expect((await getPlay('p1')).status).toBe('captured') // …but the play was not lost
   })
 
   it('a fully-failed poll captures nothing', async () => {
-    await runCycle(deps({ source: new FakeSource(() => okPoll({ ok: false, postsOk: false })) }), NOW)
+    await runCycle(deps({ source: new FakeSource(() => okPoll({ ok: false, postsOk: false, commentsOk: false })) }), NOW)
     expect(await pg.db.select().from(plays)).toHaveLength(0)
   })
 
@@ -634,12 +641,12 @@ describe('interpret/publish stage (P3): evidence + herd gate + the one-update pu
     expect(analyzer.reqs[0]!.evidence.radar!.mentions_72h).toBeGreaterThanOrEqual(10)
   })
 
-  it('radar heat reads the last COMPLETE window and honors the staleness bound', async () => {
+  it('radar heat reads the last FINALIZED window and honors the staleness bound', async () => {
     await seedExtracted()
-    // Three cycle_runs rows: WS is the newest (still being rewritten) → the complete one is WS−3600.
     await pg.db.insert(cycleRuns).values([
-      { windowStart: WS - 7200, generatedAt: NOW }, { windowStart: WS - 3600, generatedAt: NOW },
-      { windowStart: WS, generatedAt: NOW },
+      { windowStart: WS - 7200, generatedAt: NOW, finalizedAt: NOW - 10, status: 'complete' },
+      { windowStart: WS - 3600, generatedAt: NOW, finalizedAt: NOW, status: 'complete' },
+      { windowStart: WS, generatedAt: NOW, finalizedAt: null, status: 'complete' },
     ])
     await pg.db.insert(empiricalFeatures).values({
       ticker: 'NVDA', windowStart: WS - 3600, sov: 0.4, hE: 0.9, mentions: 12, authors: 7,
@@ -657,7 +664,8 @@ describe('interpret/publish stage (P3): evidence + herd gate + the one-update pu
     await pg.reset()
     await seedExtracted()
     await pg.db.insert(cycleRuns).values([
-      { windowStart: WS - 12 * 3600, generatedAt: NOW }, { windowStart: WS - 11 * 3600, generatedAt: NOW },
+      { windowStart: WS - 12 * 3600, generatedAt: NOW, finalizedAt: NOW - 10 },
+      { windowStart: WS - 11 * 3600, generatedAt: NOW, finalizedAt: NOW },
     ])
     const stale = fakeInterpreter()
     await interpretTick(stale)

@@ -13,7 +13,7 @@ import { plays, type PlayInsert, type PlayMediaStatus } from '@wsb/shared'
 
 import type { PlaysConfig } from '../config'
 import type { Db } from '../db'
-import type { RawThing } from '../ingest'
+import { isRemovedText, type RawThing } from '../ingest'
 import { log } from '../logger'
 
 /** Direct-download image host — a bare `url` pointing here is the single-image shape (product §3). */
@@ -44,7 +44,7 @@ export function initialMediaStatus(d: RawThing): Extract<PlayMediaStatus, 'pendi
  *  content ("[removed]" body, dead media) — capturing it burns media fetches + LLM calls on nothing.
  *  Paired with the capture delay so fast-moderated junk never enters the queue at all. */
 export function isRemovedPost(d: RawThing): boolean {
-  if (d.selftext === '[removed]' || d.selftext === '[deleted]') return true
+  if (isRemovedText(d.title, d.selftext)) return true
   return typeof d.removed_by_category === 'string' && d.removed_by_category.length > 0
 }
 

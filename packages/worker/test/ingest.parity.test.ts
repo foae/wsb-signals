@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import type { RawCommentInsert, RawPostInsert } from '@wsb/shared'
 import { describe, expect, it } from 'vitest'
 
-import { ArcticShiftSource, normalizeComment, normalizePost } from '../src/ingest'
+import { ArcticShiftSource, isRemovedText, normalizeComment, normalizePost } from '../src/ingest'
 import { startMockArctic, type Cassette } from './helpers/mockArctic'
 
 // Slice-4 parity gate (porting-spec §4): the ported Arctic-Shift client must reproduce the frozen v0.0.1
@@ -28,6 +28,7 @@ function expectPost(actual: RawPostInsert, exp: Snake): void {
   expect(actual.author ?? null).toBe(exp.author ?? null)
   expect(actual.title ?? null).toBe(exp.title ?? null)
   expect(actual.selftext ?? null).toBe(exp.selftext ?? null)
+  expect(actual.removed).toBe(isRemovedText(exp.title, exp.selftext))
   expect(actual.linkFlairText ?? null).toBe(exp.link_flair_text ?? null)
   expect(actual.score ?? null).toBe(exp.score ?? null)
   expect(actual.numComments ?? null).toBe(exp.num_comments ?? null)
@@ -42,6 +43,7 @@ function expectComment(actual: RawCommentInsert, exp: Snake): void {
   expect(actual.linkId ?? null).toBe(exp.link_id ?? null)
   expect(actual.parentId ?? null).toBe(exp.parent_id ?? null)
   expect(actual.body ?? null).toBe(exp.body ?? null)
+  expect(actual.removed).toBe(isRemovedText(exp.body))
   expect(actual.score ?? null).toBe(exp.score ?? null)
   expect(actual.retrievedOn).toBe(exp.retrieved_on)
   expect(actual.source).toBe(exp.source)

@@ -2,7 +2,7 @@ import type { MarketMoverInsert } from '@wsb/shared'
 import { describe, expect, it } from 'vitest'
 
 import type { EmpiricalFeature } from '../src/aggregate'
-import { type MarketData, type StockSnapshot } from '../src/market'
+import { DEFAULT_MARKET_NORMALIZATION, type MarketData, type StockSnapshot } from '../src/market'
 import { overlayMarket } from '../src/pipeline'
 
 // Slice-6 unit: overlayMarket gates to the top-N hot tickers (board order), runs computeAnalytical over
@@ -17,7 +17,10 @@ function feat(ticker: string): EmpiricalFeature {
 }
 
 function snap(ticker: string, price: number, prevClose: number): StockSnapshot {
-  return { ticker, price, dayOpen: null, dayClose: null, dayVolume: null, prevClose, prevVolume: null, feed: 'iex', asOf: 0 }
+  return {
+    ticker, price, dayOpen: null, dayClose: null, dayVolume: null, prevClose, prevVolume: null,
+    feed: 'iex', priceAsOf: 0, volumeAsOf: null,
+  }
 }
 
 class FakeMarket implements MarketData {
@@ -50,7 +53,10 @@ describe('overlayMarket gating + wiring', () => {
     const market = new FakeMarket(snaps, movers)
 
     const { analytical, movers: out } = await overlayMarket(
-      market, 7200, rows, { topN: 3, screenerTop: 25, weights: { ret: 0.5, rvol: 0.5 } }, 999,
+      market, 7200, rows, {
+        topN: 3, screenerTop: 25, weights: { ret: 0.5, rvol: 0.5 },
+        normalization: DEFAULT_MARKET_NORMALIZATION,
+      }, 999,
     )
 
     expect(market.snapCalls).toHaveLength(1)

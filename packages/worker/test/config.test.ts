@@ -26,6 +26,10 @@ describe('config loading', () => {
     expect(worker.market.topN).toBe(25)
     expect(worker.market.screenerTop).toBe(25)
     expect(worker.market.weights.ret).toBeCloseTo(0.5, 9)
+    expect(worker.market.normalization.retSigmaCap).toBe(3)
+    expect(worker.market.normalization.minProfileSessions).toBe(10)
+    expect(worker.signals.minQuadrantPopulation).toBe(5)
+    expect(worker.signals.minRowAuthors).toBe(3)
   })
 
   it('parses the [plays] block (P1) — minute knobs flattened to seconds, media dir under data_dir', () => {

@@ -8,9 +8,9 @@
  *  - per-page STOP on: empty `data`, `oldest <= cutoff`, or `len(data) < pageLimit`. Ran ALL `maxPages`
  *    without a stop → `capped = true` (the Python `for…else`).
  *  - `ok = false` on ANY {network error, non-200, non-JSON} mid-walk → break, return PARTIAL. The caller
- *    DISCARDS an `ok=false` poll whole (slice 6) — it would undercount the SoV denominator.
- *  - `capped` (page cap hit) is the BENIGN undercount: persisted but low-trust — the OPPOSITE persistence
- *    of `ok=false`. Don't conflate them.
+ *    discards radar SCORING for that poll, while retaining rows/mentions from each independently
+ *    successful kind so they cannot age out during a peer failure.
+ *  - `capped` (page cap hit) is a BENIGN undercount: publishable but low-trust. Don't conflate them.
  *
  * DELIBERATE DIVERGENCE from the oracle's §4 contract (gate-safe — porting-spec §4): the oracle gives up
  * the whole poll on the FIRST transient page failure. Live, the heavy 1h comment backfill reliably trips
@@ -49,13 +49,38 @@ export interface PollResult {
   /** The in-window posts as FULL raw dicts, for the plays capture. The Source seam stays
    *  plays-agnostic: flair filtering happens in plays/capture.ts, never here (plays-plan §3). */
   rawPosts: RawThing[]
-  newestUtc: number | null // freshest normalized item seen — feeds the heartbeat
-  capped: boolean // pagination hit the page cap (window undercounted, but benign)
-  ok: boolean // false if a fetch errored mid-pagination (partial — caller discards whole)
-  /** The posts-side walk alone succeeded. Plays capture keys on THIS, not `ok`: the whole-poll discard
-   *  protects the SoV denominator, which capture doesn't touch — a prolonged comments-side failure must
-   *  not lose a window of plays whose media is meanwhile being deleted (plays-plan §3). */
+  newestUtc: number | null // max across kinds; compatibility/display convenience
+  newestPostUtc: number | null
+  newestCommentUtc: number | null
+  oldestPostUtc: number | null
+  oldestCommentUtc: number | null
+  postPages: number
+  commentPages: number
+  postsCapped: boolean
+  commentsCapped: boolean
+  capped: boolean
+  ok: boolean
+  /** Per-kind transport completeness. Both are required for radar scoring; plays capture keys only on
+   *  postsOk so a comments failure cannot lose expiring media. */
   postsOk: boolean
+  commentsOk: boolean
+}
+
+export type IngestionStatus = 'fresh' | 'partial' | 'capped' | 'stale' | 'no-data'
+
+/** Per-kind coverage verdict. Transport incompleteness outranks every other state; a successful capped
+ *  walk is publishable but low-trust; missing/stale data is not a valid SoV input. */
+export function ingestionStatus(
+  ok: boolean,
+  capped: boolean,
+  newestUtc: number | null,
+  now: number,
+  maxStalenessSeconds: number,
+): IngestionStatus {
+  if (!ok) return 'partial'
+  if (newestUtc == null) return 'no-data'
+  if (now - newestUtc > maxStalenessSeconds) return 'stale'
+  return capped ? 'capped' : 'fresh'
 }
 
 export interface PollOptions {
@@ -107,6 +132,11 @@ function createdUtcRaw(x: RawThing, fallback: number): number {
   return typeof v === 'number' ? v : fallback
 }
 
+export function isRemovedText(...values: unknown[]): boolean {
+  return values.some((value) => typeof value === 'string'
+    && ['[removed]', '[deleted]'].includes(value.trim().toLowerCase()))
+}
+
 // --- B2 normalization (from_arctic) ----------------------------------------------------------------
 
 /** Port of `RawPost.from_arctic` — snake_case API dict → the camelCase insert row (B2 boundary). */
@@ -117,6 +147,7 @@ export function normalizePost(d: RawThing, retrievedOn: number): RawPostInsert {
     author: (d.author ?? null) as string | null,
     title: (d.title ?? null) as string | null,
     selftext: (d.selftext ?? null) as string | null,
+    removed: isRemovedText(d.title, d.selftext),
     linkFlairText: (d.link_flair_text ?? null) as string | null,
     score: (d.score ?? null) as number | null,
     numComments: (d.num_comments ?? null) as number | null,
@@ -134,6 +165,7 @@ export function normalizeComment(d: RawThing, retrievedOn: number): RawCommentIn
     linkId: (d.link_id ?? null) as string | null,
     parentId: (d.parent_id ?? null) as string | null,
     body: (d.body ?? null) as string | null,
+    removed: isRemovedText(d.body),
     score: (d.score ?? null) as number | null,
     retrievedOn,
     source: SOURCE,
@@ -297,21 +329,23 @@ export class ArcticShiftSource implements Source {
     now: number,
     sleep: Sleeper,
     signal?: AbortSignal,
-  ): Promise<{ items: RawThing[]; capped: boolean; ok: boolean }> {
+  ): Promise<{ items: RawThing[]; capped: boolean; ok: boolean; pages: number }> {
     const items: RawThing[] = []
     let before = now + 5 // +5s skew buffer (porting-spec §4)
     let ok = true
     let page = 0
+    let pages = 0
     for (; page < this.maxPages; page++) {
       const r = await this.fetchPage(kind, cutoff, before, sleep, signal)
       if (!r.ok) {
         ok = false
         break
       }
+      pages++
       const data = r.data
       if (data.length === 0) break // exhausted
       for (const x of data) items.push(x)
-      const oldest = Math.min(...data.map((x) => createdUtcRaw(x, now))) // missing ts ⇒ `now` (won't pull down)
+      const oldest = data.reduce((min, x) => Math.min(min, createdUtcRaw(x, now)), Number.POSITIVE_INFINITY)
       if (oldest <= cutoff || data.length < this.pageLimit) break // reached window start or short page
       before = oldest
       await sleep(300) // 0.3s inter-page courtesy delay
@@ -319,7 +353,7 @@ export class ArcticShiftSource implements Source {
     // `for…else`: only a clean run of ALL maxPages (no break) is `capped`.
     const capped = page === this.maxPages
     const inWindow = items.filter((x) => createdUtcRaw(x, 0) >= cutoff) // missing ts ⇒ 0 ⇒ excluded
-    return { items: inWindow, capped, ok }
+    return { items: inWindow, capped, ok, pages }
   }
 
   /**
@@ -382,12 +416,27 @@ export class ArcticShiftSource implements Source {
     const posts = p.items.map((d) => normalizePost(d, now))
     const comments = c.items.map((d) => normalizeComment(d, now))
 
-    const times = [...posts.map((x) => x.createdUtc as number), ...comments.map((x) => x.createdUtc as number)]
-    const newestUtc = times.length ? Math.max(...times) : null
+    const bounds = (xs: Array<{ createdUtc?: number | null }>): { oldest: number | null; newest: number | null } => {
+      if (!xs.length) return { oldest: null, newest: null }
+      return xs.reduce((b, x) => {
+        const ts = x.createdUtc ?? 0
+        return { oldest: Math.min(b.oldest, ts), newest: Math.max(b.newest, ts) }
+      }, { oldest: Number.POSITIVE_INFINITY, newest: Number.NEGATIVE_INFINITY })
+    }
+    const pb = bounds(posts)
+    const cb = bounds(comments)
+    const newestUtc = pb.newest == null ? cb.newest : cb.newest == null ? pb.newest : Math.max(pb.newest, cb.newest)
     const capped = p.capped || c.capped
     if (capped) {
       log.warn({ maxPages: this.maxPages }, 'hit page cap — window likely undercounted (raise ingest.max_pages)')
     }
-    return { posts, comments, rawPosts: p.items, newestUtc, capped, ok: p.ok && c.ok, postsOk: p.ok }
+    return {
+      posts, comments, rawPosts: p.items,
+      newestUtc, newestPostUtc: pb.newest, newestCommentUtc: cb.newest,
+      oldestPostUtc: pb.oldest, oldestCommentUtc: cb.oldest,
+      postPages: p.pages, commentPages: c.pages,
+      postsCapped: p.capped, commentsCapped: c.capped, capped,
+      ok: p.ok && c.ok, postsOk: p.ok, commentsOk: c.ok,
+    }
   }
 }

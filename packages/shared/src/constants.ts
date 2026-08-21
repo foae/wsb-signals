@@ -14,3 +14,13 @@ export const WINDOW_SECONDS = 3600
 
 /** Freshness bound (config.toml [heartbeat] max_staleness_seconds): older `newest_utc` ⇒ stale banner. */
 export const MAX_STALENESS_SECONDS = 1800
+
+/** Persisted with each heat snapshot so historical scores never silently mix scoring contracts. */
+export const HEAT_SCORING_VERSION = 'heat-2026-08-21'
+
+/** Removed-source repair contract; observed-at watermarks make repeated runs incremental. */
+export const HEAT_REPAIR_VERSION = 'removed-content-v2'
+
+/** Conservative market-context floor; every screener row must clear both thresholds. */
+export const MIN_MARKET_CONTEXT_PRICE = 5
+export const MIN_MARKET_CONTEXT_VOLUME = 1_000_000

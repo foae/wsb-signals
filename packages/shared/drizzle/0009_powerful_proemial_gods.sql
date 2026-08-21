@@ -1,0 +1,1 @@
+ALTER TABLE "cycle_runs" ADD COLUMN "repair_version" text;

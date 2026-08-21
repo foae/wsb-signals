@@ -41,14 +41,71 @@ const columns = [
 </script>
 
 <template>
-  <div class="space-y-2">
-    <p class="sm:hidden text-xs font-medium text-muted">
-      Swipe horizontally for the full market overlay →
-    </p>
-    <div class="market-table surface-panel overflow-x-auto rounded-2xl">
+  <div class="space-y-3">
+    <div class="sm:hidden space-y-3">
+      <article
+        v-for="row in props.rows"
+        :key="row.ticker"
+        class="surface-panel rounded-2xl p-4"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-baseline gap-2">
+              <span class="text-xs tabular-nums text-muted">#{{ row.rank }}</span>
+              <NuxtLink :to="`/board/${row.ticker}`" class="font-mono text-lg font-black text-highlighted hover:text-primary">
+                {{ row.ticker }}
+              </NuxtLink>
+            </div>
+            <p v-if="row.name" class="truncate text-xs text-muted">
+              {{ row.name }}
+            </p>
+          </div>
+          <QuadrantBadge :quadrant="row.quadrant" />
+        </div>
+
+        <div class="mt-4 grid grid-cols-3 gap-2">
+          <div>
+            <p class="text-[10px] font-bold uppercase tracking-wide text-muted">WSB heat</p>
+            <p class="mt-0.5 text-xl font-black tabular-nums text-highlighted">{{ fmt2(row.hE) }}</p>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Market</p>
+            <p class="mt-0.5 text-xl font-semibold tabular-nums">{{ fmt2(row.hM) }}</p>
+          </div>
+          <div>
+            <p class="text-[10px] font-bold uppercase tracking-wide text-muted">Gap</p>
+            <p class="mt-0.5 text-xl font-semibold tabular-nums">{{ fmt2(row.divergence) }}</p>
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-3 gap-x-3 gap-y-2 border-t border-default pt-3 text-xs">
+          <p><span class="text-muted">Mentions</span><br><strong class="tabular-nums">{{ fmtInt(row.mentions) }}</strong></p>
+          <p><span class="text-muted">Authors</span><br><strong class="tabular-nums">{{ fmtInt(row.authors) }}</strong></p>
+          <p><span class="text-muted">SoV</span><br><strong class="tabular-nums">{{ fmtSov(row.sov) }}</strong></p>
+          <p><span class="text-muted">Return</span><br><strong class="tabular-nums">{{ fmtRet(row.ret) }}</strong></p>
+          <p><span class="text-muted">RVol</span><br><strong class="tabular-nums">{{ fmtRvol(row.rvol) }}</strong></p>
+          <p><span class="text-muted">Rank move</span><br><strong class="tabular-nums">{{ fmtRankDelta(row.rankDelta) }}</strong></p>
+        </div>
+
+        <details class="mt-3 text-xs text-muted">
+          <summary class="cursor-pointer font-semibold">Diagnostics</summary>
+          <div class="mt-2 grid grid-cols-3 gap-2">
+            <span>Velocity <strong class="text-toned">{{ fmt2(row.velocity) }}</strong></span>
+            <span>Accel <strong class="text-toned">{{ fmt2(row.accel) }}</strong></span>
+            <span>Z <strong class="text-toned">{{ fmt2(row.z) }}</strong></span>
+            <span>Net dir <strong class="text-toned">{{ fmt2(row.netDir) }}</strong></span>
+            <span>DD <strong class="text-toned">{{ fmtInt(row.ddCount) }}</strong></span>
+            <span>Baseline <strong class="text-toned">{{ row.baselineStatus ?? '—' }}</strong></span>
+            <span>Market profile <strong class="text-toned">{{ row.profileSessions ?? '—' }} sessions</strong></span>
+          </div>
+        </details>
+      </article>
+    </div>
+
+    <div class="market-table surface-panel hidden overflow-x-auto rounded-2xl sm:block">
       <UTable :data="props.rows" :columns="columns">
         <template #ticker-cell="{ row }">
-          <NuxtLink :to="`/?ticker=${row.original.ticker}`" class="font-mono font-black text-highlighted hover:text-primary">
+          <NuxtLink :to="`/board/${row.original.ticker}`" class="font-mono font-black text-highlighted hover:text-primary">
             {{ row.original.ticker }}
           </NuxtLink>
         </template>
@@ -105,7 +162,7 @@ const columns = [
     <p class="px-1 text-xs leading-relaxed text-muted">
       Market overlay (ret/rvol/H_m) is <strong>day-to-date</strong>, not aligned to the 1h WSB window.
       Rvol is low-confidence on free IEX volume and structurally small early in the session.
-      Divergence and quadrants are live; lead-lag stays disabled until H_m is window-aligned.
+      Divergence and quadrants appear only where supported market evidence is available.
     </p>
   </div>
 </template>

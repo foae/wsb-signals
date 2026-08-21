@@ -10,10 +10,9 @@
  *    attention state of an irrelevant moment and let the herd gate fire on chatter that POSTDATES
  *    the entry. `opened_at` (visible on most broker screens) anchors when present; post-time is
  *    the fallback and is badged as weaker evidence (`anchor_basis`).
- *  - **"Last complete window"**: the newest radar window at/before the anchor that a LATER
- *    `cycle_runs` row has finalized — the first cycle of the next bucket is what re-aggregates
- *    W−1, so a bare `max(window_start)` read can catch features mid-rewrite.
- *  - **Staleness bound**: a complete window more than `heat_staleness_hours` older than the anchor
+ *  - **Last finalized window**: the newest radar window at/before the anchor with non-null
+ *    `cycle_runs.finalized_at`. Publish completeness and longitudinal immutability are distinct.
+ *  - **Staleness bound**: a finalized window more than `heat_staleness_hours` older than the anchor
  *    (radar outage) reads "heat evidence unavailable", never stale context served as current.
  *  - **The herd measure counts DISTINCT AUTHORS, posts only** — WSB serial-reposters would
  *    fabricate a herd out of post counts — restricted to the plays flair set, same DERIVED
@@ -220,20 +219,15 @@ async function buildRadarEvidence(
 ): Promise<RadarEvidence> {
   const anchorBucket = Math.floor(anchorUtc / deps.windowSeconds) * deps.windowSeconds
 
-  // "Complete" = a LATER cycle_runs row exists (the next bucket's first cycle finalizes W−1). Any
-  // window below the global max qualifies; the max itself is still being rewritten every 5 min.
-  // Known approximation (review 2026-08-20): a window bordering a radar OUTAGE gap has a later row
-  // but was never re-aggregated by it (the resume cycle finalizes ITS OWN W−1, not the pre-gap
-  // window) — its features undercount by at most the window's final poll slice (~5 min of
-  // mentions). The staleness bound catches long gaps; the residual short-gap skew is accepted.
-  // Raw-`sql` aggregates bypass drizzle's bigint→number mapping (pg returns bigint as a STRING) —
-  // Number() here keeps the evidence field and the staleness arithmetic honestly numeric.
-  const [maxRow] = await deps.db.select({ w: sql<string | null>`max(${cycleRuns.windowStart})` }).from(cycleRuns)
-  const newest = maxRow?.w == null ? null : Number(maxRow.w)
-  const [completeRow] = newest == null
-    ? [{ w: null as string | null }]
-    : await deps.db.select({ w: sql<string | null>`max(${cycleRuns.windowStart})` }).from(cycleRuns)
-      .where(and(lte(cycleRuns.windowStart, anchorBucket), lt(cycleRuns.windowStart, newest)))
+  // Explicit finalization: current W and lateness-horizon W−1 remain provisional; stable rows through W−2 qualify.
+  // Raw-`sql` aggregates bypass drizzle's bigint→number mapping (pg returns bigint as a STRING).
+  const [completeRow] = await deps.db.select({
+    w: sql<string | null>`max(${cycleRuns.windowStart})`,
+  }).from(cycleRuns).where(and(
+    eq(cycleRuns.status, 'complete'),
+    isNotNull(cycleRuns.finalizedAt),
+    lte(cycleRuns.windowStart, anchorBucket),
+  ))
   const windowStart = completeRow?.w == null ? null : Number(completeRow.w)
 
   const stale = windowStart == null || anchorBucket - windowStart > deps.heatStalenessSeconds
@@ -241,8 +235,8 @@ async function buildRadarEvidence(
   let note: string | null = null
   if (stale) {
     note = windowStart == null
-      ? 'heat evidence unavailable — no complete radar window at/before the anchor'
-      : `heat evidence unavailable — newest complete window is ${
+      ? 'heat evidence unavailable — no finalized radar window at/before the anchor'
+      : `heat evidence unavailable — newest finalized window is ${
         Math.round((anchorBucket - windowStart) / 3600)}h older than the anchor (staleness bound)`
   } else {
     const [feat] = await deps.db.select({

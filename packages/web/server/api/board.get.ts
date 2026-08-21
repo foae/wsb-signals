@@ -28,6 +28,7 @@ export default defineEventHandler(async () => {
       ? { ...raw.window, end: raw.window.start + thresholds.windowSeconds }
       : null,
     thresholds,
+    source: raw.source,
     rows: raw.rows,
     movers: raw.movers,
   }

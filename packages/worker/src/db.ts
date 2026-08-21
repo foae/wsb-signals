@@ -9,17 +9,19 @@
  *    transaction, so a reader sees a whole cycle or none (the web reads the latest complete window).
  *    This replaces the v0.0.1 DuckDB-lock + JSON-snapshot workaround entirely.
  */
-import { and, asc, desc, eq, getTableColumns, gte, inArray, lt, sql, type SQL } from 'drizzle-orm'
+import {
+  and, asc, desc, eq, getTableColumns, gte, inArray, isNull, lt, lte, or, sql, type SQL,
+} from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { migrate } from 'drizzle-orm/node-postgres/migrator'
 import type { PgTable } from 'drizzle-orm/pg-core'
 import { Pool, type PoolClient, type PoolConfig } from 'pg'
 
 import {
-  analyticalFeatures, cycleRuns, empiricalFeatures, marketMovers, mentions, rawComments, rawPosts,
+  analyticalFeatures, cycleRuns, empiricalFeatures, ingestionRuns, marketMovers, mentions, rawComments, rawPosts,
   signals, tickerNames,
-  type AnalyticalFeatureInsert, type MarketMoverInsert, type MentionInsert, type RawCommentInsert,
-  type RawPostInsert, type SignalInsert, type TickerNameInsert,
+  type AnalyticalFeatureInsert, type IngestionRunInsert, type MarketMoverInsert, type MentionInsert,
+  type RawCommentInsert, type RawPostInsert, type SignalInsert, type TickerNameInsert,
 } from '@wsb/shared'
 import { migrationsFolder } from '@wsb/shared/migrations'
 
@@ -75,19 +77,27 @@ function excludedSet(table: PgTable, props: readonly string[]): Record<string, S
 
 // --- upserts (one per table, exact v0.0.1 ON CONFLICT semantics) -----------------------------------
 
-/** Live re-fetch refreshes engagement only; title/author/body are kept first-seen. */
+/** Live re-fetch refreshes engagement/removal state; original content remains available for audit. */
 export async function upsertPosts(ex: Executor, rows: readonly RawPostInsert[]): Promise<void> {
-  for (const chunk of chunkForCols(rows, 10)) {
+  for (const chunk of chunkForCols(rows, 11)) {
     await ex.insert(rawPosts).values(chunk).onConflictDoUpdate({
-      target: rawPosts.id, set: excludedSet(rawPosts, ['score', 'numComments', 'retrievedOn']),
+      target: rawPosts.id,
+      set: {
+        ...excludedSet(rawPosts, ['score', 'numComments', 'retrievedOn']),
+        removed: sql`${rawPosts.removed} OR excluded.removed`,
+      },
     })
   }
 }
 
 export async function upsertComments(ex: Executor, rows: readonly RawCommentInsert[]): Promise<void> {
-  for (const chunk of chunkForCols(rows, 9)) {
+  for (const chunk of chunkForCols(rows, 10)) {
     await ex.insert(rawComments).values(chunk).onConflictDoUpdate({
-      target: rawComments.id, set: excludedSet(rawComments, ['score', 'retrievedOn']),
+      target: rawComments.id,
+      set: {
+        ...excludedSet(rawComments, ['score', 'retrievedOn']),
+        removed: sql`${rawComments.removed} OR excluded.removed`,
+      },
     })
   }
 }
@@ -99,6 +109,16 @@ export async function upsertMentions(ex: Executor, rows: readonly MentionInsert[
       target: [mentions.ticker, mentions.thingId],
     })
   }
+}
+
+export async function upsertIngestionRuns(ex: Executor, rows: readonly IngestionRunInsert[]): Promise<void> {
+  if (!rows.length) return
+  await ex.insert(ingestionRuns).values([...rows]).onConflictDoUpdate({
+    target: [ingestionRuns.source, ingestionRuns.kind, ingestionRuns.pollTs],
+    set: excludedSet(ingestionRuns, [
+      'status', 'oldestUtc', 'newestUtc', 'itemsFetched', 'pages', 'capped', 'lagSeconds',
+    ]),
+  })
 }
 
 const EMP_UPDATE = [
@@ -115,10 +135,13 @@ export async function upsertEmpiricalFeatures(ex: Executor, rows: readonly Empir
   }
 }
 
-const ANALYTICAL_UPDATE = ['ret', 'rvol', 'rvolConf', 'pcr', 'ivRank', 'breadth', 'hM'] as const
+const ANALYTICAL_UPDATE = [
+  'ret', 'rvol', 'rvolConf', 'feed', 'asOf', 'retVolBaseline', 'volumeBaseline',
+  'profileSessions', 'pcr', 'ivRank', 'breadth', 'hM',
+] as const
 
 export async function upsertAnalyticalFeatures(ex: Executor, rows: readonly AnalyticalFeatureInsert[]): Promise<void> {
-  for (const chunk of chunkForCols(rows, 9)) {
+  for (const chunk of chunkForCols(rows, 14)) {
     await ex.insert(analyticalFeatures).values(chunk).onConflictDoUpdate({
       target: [analyticalFeatures.ticker, analyticalFeatures.windowStart],
       set: excludedSet(analyticalFeatures, ANALYTICAL_UPDATE),
@@ -157,15 +180,35 @@ export async function upsertSignals(ex: Executor, rows: readonly SignalInsert[])
   }
 }
 
+/** Exact empirical/signal set replacement for a window; required because removals can shrink a board. */
+export async function replaceHeatWindow(
+  ex: Executor,
+  windowStart: number,
+  features: readonly EmpiricalFeature[],
+  signalRows: readonly SignalInsert[],
+): Promise<void> {
+  await ex.delete(signals).where(eq(signals.windowStart, windowStart))
+  await ex.delete(empiricalFeatures).where(eq(empiricalFeatures.windowStart, windowStart))
+  if (features.length) await upsertEmpiricalFeatures(ex, features)
+  if (signalRows.length) await upsertSignals(ex, signalRows)
+}
+
 // --- atomic per-cycle publish ----------------------------------------------------------------------
 
 export interface CycleMeta {
   windowStart: number
+  scoringVersion: string
   generatedAt: number
   totalMentions: number
   quiet: boolean
   capped: boolean
-  newestUtc: number | null // freshest source item this cycle — persisted for the staleness banner (§7)
+  newestUtc: number | null
+  newestPostUtc: number | null
+  newestCommentUtc: number | null
+  marketStatus: 'fresh' | 'partial' | 'preserved' | 'unavailable' | 'disabled'
+  marketRequested: number
+  marketUsable: number
+  marketAsOf: number | null
 }
 
 export interface CyclePayload {
@@ -184,29 +227,36 @@ export interface CyclePayload {
 export async function publishCycle(db: Db, payload: CyclePayload): Promise<void> {
   const { meta } = payload
   await db.transaction(async (tx) => {
-    await upsertEmpiricalFeatures(tx, payload.features)
-    // Exact-cycle analytical set: when an overlay IS supplied, it REPLACES this window's analytical rows
-    // (delete-then-insert) so a shrunk top-N can't leave stale rows behind. When it's omitted (undefined —
-    // e.g. a best-effort market fetch failed), leave the prior overlay untouched (never-kill, architecture §5).
+    await replaceHeatWindow(tx, meta.windowStart, payload.features, payload.signals ?? [])
+    // Exact-cycle analytical set: when an overlay IS supplied, it REPLACES this window's rows. When
+    // omitted after a market failure, the prior same-window overlay is deliberately preserved.
     if (payload.analytical !== undefined) {
       await tx.delete(analyticalFeatures).where(eq(analyticalFeatures.windowStart, meta.windowStart))
       if (payload.analytical.length) await upsertAnalyticalFeatures(tx, payload.analytical)
     }
     if (payload.movers?.length) await upsertMovers(tx, payload.movers)
-    // Signals share the empirical grain (one row per board ticker for THIS window_start) — a plain upsert
-    // in the same atomic transaction, so a reader sees the window's features + signals together or not at all.
-    if (payload.signals?.length) await upsertSignals(tx, payload.signals)
     await tx.insert(cycleRuns).values({
       windowStart: meta.windowStart,
+      scoringVersion: meta.scoringVersion,
       generatedAt: meta.generatedAt,
       totalMentions: meta.totalMentions,
       quiet: meta.quiet,
       capped: meta.capped,
       newestUtc: meta.newestUtc,
+      newestPostUtc: meta.newestPostUtc,
+      newestCommentUtc: meta.newestCommentUtc,
+      marketStatus: meta.marketStatus,
+      marketRequested: meta.marketRequested,
+      marketUsable: meta.marketUsable,
+      marketAsOf: meta.marketAsOf,
       status: 'complete',
     }).onConflictDoUpdate({
       target: cycleRuns.windowStart,
-      set: excludedSet(cycleRuns, ['generatedAt', 'totalMentions', 'quiet', 'capped', 'newestUtc', 'status']),
+      set: excludedSet(cycleRuns, [
+        'scoringVersion', 'generatedAt', 'totalMentions', 'quiet', 'capped', 'newestUtc',
+        'newestPostUtc', 'newestCommentUtc', 'marketStatus', 'marketRequested', 'marketUsable',
+        'marketAsOf', 'status',
+      ]),
     })
   })
 }
@@ -220,6 +270,108 @@ export async function latestCompleteWindow(db: Db): Promise<number | null> {
   return rows[0]?.ws ?? null
 }
 
+/** Stable windows awaiting the explicit longitudinal-read gate, oldest first. */
+export async function readUnfinalizedWindows(db: Db, through: number): Promise<number[]> {
+  const rows = await db.select({ ws: cycleRuns.windowStart }).from(cycleRuns)
+    .where(and(
+      eq(cycleRuns.status, 'complete'),
+      isNull(cycleRuns.finalizedAt),
+      lte(cycleRuns.windowStart, through),
+    ))
+    .orderBy(asc(cycleRuns.windowStart))
+  return rows.map((r) => r.ws)
+}
+
+export interface HeatWindowStamp {
+  at: number
+  scoringVersion: string
+  repairVersion: string
+}
+
+export async function markWindowFinalized(
+  ex: Executor,
+  windowStart: number,
+  stamp: HeatWindowStamp,
+): Promise<void> {
+  await ex.update(cycleRuns).set({
+    finalizedAt: stamp.at,
+    scoringVersion: stamp.scoringVersion,
+    repairVersion: stamp.repairVersion,
+    repairedAt: stamp.at,
+  }).where(and(eq(cycleRuns.windowStart, windowStart), isNull(cycleRuns.finalizedAt)))
+}
+
+/** Earliest stable window whose removed-source observation is newer than its last repair. */
+export async function readEarliestRemovedWindowNeedingRepair(
+  db: Db,
+  windowSeconds: number,
+  through: number,
+  repairVersion: string,
+): Promise<number | null> {
+  const cycles = await db.select({
+    ws: cycleRuns.windowStart,
+    repairVersion: cycleRuns.repairVersion,
+    repairedAt: cycleRuns.repairedAt,
+  }).from(cycleRuns).where(and(
+    eq(cycleRuns.status, 'complete'),
+    lte(cycleRuns.windowStart, through),
+  ))
+  if (!cycles.length) return null
+  const byWindow = new Map(cycles.map((row) => [row.ws, row]))
+  const [posts, comments] = await Promise.all([
+    db.select({ createdUtc: mentions.createdUtc, observedAt: rawPosts.retrievedOn })
+      .from(rawPosts)
+      .innerJoin(mentions, and(eq(mentions.thingType, 'post'), eq(mentions.thingId, rawPosts.id)))
+      .where(eq(rawPosts.removed, true)),
+    db.select({ createdUtc: mentions.createdUtc, observedAt: rawComments.retrievedOn })
+      .from(rawComments)
+      .innerJoin(mentions, and(eq(mentions.thingType, 'comment'), eq(mentions.thingId, rawComments.id)))
+      .where(eq(rawComments.removed, true)),
+  ])
+
+  let earliest: number | null = null
+  for (const row of [...posts, ...comments]) {
+    if (row.createdUtc == null) continue
+    const ws = Math.floor(row.createdUtc / windowSeconds) * windowSeconds
+    const cycle = byWindow.get(ws)
+    if (!cycle) continue
+    const stale = cycle.repairVersion !== repairVersion
+      || cycle.repairedAt == null
+      || (row.observedAt != null && row.observedAt > cycle.repairedAt)
+    if (stale && (earliest == null || ws < earliest)) earliest = ws
+  }
+  return earliest
+}
+
+export async function readCompleteWindowsInRange(
+  db: Db,
+  from: number,
+  through: number,
+): Promise<number[]> {
+  const rows = await db.select({ ws: cycleRuns.windowStart }).from(cycleRuns)
+    .where(and(
+      eq(cycleRuns.status, 'complete'),
+      gte(cycleRuns.windowStart, from),
+      lte(cycleRuns.windowStart, through),
+    ))
+    .orderBy(asc(cycleRuns.windowStart))
+  return rows.map((row) => row.ws)
+}
+
+export async function markWindowRepaired(
+  ex: Executor,
+  windowStart: number,
+  stamp: HeatWindowStamp & { totalMentions: number; quiet: boolean },
+): Promise<void> {
+  await ex.update(cycleRuns).set({
+    repairVersion: stamp.repairVersion,
+    repairedAt: stamp.at,
+    scoringVersion: stamp.scoringVersion,
+    totalMentions: stamp.totalMentions,
+    quiet: stamp.quiet,
+  }).where(eq(cycleRuns.windowStart, windowStart))
+}
+
 // --- aggregator reads (port of db.py's read methods — the exact inputs aggregate_window consumes) ---
 //
 // These feed `AggregateInputs` (aggregate.ts). The ORDER BY clauses are part of the parity contract:
@@ -229,15 +381,20 @@ export async function latestCompleteWindow(db: Db): Promise<number | null> {
 //  - sov ranks by `sov DESC, ticker ASC` (Python `db.sov_ranks_at`) — this DOES drive rank_delta, so the
 //    tie-break must match exactly.
 
-/** Mentions in `[start, end)` as the aggregate's `MentionRow` tuples, ordered by `thing_id`. */
+/** Mentions in `[start, end)`, excluding content later observed as removed/deleted. */
 export async function readMentionsInWindow(db: Db, start: number, end: number): Promise<MentionRow[]> {
   const rows = await db.select({
     ticker: mentions.ticker, thingId: mentions.thingId, thingType: mentions.thingType,
     author: mentions.author, flair: mentions.flair, direction: mentions.direction,
+    postRemoved: rawPosts.removed, commentRemoved: rawComments.removed,
   }).from(mentions)
+    .leftJoin(rawPosts, and(eq(mentions.thingType, 'post'), eq(rawPosts.id, mentions.thingId)))
+    .leftJoin(rawComments, and(eq(mentions.thingType, 'comment'), eq(rawComments.id, mentions.thingId)))
     .where(and(gte(mentions.createdUtc, start), lt(mentions.createdUtc, end)))
-    .orderBy(sql`${mentions.thingId} collate "C"`) // byte order (matches the oracle's DuckDB VARCHAR sort)
-  return rows.map((r) => [r.ticker, r.thingId, r.thingType, r.author, r.flair, r.direction] as const)
+    .orderBy(sql`${mentions.thingId} collate "C"`)
+  return rows
+    .filter((row) => row.postRemoved !== true && row.commentRemoved !== true)
+    .map((r) => [r.ticker, r.thingId, r.thingType, r.author, r.flair, r.direction] as const)
 }
 
 /** Prior-window features by ticker (`features_at`) — supplies mentions(W−1) + velocity(W−1). */
@@ -247,6 +404,49 @@ export async function readFeaturesAt(db: Db, windowStart: number): Promise<Prior
   }).from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, windowStart))
   const out: PriorFeatures = {}
   for (const r of rows) out[r.ticker] = { mentions: r.mentions, velocity: r.velocity }
+  return out
+}
+
+/** Full canonical empirical board at one window — used to rebuild dependent signals during finalization. */
+export async function readEmpiricalBoardAt(db: Db, windowStart: number): Promise<EmpiricalFeature[]> {
+  const rows = await db.select({
+    ticker: empiricalFeatures.ticker,
+    windowStart: empiricalFeatures.windowStart,
+    mentions: empiricalFeatures.mentions,
+    authors: empiricalFeatures.authors,
+    sov: empiricalFeatures.sov,
+    velocity: empiricalFeatures.velocity,
+    accel: empiricalFeatures.accel,
+    z: empiricalFeatures.z,
+    netDir: empiricalFeatures.netDir,
+    ddCount: empiricalFeatures.ddCount,
+    flairCounts: empiricalFeatures.flairCounts,
+    baselineStatus: empiricalFeatures.baselineStatus,
+    hE: empiricalFeatures.hE,
+  }).from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, windowStart))
+
+  const out = rows.map((r): EmpiricalFeature => {
+    if (
+      r.mentions == null || r.authors == null || r.sov == null || r.netDir == null
+      || r.ddCount == null || r.baselineStatus == null || r.hE == null
+    ) throw new Error(`incomplete empirical row ${r.ticker}@${windowStart}`)
+    return {
+      ticker: r.ticker,
+      windowStart: r.windowStart,
+      mentions: r.mentions,
+      authors: r.authors,
+      sov: r.sov,
+      velocity: r.velocity,
+      accel: r.accel,
+      z: r.z,
+      netDir: r.netDir,
+      ddCount: r.ddCount,
+      flairCounts: (r.flairCounts ?? {}) as Record<string, number>,
+      baselineStatus: r.baselineStatus as EmpiricalFeature['baselineStatus'],
+      hE: r.hE,
+    }
+  })
+  out.sort(compareBoard)
   return out
 }
 
@@ -344,6 +544,26 @@ export async function readAnalyticalHmAt(db: Db, windowStart: number): Promise<M
   const out = new Map<string, number>()
   for (const r of rows) if (r.hM != null) out.set(r.ticker, r.hM)
   return out
+}
+
+export async function readMarketOverlayMetaAt(
+  db: Db,
+  windowStart: number,
+): Promise<{ requested: number; usable: number; asOf: number | null }> {
+  const [rows, cycleRows] = await Promise.all([
+    db.select({ hM: analyticalFeatures.hM, asOf: analyticalFeatures.asOf })
+      .from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, windowStart)),
+    db.select({ requested: cycleRuns.marketRequested }).from(cycleRuns)
+      .where(eq(cycleRuns.windowStart, windowStart)).limit(1),
+  ])
+  const usable = rows.filter((r) => r.hM != null)
+  return {
+    requested: cycleRows[0]?.requested ?? usable.length,
+    usable: usable.length,
+    asOf: usable.length > 0 && usable.every((r) => r.asOf != null)
+      ? Math.min(...usable.map((r) => r.asOf!))
+      : null,
+  }
 }
 
 /** Per-ticker H_e(t)+H_m(t) series in `[from, before)` for the given tickers — the lead-lag input.
@@ -474,8 +694,17 @@ export async function verifyPublished(
   if (inMem.analytical && inMem.analytical.length) {
     const anaRows = await db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, windowStart))
     diffTable('analytical',
-      new Map(inMem.analytical.map((a) => [a.ticker, { ret: a.ret ?? null, rvol: a.rvol ?? null, rvol_conf: a.rvolConf ?? null, h_m: a.hM ?? null }])),
-      new Map(anaRows.map((r) => [r.ticker, { ret: r.ret, rvol: r.rvol, rvol_conf: r.rvolConf, h_m: r.hM }])),
+      new Map(inMem.analytical.map((a) => [a.ticker, {
+        ret: a.ret ?? null, rvol: a.rvol ?? null, rvol_conf: a.rvolConf ?? null,
+        feed: a.feed ?? null, as_of: a.asOf ?? null,
+        ret_vol_baseline: a.retVolBaseline ?? null, volume_baseline: a.volumeBaseline ?? null,
+        profile_sessions: a.profileSessions ?? null, h_m: a.hM ?? null,
+      }])),
+      new Map(anaRows.map((r) => [r.ticker, {
+        ret: r.ret, rvol: r.rvol, rvol_conf: r.rvolConf, feed: r.feed, as_of: r.asOf,
+        ret_vol_baseline: r.retVolBaseline, volume_baseline: r.volumeBaseline,
+        profile_sessions: r.profileSessions, h_m: r.hM,
+      }])),
       diffs)
   }
 

@@ -67,6 +67,16 @@ rvol = 0.5
 pcr  = 0.0
 iv   = 0.0
 
+[market.normalization]
+# Stable per-ticker H_m: return is scaled by trailing daily volatility; cumulative volume is compared
+# with average daily volume at the same regular-session progress. Fixed caps make scores comparable
+# across cycles instead of renormalizing against whichever tickers happen to occupy the top-N.
+ret_sigma_cap       = 3.0
+ret_vol_floor       = 0.005
+rvol_cap            = 3.0
+min_profile_sessions = 10
+min_session_minutes = 30
+
 [signals]
 # Attention × Action product (signal-framework §6) — divergence / quadrants / lead-lag (v0.0.2).
 # Quadrant split = GLOBAL rolling median, recomputed each cycle: the H_e threshold is the median over the
@@ -75,6 +85,7 @@ iv   = 0.0
 # "Hot" = strictly above the median.
 median_lookback_seconds = 604800   # 7d trailing window for the rolling-median quadrant split
 min_quadrant_population = 5         # need ≥ this many overlaid cells before assigning a quadrant (else null)
+min_row_authors = 3                # thin rows keep H_e/rank but get no CONFIRMED/HYPE/etc. badge
 
 [signals.lead_lag]     # cross-correlation of H_e(t) vs H_m(t); k>0 ⇒ WSB attention leads market action
 # DISABLED by default: H_m is day-to-date (not window-aligned), so an hourly cross-correlation measures the

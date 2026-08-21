@@ -2,11 +2,27 @@
 import { fmtUtc, fmtAgo } from '~/composables/useFormat'
 import { useNow } from '~/composables/useNow'
 
-const { data, error } = await useFetch('/api/board')
+const { data, error, refresh, status } = await useFetch('/api/board')
 
 // Client-side now (0 during SSR, then ticking) for relative timestamps — avoids hydration mismatch and
 // keeps "ago" / staleness honest on a long-open page.
 const nowSeconds = useNow()
+let refreshTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  refreshTimer = setInterval(() => {
+    if (status.value !== 'pending') void refresh()
+  }, 60_000)
+})
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+})
+
+const windowProgress = computed(() => {
+  const w = data.value?.window
+  if (!w || !nowSeconds.value || nowSeconds.value < w.start || nowSeconds.value >= w.end) return ''
+  const pct = Math.max(0, Math.min(100, Math.floor(100 * (nowSeconds.value - w.start) / (w.end - w.start))))
+  return ` · in progress ${pct}%`
+})
 
 const windowHeader = computed(() => {
   const w = data.value?.window
@@ -17,8 +33,10 @@ const windowHeader = computed(() => {
   const nTickers = data.value?.rows.length ?? 0
   const total = w.totalMentions != null ? ` · ${w.totalMentions} mentions` : ''
   const genStr = w.generatedAt != null ? ` · generated ${fmtUtc(w.generatedAt, false)} UTC` : ''
+  const versionStr = w.scoringVersion ? ` · ${w.scoringVersion}` : ''
+  const marketStr = w.marketAsOf != null ? ` · market as of ${fmtUtc(w.marketAsOf, false)} UTC` : ''
 
-  return `Window: ${startStr}–${endStr} UTC · ${nTickers} tickers${total}${genStr}`
+  return `Window: ${startStr}–${endStr} UTC · ${nTickers} tickers${total}${genStr}${marketStr}${versionStr}${windowProgress.value}`
 })
 
 const generatedAgo = computed(() => {
@@ -43,7 +61,16 @@ const generatedAgo = computed(() => {
       </div>
       <div v-if="data?.state === 'ok'" class="flex items-center gap-2 text-sm text-muted">
         <span class="size-2 rounded-full bg-success" />
-        <span>Latest complete window</span>
+        <span>Latest published snapshot</span>
+        <UButton
+          icon="i-lucide-refresh-cw"
+          color="neutral"
+          variant="ghost"
+          size="xs"
+          :loading="status === 'pending'"
+          aria-label="Refresh heat board"
+          @click="refresh()"
+        />
       </div>
     </section>
 
@@ -71,6 +98,7 @@ const generatedAgo = computed(() => {
       <StatusBanners
         :state="data.state"
         :window="data.window"
+        :source="data.source"
         :thresholds="data.thresholds"
       />
 

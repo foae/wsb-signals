@@ -14,7 +14,9 @@ import type { SignalsConfig } from './analytics'
 import { loadWordset, TickerExtractor } from './extract'
 import { ArcticShiftSource } from './ingest'
 import { log } from './logger'
-import { AlpacaMarketData, type MarketData, type MarketWeights } from './market'
+import {
+  AlpacaMarketData, type MarketData, type MarketNormalization, type MarketWeights,
+} from './market'
 import type { AggregateConfig, MarketConfig } from './pipeline'
 
 /** The committed config.toml shape (only the fields the worker reads). */
@@ -41,10 +43,23 @@ interface RawConfig {
   }
   heat: { min_authors_full: number; min_window_mentions: number; weights: HeatWeights }
   baseline: { min_samples_ready: number; lookback_seconds: number }
-  market: { feed: string; top_n: number; screener_top: number; weights: MarketWeights }
+  market: {
+    feed: string
+    top_n: number
+    screener_top: number
+    weights: MarketWeights
+    normalization: {
+      ret_sigma_cap: number
+      ret_vol_floor: number
+      rvol_cap: number
+      min_profile_sessions: number
+      min_session_minutes: number
+    }
+  }
   signals: {
     median_lookback_seconds: number
     min_quadrant_population: number
+    min_row_authors: number
     lead_lag: {
       enabled: boolean
       lookback_seconds: number
@@ -231,10 +246,18 @@ export function loadConfig(root: string): LoadedConfig {
       topN: raw.market.top_n,
       screenerTop: raw.market.screener_top,
       weights: raw.market.weights,
+      normalization: {
+        retSigmaCap: raw.market.normalization.ret_sigma_cap,
+        retVolFloor: raw.market.normalization.ret_vol_floor,
+        rvolCap: raw.market.normalization.rvol_cap,
+        minProfileSessions: raw.market.normalization.min_profile_sessions,
+        minSessionMinutes: raw.market.normalization.min_session_minutes,
+      } satisfies MarketNormalization,
     },
     signals: {
       medianLookbackSeconds: raw.signals.median_lookback_seconds,
       minQuadrantPopulation: raw.signals.min_quadrant_population,
+      minRowAuthors: raw.signals.min_row_authors,
       leadLag: {
         enabled: raw.signals.lead_lag.enabled,
         lookbackSeconds: raw.signals.lead_lag.lookback_seconds,

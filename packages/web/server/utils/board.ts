@@ -18,7 +18,8 @@
  *    worker) — nullable sort keys coalesced to 0, avoiding SQL `NULLS FIRST`/collation drift.
  */
 import {
-  analyticalFeatures, compareBoard, cycleRuns, empiricalFeatures, marketMovers, prettyName, signals, tickerNames,
+  analyticalFeatures, compareBoard, cycleRuns, empiricalFeatures, ingestionRuns, marketMovers,
+  MIN_MARKET_CONTEXT_PRICE, MIN_MARKET_CONTEXT_VOLUME, prettyName, signals, tickerNames,
 } from '@wsb/shared'
 import { and, asc, desc, eq, max } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
@@ -44,6 +45,11 @@ export interface RawBoardRow {
   ret: number | null
   rvol: number | null
   rvolConf: string | null
+  marketFeed: string | null
+  retVolBaseline: number | null
+  volumeBaseline: number | null
+  profileSessions: number | null
+  marketAsOf: number | null
 }
 
 export interface RawMover {
@@ -59,16 +65,35 @@ export interface RawMover {
 
 export interface RawWindow {
   start: number
+  scoringVersion: string | null
   generatedAt: number | null
+  finalizedAt: number | null
   totalMentions: number | null
   quiet: boolean | null
   capped: boolean | null
   newestUtc: number | null
+  newestPostUtc: number | null
+  newestCommentUtc: number | null
+  marketStatus: string | null
+  marketRequested: number | null
+  marketUsable: number | null
+  marketAsOf: number | null
+}
+
+export interface RawSourceRun {
+  source: string
+  status: string
+  pollTs: number
+  newestUtc: number | null
+  lagSeconds: number | null
+  itemsFetched: number
+  capped: boolean
 }
 
 export interface RawBoard {
   state: 'ok' | 'empty' | 'no-data'
   window: RawWindow | null
+  source: { posts: RawSourceRun | null; comments: RawSourceRun | null }
   rows: RawBoardRow[]
   movers: RawMover[]
 }
@@ -77,30 +102,65 @@ export interface RawBoard {
  *  handle) so this stays Nitro-independent and integration-testable. */
 export async function readBoard(db: NodePgDatabase): Promise<RawBoard> {
   return db.transaction<RawBoard>(async (tx) => {
-    // 1. latest complete window — the read gate (porting-spec §6)
+    const latestSource = async (kind: 'posts' | 'comments'): Promise<RawSourceRun | null> => {
+      const [r] = await tx.select({
+        source: ingestionRuns.source,
+        status: ingestionRuns.status,
+        pollTs: ingestionRuns.pollTs,
+        newestUtc: ingestionRuns.newestUtc,
+        lagSeconds: ingestionRuns.lagSeconds,
+        itemsFetched: ingestionRuns.itemsFetched,
+        capped: ingestionRuns.capped,
+      }).from(ingestionRuns)
+        .where(eq(ingestionRuns.kind, kind))
+        .orderBy(desc(ingestionRuns.pollTs))
+        .limit(1)
+      return r ?? null
+    }
+    const source = {
+      posts: await latestSource('posts'),
+      comments: await latestSource('comments'),
+    }
+
+    // Latest publish-complete snapshot. `finalizedAt` is a separate longitudinal-read gate.
     const [w] = await tx.select({ ws: cycleRuns.windowStart })
       .from(cycleRuns)
       .where(eq(cycleRuns.status, 'complete'))
       .orderBy(desc(cycleRuns.windowStart))
       .limit(1)
-    if (!w) return { state: 'no-data', window: null, rows: [], movers: [] }
+    if (!w) return { state: 'no-data', window: null, source, rows: [], movers: [] }
     const windowStart = w.ws
 
-    // 2. cycle marker (freshness/degraded flags)
     const [cycle] = await tx.select({
+      scoringVersion: cycleRuns.scoringVersion,
       generatedAt: cycleRuns.generatedAt,
+      finalizedAt: cycleRuns.finalizedAt,
       totalMentions: cycleRuns.totalMentions,
       quiet: cycleRuns.quiet,
       capped: cycleRuns.capped,
       newestUtc: cycleRuns.newestUtc,
+      newestPostUtc: cycleRuns.newestPostUtc,
+      newestCommentUtc: cycleRuns.newestCommentUtc,
+      marketStatus: cycleRuns.marketStatus,
+      marketRequested: cycleRuns.marketRequested,
+      marketUsable: cycleRuns.marketUsable,
+      marketAsOf: cycleRuns.marketAsOf,
     }).from(cycleRuns).where(eq(cycleRuns.windowStart, windowStart)).limit(1)
     const windowMeta: RawWindow = {
       start: windowStart,
+      scoringVersion: cycle?.scoringVersion ?? null,
       generatedAt: cycle?.generatedAt ?? null,
+      finalizedAt: cycle?.finalizedAt ?? null,
       totalMentions: cycle?.totalMentions ?? null,
       quiet: cycle?.quiet ?? null,
       capped: cycle?.capped ?? null,
       newestUtc: cycle?.newestUtc ?? null,
+      newestPostUtc: cycle?.newestPostUtc ?? null,
+      newestCommentUtc: cycle?.newestCommentUtc ?? null,
+      marketStatus: cycle?.marketStatus ?? null,
+      marketRequested: cycle?.marketRequested ?? null,
+      marketUsable: cycle?.marketUsable ?? null,
+      marketAsOf: cycle?.marketAsOf ?? null,
     }
 
     // 3. board: empirical base LEFT JOIN signals/analytical/ticker_names
@@ -122,7 +182,12 @@ export async function readBoard(db: NodePgDatabase): Promise<RawBoard> {
       rankDelta: signals.rankDelta,
       ret: analyticalFeatures.ret,
       rvol: analyticalFeatures.rvol,
+      retVolBaseline: analyticalFeatures.retVolBaseline,
+      volumeBaseline: analyticalFeatures.volumeBaseline,
+      profileSessions: analyticalFeatures.profileSessions,
       rvolConf: analyticalFeatures.rvolConf,
+      marketFeed: analyticalFeatures.feed,
+      marketAsOf: analyticalFeatures.asOf,
       name: tickerNames.name,
     })
       .from(empiricalFeatures)
@@ -162,9 +227,15 @@ export async function readBoard(db: NodePgDatabase): Promise<RawBoard> {
       ret: r.ret,
       rvol: r.rvol,
       rvolConf: r.rvolConf,
+      marketFeed: r.marketFeed,
+      retVolBaseline: r.retVolBaseline,
+      volumeBaseline: r.volumeBaseline,
+      profileSessions: r.profileSessions,
+      marketAsOf: r.marketAsOf,
     }))
 
-    // 4. movers: latest screener capture (max ts; same snapshot as the rest of the tx)
+    // 4. Separate market-wide context. Every row must be named and clear both the price and liquidity
+    // floors; unfiltered screener rows are never implied to be WSB-native STEALTH candidates.
     const [mx] = await tx.select({ ts: max(marketMovers.ts) }).from(marketMovers)
     let movers: RawMover[] = []
     if (mx?.ts != null) {
@@ -182,18 +253,24 @@ export async function readBoard(db: NodePgDatabase): Promise<RawBoard> {
         .leftJoin(tickerNames, eq(tickerNames.symbol, marketMovers.symbol))
         .where(eq(marketMovers.ts, mx.ts))
         .orderBy(asc(marketMovers.kind), asc(marketMovers.rank))
-      movers = moverRows.map((m) => ({
-        kind: m.kind,
-        rank: m.rank,
-        symbol: m.symbol,
-        name: prettyName(m.name),
-        price: m.price,
-        percentChange: m.percentChange,
-        volume: m.volume,
-        ts: m.ts,
-      }))
+      movers = moverRows
+        .filter((m) =>
+          m.name != null
+          && (m.price ?? 0) >= MIN_MARKET_CONTEXT_PRICE
+          && (m.volume ?? 0) >= MIN_MARKET_CONTEXT_VOLUME,
+        )
+        .map((m) => ({
+          kind: m.kind,
+          rank: m.rank,
+          symbol: m.symbol,
+          name: prettyName(m.name),
+          price: m.price,
+          percentChange: m.percentChange,
+          volume: m.volume,
+          ts: m.ts,
+        }))
     }
 
-    return { state: rows.length ? 'ok' : 'empty', window: windowMeta, rows, movers }
+    return { state: rows.length ? 'ok' : 'empty', window: windowMeta, source, rows, movers }
   }, { isolationLevel: 'repeatable read', accessMode: 'read only' })
 }

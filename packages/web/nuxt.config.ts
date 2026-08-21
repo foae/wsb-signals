@@ -16,11 +16,12 @@ export default defineNuxtConfig({
     maxStalenessSeconds: MAX_STALENESS_SECONDS,
     windowSeconds: WINDOW_SECONDS,
   },
-  // The board is near-live (~5-min cadence) and immutable per window. Cache the read route briefly with
-  // stale-while-revalidate so reloads are cheap without pinning a dead cycle; the snapshot-isolation read
-  // (server/utils/board.ts) keeps each cached response internally consistent. Thrown errors aren't cached.
+  // The board is near-live (~5-min cadence) and exact within each cached response. A short blocking
+  // cache avoids DB churn without SWR's stale-first response after the underlying data changes; the
+  // snapshot-isolation read (server/utils/board.ts) keeps each response internally consistent.
+  // Thrown errors aren't cached.
   routeRules: {
-    '/api/board': { cache: { maxAge: 60, swr: true } },
+    '/api/board': { cache: { maxAge: 30 } },
     // Old plays index URL — exact path only (no /** glob), so /plays/:id detail routes are untouched.
     '/plays': { redirect: '/' },
   },

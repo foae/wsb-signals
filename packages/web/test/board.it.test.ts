@@ -7,7 +7,9 @@
  *  - H_m/divergence/quadrant come from `signals` (publish-time effective), ret/rvol from analytical;
  *  - prettyName applied to names; movers come from the latest screener capture only.
  */
-import { analyticalFeatures, cycleRuns, empiricalFeatures, marketMovers, signals, tickerNames } from '@wsb/shared'
+import {
+  analyticalFeatures, cycleRuns, empiricalFeatures, ingestionRuns, marketMovers, signals, tickerNames,
+} from '@wsb/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import { readBoard } from '../server/utils/board'
@@ -24,8 +26,20 @@ const W = 1_704_067_200 // 2024-01-01 00:00 UTC
 async function seedOkCycle(): Promise<void> {
   await pg.db.insert(cycleRuns).values({
     windowStart: W, generatedAt: W + 300, totalMentions: 120, quiet: false, capped: false,
-    newestUtc: W + 120, status: 'complete',
+    newestUtc: W + 120, newestPostUtc: W + 100, newestCommentUtc: W + 120,
+    marketStatus: 'partial', marketRequested: 4, marketUsable: 2, marketAsOf: W + 90,
+    status: 'complete',
   })
+  await pg.db.insert(ingestionRuns).values([
+    {
+      source: 'arctic_shift', kind: 'posts', pollTs: W + 300, status: 'fresh',
+      newestUtc: W + 100, itemsFetched: 20, pages: 1, capped: false, lagSeconds: 200,
+    },
+    {
+      source: 'arctic_shift', kind: 'comments', pollTs: W + 300, status: 'fresh',
+      newestUtc: W + 120, itemsFetched: 100, pages: 2, capped: false, lagSeconds: 180,
+    },
+  ])
   await pg.db.insert(empiricalFeatures).values([
     { ticker: 'AAA', windowStart: W, mentions: 30, authors: 9, sov: 0.5, netDir: 0.4, ddCount: 2, baselineStatus: 'ready', hE: 0.9 },
     { ticker: 'BBB', windowStart: W, mentions: 20, authors: 7, sov: 0.3, netDir: 0.1, ddCount: 0, baselineStatus: 'warming', hE: 0.6 },
@@ -42,7 +56,10 @@ async function seedOkCycle(): Promise<void> {
   // analytical: AAA only. BBB is overlaid in signals but has NO analytical row → ret/rvol must be null,
   // while its h_m STILL comes through from signals (the preserved/absent-overlay contract).
   await pg.db.insert(analyticalFeatures).values([
-    { ticker: 'AAA', windowStart: W, ret: 0.023, rvol: 1.45, rvolConf: 'low', hM: 0.8 },
+    {
+      ticker: 'AAA', windowStart: W, ret: 0.023, rvol: 1.45, rvolConf: 'low',
+      feed: 'iex', asOf: W + 90, hM: 0.8,
+    },
   ])
   await pg.db.insert(tickerNames).values([
     { symbol: 'AAA', name: 'ALPHA INC. COMMON STOCK' }, // → prettyName "Alpha Inc"
@@ -57,6 +74,28 @@ describe('readBoard — the SSR read contract', () => {
     expect(board.window).toBeNull()
     expect(board.rows).toEqual([])
     expect(board.movers).toEqual([])
+    expect(board.source).toEqual({ posts: null, comments: null })
+  })
+
+  it('reports the latest independent source-kind diagnosis even without a board snapshot', async () => {
+    await pg.db.insert(ingestionRuns).values([
+      {
+        source: 'old_source', kind: 'posts', pollTs: W, status: 'stale',
+        itemsFetched: 1, pages: 1, capped: false,
+      },
+      {
+        source: 'replacement_source', kind: 'posts', pollTs: W + 1, status: 'partial',
+        itemsFetched: 0, pages: 1, capped: false,
+      },
+      {
+        source: 'replacement_source', kind: 'comments', pollTs: W + 1, status: 'fresh',
+        newestUtc: W, itemsFetched: 10, pages: 1, capped: false, lagSeconds: 1,
+      },
+    ])
+
+    const board = await readBoard(pg.db)
+    expect(board.source.posts).toMatchObject({ source: 'replacement_source', status: 'partial' })
+    expect(board.source.comments).toMatchObject({ source: 'replacement_source', status: 'fresh' })
   })
 
   it('orders by the canonical board total order and assigns sequential ranks', async () => {
@@ -66,6 +105,17 @@ describe('readBoard — the SSR read contract', () => {
     expect(board.window?.start).toBe(W)
     expect(board.rows.map((r) => r.ticker)).toEqual(['AAA', 'BBB', 'CCC', 'DDD'])
     expect(board.rows.map((r) => r.rank)).toEqual([1, 2, 3, 4])
+    expect(board.window).toMatchObject({
+      newestPostUtc: W + 100,
+      newestCommentUtc: W + 120,
+      marketStatus: 'partial',
+      marketRequested: 4,
+      marketUsable: 2,
+      marketAsOf: W + 90,
+    })
+    expect(board.source.posts).toMatchObject({
+      source: 'arctic_shift', status: 'fresh', lagSeconds: 200,
+    })
   })
 
   it('sources h_m/divergence/quadrant from signals and ret/rvol from analytical (null-tolerant)', async () => {
@@ -79,6 +129,8 @@ describe('readBoard — the SSR read contract', () => {
     expect(by.AAA!.ret).toBe(0.023)
     expect(by.AAA!.rvol).toBe(1.45)
     expect(by.AAA!.name).toBe('Alpha Inc') // prettyName applied
+    expect(by.AAA!.marketFeed).toBe('iex')
+    expect(by.AAA!.marketAsOf).toBe(W + 90)
 
     // BBB: overlaid in SIGNALS (h_m present) but NO analytical row → ret/rvol null. The key contract:
     // H_m comes from signals, not analytical.
@@ -130,16 +182,23 @@ describe('readBoard — the SSR read contract', () => {
 
   it('returns only the latest market-movers capture, joined to names and ordered by kind,rank', async () => {
     await seedOkCycle()
-    await pg.db.insert(tickerNames).values({ symbol: 'TSLA', name: 'TESLA, INC. COMMON STOCK' })
+    await pg.db.insert(tickerNames).values([
+      { symbol: 'TSLA', name: 'TESLA, INC. COMMON STOCK' },
+      { symbol: 'NVDA', name: 'NVIDIA CORP COMMON STOCK' },
+      { symbol: 'AMD', name: 'ADVANCED MICRO DEVICES COMMON STOCK' },
+      { symbol: 'PENNY', name: 'PENNY CO COMMON STOCK' },
+    ])
     await pg.db.insert(marketMovers).values([
-      { ts: 100, kind: 'gainer', rank: 1, symbol: 'OLD', price: 1, percentChange: 1, volume: 1 }, // older capture — must be excluded
-      { ts: 200, kind: 'gainer', rank: 2, symbol: 'NVDA', price: 120, percentChange: 3.1, volume: 1000 },
-      { ts: 200, kind: 'gainer', rank: 1, symbol: 'TSLA', price: 250, percentChange: 5.2, volume: 2000 },
-      { ts: 200, kind: 'active', rank: 1, symbol: 'AMD', price: 90, percentChange: -1.2, volume: 3000 },
+      { ts: 100, kind: 'gainer', rank: 1, symbol: 'OLD', price: 1, percentChange: 1, volume: 1 },
+      { ts: 200, kind: 'gainer', rank: 2, symbol: 'NVDA', price: 120, percentChange: 3.1, volume: 2_000_000 },
+      { ts: 200, kind: 'gainer', rank: 1, symbol: 'TSLA', price: 250, percentChange: 5.2, volume: 3_000_000 },
+      { ts: 200, kind: 'gainer', rank: 3, symbol: 'PENNY', price: 1, percentChange: 20, volume: 5_000_000 },
+      { ts: 200, kind: 'active', rank: 1, symbol: 'AMD', price: 90, percentChange: -1.2, volume: 3_000_000 },
     ])
     const board = await readBoard(pg.db)
     expect(board.movers.every((m) => m.ts === 200)).toBe(true)
     expect(board.movers.map((m) => `${m.kind}:${m.rank}`)).toEqual(['active:1', 'gainer:1', 'gainer:2'])
+    expect(board.movers.some((m) => m.symbol === 'PENNY')).toBe(false)
     const tsla = board.movers.find((m) => m.symbol === 'TSLA')
     expect(tsla?.name).toBe('Tesla, Inc') // prettyName applied to mover names
   })

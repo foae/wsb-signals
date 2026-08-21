@@ -32,8 +32,9 @@ in docs and analysis output, but the owner removed the disclaimer taglines from 
   SQL; P6's separate reprocess path/polish work remains.
 - **The radar — v2 full-stack TypeScript; BUILT, cutover-approved (2026-06-09), running.** Node
   worker + Nuxt 4 SSR web + Postgres in a pnpm monorepo (`packages/{shared,worker,web}`); deploy is
-  `deploy/v2/` (db + worker + web). The radar's behavior is **stable** — Plays adds beside it, and
-  radar parity tables/semantics must not change (plays-plan §1).
+  `deploy/v2/`. **Heat correctness hardening landed 2026-08-21:** explicit finalization, per-kind
+  source coverage, stable per-ticker `H_m`, market provenance/coverage, support-gated quadrants,
+  removal repair, versioned scores, ticker history, and calibration/extraction quality gates.
 - **v0.0.1 (Python) — PRUNED from `main`.** Recover at tag `v0.0.1` (the frozen radar) or
   **`oracle-final`** (radar + the `oracle/` fixture-dump harness — use this one to regenerate
   `fixtures/`; procedure in `fixtures/README.md`). The committed golden fixtures + worker parity
@@ -91,6 +92,8 @@ pnpm -C packages/worker build-whitelist  # fetch Alpaca asset universe → white
 pnpm -C packages/worker heartbeat     # Arctic-Shift freshness probe; exits 0 OK / 1 stale / 2 down
 pnpm -C packages/worker analyze -- catalog  # discover the deployed read-only analysis API
 pnpm -C packages/worker plays-export -- --from 2026-08-01 --to 2026-08-21 --range-basis anchor --format json
+pnpm -C packages/worker heat-extract-eval  # labeled ticker precision/recall gate
+pnpm -C packages/worker heat-calibrate -- --from 2026-08-01 --to 2026-08-21
 
 # web (@wsb/web) — Nuxt 4 SSR (read-only)
 pnpm -C packages/web dev              # dev server
@@ -116,18 +119,18 @@ validate → evidence build → LLM interpret/categorize → publish → daily o
 
 | Stage | Module | Notes |
 |---|---|---|
-| Ingest | `ingest.ts` | Arctic-Shift paginated descending poll; bounded retry-with-backoff on throttle/5xx (porting-spec §4.1). |
-| Extract | `extract.ts` | Regex candidates → stoplist → whitelist → ambiguous-context gate (parity port). |
+| Ingest | `ingest.ts` | Arctic-Shift paginated poll; per-kind bounds/status persisted; bounded retry on throttle/5xx. |
+| Extract | `extract.ts` | Regex → stoplist → whitelist → ambiguous-context gate; BTC/ETH collisions gated; labeled eval. |
 | Classify | `classify.ts` | Direction (bull/bear) from options/position words — **not** ironic sentiment. |
-| Aggregate | `aggregate.ts` | mentions → `(ticker, window)` features + `H_e`; board order via `@wsb/shared` `compareBoard`. |
-| Market | `market.ts` | Alpaca snapshots + screeners → `ret`/`rvol` → `H_m`; gated to top-N by `H_e`. |
-| Signals | `analytics.ts` | divergence / quadrants / lead-lag (v2-only; porting-spec §11). |
-| Orchestrate | `pipeline.ts` + `loop.ts` + `index.ts` | The 5-min cycle; SIGTERM, advisory lock, W−1-before-W. `index.ts` owns process-level handlers. |
-| Store | `db.ts` (+ `@wsb/shared` schema/migrations) | Postgres via Drizzle; atomic per-cycle publish; ≤1000-row upsert chunks; unconditional post-publish read-back (`verifyPublished`). |
-| Aux CLIs | `build-whitelist.ts` (`assets.ts`), `heartbeat.ts`, `analysis/{cli,plays-export}.ts` | Radar maintenance plus read-only agent analysis/export tools. |
-| Web | `packages/web` (`server/api/board`) | Read-only Nuxt 4 SSR; one REPEATABLE READ tx over the latest complete cycle. |
-| Agent analysis | `packages/web/server/api/analysis` + `server/utils/analysis.ts` | Bounded dossiers/audits over finalized heat; see `design/plays-analysis.md`. |
-| Config | `config.ts` | `config.toml` (tunables) + env (`DATABASE_URL`, `ALPACA_*`). |
+| Aggregate | `aggregate.ts` | mentions → `(ticker, window)` + `H_e`; removed content excluded; canonical `compareBoard`. |
+| Market | `market.ts` | snapshots + cached daily profiles → stable per-ticker `ret`/session-rvol/`H_m`; true as-of; top-N gated. |
+| Signals | `analytics.ts` | divergence / support-gated quadrants; lead-lag remains disabled while H_m is day-to-date. |
+| Orchestrate | `pipeline.ts` + `loop.ts` + `index.ts` | Exact empirical/signal replacement; W−1 refresh; continuous stable-window catch-up; observed-at removal repair. |
+| Store | `db.ts` (+ shared schema/migrations) | Atomic publish, version/finalize/repair provenance, coverage, unconditional post-publish read-back. |
+| Aux CLIs | `build-whitelist.ts`, `heartbeat.ts`, `heat-{extract-eval,calibrate}.ts`, `analysis/` | Quality, ops, and agent analysis. |
+| Web | `packages/web` | SSR live board + mobile cards + `/board/:ticker` finalized history; REPEATABLE READ APIs. |
+| Agent analysis | `packages/web/server/api/analysis` + `server/utils/analysis.ts` | Bounded finalized dossiers/audits; see `design/plays-analysis.md`. |
+| Config | `config.ts` | `config.toml` tunables + env secrets. |
 
 Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`. Landed at P1:
 `capture.ts` (flair filter + ON CONFLICT DO NOTHING enqueue, called from `runCycle` AFTER
@@ -141,13 +144,13 @@ pin), `validate.ts` (three-outcome ticker check, arithmetic cross-check, derived
 deterministic position_ids), `analyzer.ts` (the seam; sole `ai` importer) + `prompts/`,
 `images.ts` (sharp prep), `metering.ts` (fail-closed pricing + DB-summed daily budget),
 `eval.ts` (`plays-eval` over `fixtures/plays/`). Landed at P3: `evidence.ts` (deterministic
-radar/herd/market evidence; anchor at `opened_at` else post-time-badged-weaker; last-complete-window
-+ staleness bound; distinct-author herd measure), `interpretation.ts` (per-call category enum — the
-STRUCTURAL herd gate, invariant P4) + `prompts/interpret.ts`; the queue runs `captured →
+radar/herd/market evidence; anchor at `opened_at` else post-time-badged-weaker; explicit
+last-finalized-window + staleness bound; distinct-author herd measure), `interpretation.ts`
+(per-call category enum — the STRUCTURAL herd gate, invariant P4) + `prompts/interpret.ts`; the queue runs `captured →
 media_ready → extracted → published` (interpret+denormalize+publish is ONE stage/row-update —
 there is deliberately no `analyzed` status). Still to land: marks (P5). Landed at P4: the web
 serves the shared media volume via `/api/media/**` (prefix-checked; `NUXT_MEDIA_DIR`); plays are
-the primary UI at `/` (heat board at `/board`; board tickers cross-link `/?ticker=X`) with
+the primary UI at `/` (heat board at `/board`; ticker history at `/board/:ticker`) with
 **server-side** filters/sorts and the default low-confidence/`unclassifiable` hide
 (`PlaysQuerySchema`/`LOW_CONFIDENCE` in `server/utils/plays.ts` — children read by current-run
 pointers, lenient jsonb schemas), plus a `/plays/:id` detail page with the P5 outcome placeholder.
@@ -158,9 +161,8 @@ pointers, lenient jsonb schemas), plus a `/plays/:id` detail page with the P5 ou
   live impl (PullPush frozen; Reddit API excluded). **Stays plays-agnostic** — flair filtering for
   capture happens in plays code, never inside `poll()` (plays-plan §3).
 - **`MarketData`** (`market.ts`) — the funnel over market providers. `AlpacaMarketData` (free) is
-  the only impl; Massive / IBKR are intended alternatives behind the same interface. Current
-  surface is stock snapshots + screeners + optional `dailyBars` (plays evidence, P3); **P5 grows
-  it** (trading calendar + option snapshots).
+  the live impl; Massive / IBKR remain alternatives. Surface: stock snapshots, separate screeners,
+  cached per-ticker daily `profiles`, and optional `dailyBars`; P5 grows calendar/options support.
 - **`PlayAnalyzer`** (`plays/analyzer.ts`) — the LLM seam: `extract(images, text)` (P2) and
   `interpret(req)` (P3; text-only, `allowHerd` decided by the caller). Two impls behind `buildAnalyzer`:
   `AiSdkAnalyzer` (platform key, Vercel AI SDK) and `CodexAnalyzer` (ChatGPT-subscription OAuth —
@@ -181,23 +183,24 @@ Plays has its own invariants **P1–P9** — see `design/plays-product.md` §8. 
 - **Ranking is deterministic** — equal-scored rows break ties by an explicit total order
   (`h_e → sov → authors → mentions → ticker`, `compareBoard` in `@wsb/shared`), and the DB reads
   are `ORDER BY`-stable; the board never depends on DB row or dict-insertion order.
-- **`velocity`/`accel` are `null` when there is no real prior window** (cold start or a polling
-  gap). Emitting 0-based deltas would make every ticker look like a fresh breakout and inflate
-  `H_e`. The loop re-aggregates W−1 (persist-only) before the current window so prior-window
-  momentum is final.
-- **A partial poll (`PollResult.ok == false`) is discarded whole** — not persisted, aggregated, or
-  marked — because an undercounted window biases the SoV denominator.
-- **A `capped` poll (pagination cap hit) is persisted but flagged low-trust** — surfaced via
-  `cycle_runs.capped` → the web banner as undercounted/untrustworthy `sov`. Don't treat capped as
-  complete.
-- **Missing whitelist fails CLOSED to cashtag-only**, never to bare-token extraction (which would
-  flood the board with uppercase non-tickers). See `buildExtractor` in `config.ts`.
-- **`rvol` / `ret` are day-to-date, NOT window-aligned** — `H_m` answers "hot *today*", not "hot
-  *this hour*". `rvol` is tagged low-confidence (`rvol_conf="low"`) on the thin free IEX feed.
+- **`velocity`/`accel` are `null` without a real prior window.** W−1 remains provisional and is
+  exact-refreshed with its signals; every successful cycle repairs/finalizes all eligible rows through
+  W−2 so an outage cannot strand longitudinal history until restart.
+- **Posts and comments are independent coverage requirements.** Either partial/stale/no-data kind
+  discards radar scoring whole; every attempt remains in `ingestion_runs`, while raw rows and mentions
+  from an independently successful kind are retained. A cap is publishable but low-trust and surfaced.
+- **Removed/deleted source content does not score.** First-seen text/mention provenance remains. Stable
+  repairs detect newer removal observations, replay forward, and restamp `repaired_at`,
+  `repair_version`, `scoring_version`, total mentions, and quiet state.
+- **Missing whitelist fails CLOSED to cashtag-only**, never to bare-token extraction. Ambiguous
+  instrument/common tokens require trading context; `heat-extract-eval` pins labeled precision/recall.
+- **`rvol` / `ret` remain day-to-date, NOT window-aligned**, so lead-lag stays disabled. `H_m` is now
+  stable per ticker: volatility-scaled return + same-session-progress rvol, fixed caps, true source
+  timestamps, and `null` when no timestamped component exists. IEX volume remains low-confidence.
+- **Quadrants require both axes, a populated rolling split, and per-row distinct-author support.**
+- **Every cycle persists `scoring_version`;** historical analysis reads only explicit finalized rows.
 - **Outcome/P&L stays per-post — never aggregate to a per-ticker win rate** (survivorship bias).
-  Binding for Plays too (invariant P5).
-- **Arctic-Shift is the sole live tap** (no free fallback). `heartbeat` alarms on staleness; the
-  runbook is: radar stops, re-test before resuming. Don't publish stale signals.
+- **Arctic-Shift is the sole live tap.** Don't publish stale signals.
 
 ## Concurrency & process model
 

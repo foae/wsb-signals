@@ -29,16 +29,16 @@ describe('heartbeatVerdict', () => {
     expect(v.status).toBe('STALE')
   })
 
-  it('one null, one fresh → code 0 (min of present lags ≤ threshold)', () => {
+  it('one missing, one fresh → code 2 (NO-DATA; one kind cannot mask the other)', () => {
     const v = heartbeatVerdict(null, 300, THRESHOLD)
-    expect(v.code).toBe(0)
-    expect(v.status).toBe('OK')
+    expect(v.code).toBe(2)
+    expect(v.status).toBe('NO-DATA')
   })
 
-  it('one null, one stale → code 1 (STALE)', () => {
+  it('one missing, one stale → code 2 (NO-DATA takes precedence)', () => {
     const v = heartbeatVerdict(null, 7200, THRESHOLD)
-    expect(v.code).toBe(1)
-    expect(v.status).toBe('STALE')
+    expect(v.code).toBe(2)
+    expect(v.status).toBe('NO-DATA')
   })
 
   it('exactly at threshold (lag == threshold) → code 0 (Python uses <=)', () => {

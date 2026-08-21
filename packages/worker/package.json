@@ -12,6 +12,8 @@
     "heartbeat": "tsx src/heartbeat.ts",
     "plays-eval": "tsx src/plays/eval.ts",
     "analyze": "tsx src/analysis/cli.ts",
+    "heat-extract-eval": "tsx src/heat-extract-eval.ts",
+    "heat-calibrate": "tsx src/heat-calibrate.ts",
     "plays-export": "tsx src/analysis/plays-export.ts",
     "codex-login": "tsx src/plays/codex-login.ts",
     "typecheck": "tsc --noEmit",

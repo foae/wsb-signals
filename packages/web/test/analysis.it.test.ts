@@ -5,7 +5,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import {
-  PlayAuditSchema, TickerDossierSchema, readPlayAudit, readTickerDossier,
+  PlayAuditSchema, TickerDossierSchema, readPlayAudit, readTickerDossier, readTickerHeatHistory,
 } from '../server/utils/analysis'
 import { startPg, type PgHarness } from './helpers/pg'
 
@@ -22,9 +22,19 @@ const RUN_AT = 1_780_000_123_000
 async function seed(): Promise<void> {
   await pg.db.insert(tickerNames).values({ symbol: 'NVDA', name: 'NVIDIA Corp.' })
   await pg.db.insert(cycleRuns).values([
-    { windowStart: W0, generatedAt: W0 + 300, totalMentions: 20, quiet: false, capped: false, newestUtc: W0 + 250, status: 'complete' },
-    { windowStart: W1, generatedAt: W1 + 300, totalMentions: 30, quiet: false, capped: true, newestUtc: W1 + 250, status: 'complete' },
-    { windowStart: W2, generatedAt: W2 + 300, totalMentions: 40, quiet: false, capped: false, newestUtc: W2 + 250, status: 'complete' },
+    {
+      windowStart: W0, generatedAt: W0 + 300, finalizedAt: W1 + 300,
+      totalMentions: 20, quiet: false, capped: false, newestUtc: W0 + 250, status: 'complete',
+    },
+    {
+      windowStart: W1, generatedAt: W1 + 300, finalizedAt: W2 + 300, repairedAt: W2 + 600,
+      repairVersion: 'removed-v2', scoringVersion: 'score-v2',
+      totalMentions: 30, quiet: false, capped: true, newestUtc: W1 + 250, status: 'complete',
+    },
+    {
+      windowStart: W2, generatedAt: W2 + 300, finalizedAt: null,
+      totalMentions: 40, quiet: false, capped: false, newestUtc: W2 + 250, status: 'complete',
+    },
   ])
   await pg.db.insert(empiricalFeatures).values([
     { ticker: 'NVDA', windowStart: W0, mentions: 2, authors: 2, sov: 0.1, velocity: null, accel: null, z: null, netDir: 0.5, ddCount: 0, baselineStatus: 'cold', hE: 0.2 },
@@ -98,13 +108,24 @@ describe('agent analysis reads', () => {
 
     expect(dossier.meta.asOfWindowStart).toBe(W1)
     expect(dossier.heat.map((point) => point.windowStart)).toEqual([W0, W1])
-    expect(dossier.heat[1]).toMatchObject({ capped: true, baselineStatus: 'ready', rank: 1, hE: 0.7 })
+    expect(dossier.heat[1]).toMatchObject({
+      capped: true, finalizedAt: W2 + 300, repairedAt: W2 + 600,
+      repairVersion: 'removed-v2', scoringVersion: 'score-v2',
+      baselineStatus: 'ready', rank: 1, hE: 0.7,
+    })
     expect(dossier.ticker).toMatchObject({ symbol: 'NVDA', known: true })
     expect(dossier.plays.map((play) => play.id)).toEqual(['play1', 'play3', 'play2'])
     expect(dossier.plays[0]).toMatchObject({ confidence: 0.4, category: 'unclassifiable', anchorUtc: W1 + 100 })
     expect(dossier.plays[0]?.evidence?.evidence_version).toBe('evidence-v1')
     expect(dossier.plays[1]).toMatchObject({ anchorUtc: W1 + 50, anchorBasis: 'opened_at' })
     expect(dossier.plays[2]).toMatchObject({ anchorUtc: W0 + 100, anchorBasis: 'post_time' })
+    const heatOnly = await readTickerHeatHistory(pg.db, 'NVDA', { from: W0, to: W2 + 3600 })
+    expect(heatOnly).toEqual({
+      meta: dossier.meta,
+      range: dossier.range,
+      ticker: dossier.ticker,
+      heat: dossier.heat,
+    })
     expect(dossier.corpus).toEqual({
       basis: 'createdUtc',
       byStatus: [

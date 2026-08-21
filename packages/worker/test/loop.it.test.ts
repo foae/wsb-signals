@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
-  analyticalFeatures, empiricalFeatures, mentions as mentionsTable, rawComments, rawPosts,
-  signals as signalsTable,
+  analyticalFeatures, cycleRuns, empiricalFeatures, ingestionRuns, mentions as mentionsTable,
+  rawComments, rawPosts, signals as signalsTable,
   type MarketMoverInsert, type RawCommentInsert, type RawPostInsert,
 } from '@wsb/shared'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { EmpiricalFeature } from '../src/aggregate'
@@ -37,15 +37,27 @@ const post = (id: string, author: string, title: string, created: number): RawPo
 const comment = (id: string, author: string, body: string, created: number): RawCommentInsert =>
   ({ id, createdUtc: created, author, linkId: null, parentId: null, body, score: null, retrievedOn: NOW, source: 'fake' })
 const snap = (ticker: string, price: number, prevClose: number): StockSnapshot =>
-  ({ ticker, price, dayOpen: null, dayClose: null, dayVolume: null, prevClose, prevVolume: null, feed: 'iex', asOf: NOW })
+  ({
+    ticker, price, dayOpen: null, dayClose: null, dayVolume: null, prevClose, prevVolume: null,
+    feed: 'iex', priceAsOf: NOW, volumeAsOf: null,
+  })
 
 const okPoll = (): PollResult => ({
   posts: [post('p1', 'alice', 'NVDA calls', WS + 10)],
   comments: [comment('c1', 'bob', 'AMD puts', WS + 20)],
-  rawPosts: [], newestUtc: WS + 20, capped: false, ok: true, postsOk: true,
+  rawPosts: [],
+  newestUtc: WS + 20, newestPostUtc: WS + 10, newestCommentUtc: WS + 20,
+  oldestPostUtc: WS + 10, oldestCommentUtc: WS + 20,
+  postPages: 1, commentPages: 1, postsCapped: false, commentsCapped: false,
+  capped: false, ok: true, postsOk: true, commentsOk: true,
 })
-const emptyPoll = (): PollResult =>
-  ({ posts: [], comments: [], rawPosts: [], newestUtc: null, capped: false, ok: true, postsOk: true })
+const emptyPoll = (): PollResult => ({
+  posts: [], comments: [], rawPosts: [],
+  newestUtc: null, newestPostUtc: null, newestCommentUtc: null,
+  oldestPostUtc: null, oldestCommentUtc: null,
+  postPages: 1, commentPages: 1, postsCapped: false, commentsCapped: false,
+  capped: false, ok: true, postsOk: true, commentsOk: true,
+})
 
 class FakeSource implements Source {
   readonly name = 'fake'
@@ -104,6 +116,18 @@ describe('runCycle', () => {
     const feats = await pg.db.select().from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, WS))
     expect(feats.map((f) => f.ticker).sort()).toEqual(['AMD', 'NVDA'])
     expect(await latestCompleteWindow(pg.db)).toBe(WS)
+    const [cycle] = await pg.db.select().from(cycleRuns).where(eq(cycleRuns.windowStart, WS))
+    expect(cycle).toMatchObject({
+      finalizedAt: null,
+      newestPostUtc: WS + 10,
+      newestCommentUtc: WS + 20,
+      marketStatus: 'partial',
+      marketRequested: 2,
+      marketUsable: 1,
+      marketAsOf: NOW,
+    })
+    expect((await pg.db.select().from(ingestionRuns)).map((r) => [r.kind, r.status]).sort())
+      .toEqual([['comments', 'fresh'], ['posts', 'fresh']])
     const ana = await pg.db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, WS))
     expect(ana.map((a) => a.ticker)).toEqual(['NVDA']) // only NVDA had a snapshot
 
@@ -140,18 +164,21 @@ describe('runCycle', () => {
     expect(dirty.diffs.some((d) => d.table === 'empirical' && d.field === 'h_e')).toBe(true)
   })
 
-  it('discards a !ok poll WHOLE — nothing persisted, no marker', async () => {
+  it('retains a successful source kind during a peer failure but skips scoring', async () => {
     const marked: number[] = []
     const res = await runCycle(deps({
-      source: new FakeSource(() => ({ ...okPoll(), ok: false })),
+      source: new FakeSource(() => ({ ...okPoll(), ok: false, commentsOk: false })),
       markPoll: (t) => { marked.push(t) },
     }), NOW)
 
     expect(res.skipped).toBe(true)
     expect(marked).toEqual([]) // not marked → a restart can retry promptly
-    expect(await pg.db.select().from(rawPosts)).toHaveLength(0)
-    expect(await pg.db.select().from(mentionsTable)).toHaveLength(0)
+    expect(await pg.db.select().from(rawPosts)).toHaveLength(1)
+    expect(await pg.db.select().from(rawComments)).toHaveLength(0)
+    expect((await pg.db.select().from(mentionsTable)).map((row) => row.ticker)).toEqual(['NVDA'])
     expect(await latestCompleteWindow(pg.db)).toBeNull()
+    expect((await pg.db.select().from(ingestionRuns)).find((r) => r.kind === 'comments')!.status)
+      .toBe('partial')
   })
 
   it('survives a market failure (thrown) — publishes empirical-only (never-kill)', async () => {
@@ -163,6 +190,8 @@ describe('runCycle', () => {
     expect(feats).toHaveLength(2) // features still published
     expect(await latestCompleteWindow(pg.db)).toBe(WS) // marker present
     expect(await pg.db.select().from(analyticalFeatures).where(eq(analyticalFeatures.windowStart, WS))).toHaveLength(0)
+    const [cycle] = await pg.db.select().from(cycleRuns).where(eq(cycleRuns.windowStart, WS))
+    expect(cycle).toMatchObject({ marketStatus: 'unavailable', marketRequested: 2, marketUsable: 0 })
   })
 
   it('PRESERVES the prior overlay when the market returns no snapshots (total failure, not a throw)', async () => {
@@ -174,6 +203,24 @@ describe('runCycle', () => {
     // The prior overlay must be PRESERVED, not wiped by a delete-then-insert-nothing.
     await runCycle(deps({ market: new FakeMarket(new Map()) }), NOW + 30)
     expect((await ana()).map((a) => a.ticker)).toEqual(['NVDA'])
+    const [cycle] = await pg.db.select().from(cycleRuns).where(eq(cycleRuns.windowStart, WS))
+    expect(cycle).toMatchObject({ marketStatus: 'preserved', marketRequested: 2, marketUsable: 1 })
+  })
+
+  it('catches up every stable window after a multi-window outage', async () => {
+    const stable = WS - 2 * config.windowSeconds
+    const stranded = stable - config.windowSeconds
+    await pg.db.insert(cycleRuns).values([
+      { windowStart: stranded, generatedAt: stranded + 1, status: 'complete' },
+      { windowStart: stable, generatedAt: stable + 1, status: 'complete' },
+    ])
+
+    await runCycle(deps({}), NOW)
+
+    const rows = await pg.db.select().from(cycleRuns)
+      .where(inArray(cycleRuns.windowStart, [stranded, stable]))
+    expect(rows).toHaveLength(2)
+    expect(rows.every((row) => row.finalizedAt === NOW)).toBe(true)
   })
 })
 

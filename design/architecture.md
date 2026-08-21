@@ -117,52 +117,48 @@ drives the v0.0.1 choice:**
   data subscriptions; wired through **ibind**/**ibeam**. Highest fidelity, heaviest integration —
   the watchlist/conid model fits hot-list gating
   ([`../sources/ibkr.md`](../sources/ibkr.md)).
-- **Options gating:** fetch chains only for the **top-N hot leaderboard** by `H_e`. Alpaca's
-  200/min budget covers a healthy N; Massive (paid) is 1 chain-snapshot/underlying.
-- ✅ **STEALTH is feasible (bounded) on free data via the screeners** (revised 2026-06-03,
-  `scripts/probe_alpaca.py`): per-ticker snapshots/chains are gated to the WSB-hot list, but
-  Alpaca's free **most-actives + movers** screeners are a *market-wide* read. Cross-referencing them
-  against the WSB-hot list surfaces "market moving, WSB hasn't noticed" — bounded to the **top-N
-  loudest movers** (penny / leveraged-ETF noise needs a liquidity filter), not the full market.
-  Screener data is **captured in Phase 2** (`market_movers`); STEALTH *detection* is Phase 3
-  ([signal-framework §6.1](./signal-framework.md)). A paid full-market snapshot would widen it.
-- **Indices/VIX:** Alpaca has no index feed → SPY/QQQ ETF proxies for context; VIX needs Massive
-  (`I:VIX`, possibly paid).
-- ⚠️ **`rvol` confidence:** compute it, but **tag it low-confidence on free IEX/EOD volume**;
-  reliable only on a paid SIP feed.
-- **As-of tagging:** stamp each market feature with its true feed time (real-time IEX / SIP /
-  15-min delayed) so a *t=0* mention spike is never aligned to stale prices.
+- **Options gating:** fetch chains only for the **top-N hot leaderboard** by `H_e`.
+- **Current v2 stock overlay:** fetch top-N snapshots plus cached trailing daily profiles. `H_m`
+  combines volatility-scaled day return and session-adjusted volume pace on fixed per-ticker scales;
+  it is never rescaled by the other current hot tickers. Latest-trade/minute-bar timestamps carry the
+  true market as-of; un-timestamped evidence cannot produce `H_m`.
+- **Market-wide screeners:** capture most-actives/movers separately. The web filters to named assets
+  with price/volume floors and labels the panel market-wide context; rows do not automatically become
+  STEALTH signals.
+- **Indices/VIX:** Alpaca has no index feed → SPY/QQQ ETF proxies for context; VIX needs Massive.
+- ⚠️ **`rvol` confidence:** low on free IEX/EOD volume; reliable only on a paid SIP feed.
 
 ### 2.6 Signal engine
 Joins empirical + analytical `(T, W)` cells → `H_m`, `divergence = H_e − H_m`, **quadrant**
 (Confirmed / Hype / Stealth / Quiet), rolling **lead-lag**, alert triggers
 ([signal-framework §6, §8](./signal-framework.md)).
 
-### 2.7 Storage — DuckDB + Parquet
-Embedded, columnar, no server — ideal for time-window aggregation on one box (the dev Incus
-container). SQLite is the fallback. Core tables:
+### 2.7 Storage model (v0.0.1 origin; v2 realized in Postgres)
+The logical tables originated in the embedded v0.0.1 design; v2 realizes them in Postgres/Drizzle
+with atomic per-window publish and explicit longitudinal finalization.
 
 | Table | Grain | Key columns |
 |---|---|---|
-| `raw_posts` | post | `id, created_utc, author, title, selftext, link_flair_text, score, num_comments, retrieved_on, source` |
-| `raw_comments` | comment | `id, created_utc, author, link_id, parent_id, body, score, source` |
+| `raw_posts` | post | `id, created_utc, author, title, selftext, removed, link_flair_text, score, num_comments, retrieved_on, source` |
+| `raw_comments` | comment | `id, created_utc, author, link_id, parent_id, body, removed, score, source` |
 | `mentions` | (ticker × thing) | `ticker, thing_id, thing_type, created_utc, author, flair, direction` |
+| `ingestion_runs` | (source × kind × poll) | `status, oldest/newest_utc, items, pages, capped, lag_seconds` |
 | `empirical_features` | (ticker × window) | `ticker, window_start, mentions, authors, sov, velocity, accel, z, net_dir, dd_count, flair_counts, H_e` |
 | `market_bars` | (ticker × bar) | `ticker, ts, o,h,l,c, volume, vwap, feed, as_of` |
 | `options_snapshot` | (ticker × snap) | `ticker, ts, call_vol, put_vol, pcr, call_oi, put_oi, atm_iv, iv_rank, breadth_strikes, breadth_expiries, feed, as_of` |
-| `analytical_features` | (ticker × window) | `ticker, window_start, ret, rvol, rvol_conf, pcr, iv_rank, breadth, H_m` |
+| `analytical_features` | (ticker × window) | `ret, rvol, rvol_conf, feed, as_of, ret_vol_baseline, volume_baseline, profile_sessions, H_m` |
 | `signals` | (ticker × window) | `ticker, window_start, H_e, H_m, divergence, quadrant, rank, rank_delta, lead_lag_hrs` |
-| `baselines` | (ticker × hour_of_week) | `ticker, how, mention_mean, mention_std, vol_mean` |
-| `market_movers` | (screener row) | `ts, kind, rank, symbol, price, percent_change, volume` (free screener capture → STEALTH) |
-| `ticker_names` | symbol | `symbol, name` (Alpaca asset names; displayed alongside every ticker) |
+| `cycle_runs` | window | `scoring/repair_version, generated/finalized/repaired_at, per-kind freshness, market coverage/as_of, status` |
+| `market_movers` | (screener row) | `ts, kind, rank, symbol, price, percent_change, volume` |
+| `ticker_names` | symbol | `symbol, name` |
 
 (`feed`/`as_of` columns carry data-provenance; `rvol_conf` flags thin-feed low confidence.)
 
 ### 2.8 Output (the radar)
-- v0.0.1 (Phase 0→2): a **minimal Streamlit leaderboard** + JSON snapshot, columns per
-  [signal-framework §8](./signal-framework.md) (mention/SoV + market overlay). Keep it minimal.
-- v0.0.2 (Phase 3): **per-ticker drill-down** + divergence quadrants; alerts (quadrant-flip,
-  `uoa`+chatter spike).
+- Nuxt SSR board: provisional current-window board, explicit source/market quality states, compact
+  mobile cards, separate market-wide context, and per-ticker finalized seven-day heat history.
+- Agent/operator tooling: bounded analysis API plus labeled extraction and finalized-window calibration
+  CLIs.
 
 ## 3. Scheduling & cadence
 
@@ -211,12 +207,13 @@ v0.0.1.
   order (`H_e → sov → authors → mentions → ticker`), never by DB row or dict-insertion order, so the
   board is reproducible run-to-run and well-defined for any re-implementation.
 - **Flair-segment** empirical signals.
-- **Badge divergence, don't predict** — surface Confirmed/Hype, plus `astroturf`; **STEALTH is
-  feasible (bounded)** via the free screeners (§2.5) — detection in Phase 3, not UNKNOWN.
-- **Monitor source freshness with an active heartbeat** — Arctic-Shift is the single live tap; a
-  newest-item-lag alarm + a documented "tap is down" runbook are Phase-0, not later.
+- **Badge divergence, don't predict** — quadrants require timestamped market evidence, sufficient
+  rolling population, and per-row author support. Market-wide screeners remain separate context.
+- **Monitor source freshness per content kind** — posts and comments both feed SoV; either partial,
+  stale, or empty kind invalidates scoring and is persisted for immediate board diagnosis.
 - **A `capped` (pagination-truncated) window is low-trust** — its `sov` is undercounted
-  ([data-model](./data-model.md) invariant 14); surface it to the board, never treat it as complete.
+  ([data-model](./data-model.md) invariant 14); surface it to the board.
+- **Missing market evidence is `null`, never zero;** preserve feed/as-of/profile support.
 - **Flag `rvol` confidence by feed**; don't treat free-IEX volume as ground truth.
 - **Outcome/P&L is per-post only — never aggregate to a per-ticker win rate** (survivorship).
 - **Never commit API keys** (Alpaca, Massive).

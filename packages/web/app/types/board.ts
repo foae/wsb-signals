@@ -1,1 +1,1 @@
-export type { BoardRow, Mover, BoardResponse, BoardWindow, Quadrant } from '~~/server/utils/schemas'
+export type { BoardRow, Mover, BoardResponse, BoardWindow, Quadrant, SourceRun } from '~~/server/utils/schemas'

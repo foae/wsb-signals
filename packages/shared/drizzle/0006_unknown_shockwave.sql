@@ -1,0 +1,1 @@
+ALTER TABLE "cycle_runs" ADD COLUMN "scoring_version" text;

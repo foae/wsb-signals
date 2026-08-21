@@ -142,9 +142,9 @@ One `cycle complete` line per 5-min cycle is the health signal:
 for `market overlay` warns; `market overlay disabled — ALPACA creds missing` at boot means no keys).
 `capped: true` ⇒ undercounted window, low-trust SoV. `freshness` ≠ `OK` ⇒ the runbook above. A
 missing cycle line ⇒ look for `cycle failed — recovering` (self-healed, next interval retries) or
-`poll incomplete … skipping this cycle` (partial polls are discarded whole, by design). Transient
-`transient page failure — backing off` warns around a successful cycle are normal Arctic-Shift
-throttle noise, not a fault.
+`source coverage incomplete — retained usable source data but skipped scoring` (partial/stale peer;
+successful-kind rows are retained, but no board is published). Transient `transient page failure —
+backing off` warnings around a successful cycle are normal Arctic-Shift throttle noise, not a fault.
 
 ### Tracing a play (P1: capture → media)
 

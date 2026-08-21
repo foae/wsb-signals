@@ -37,6 +37,11 @@ export const BoardRowSchema = z.object({
   ret: z.number().nullable(),
   rvol: z.number().nullable(),
   rvolConf: z.string().nullable(),
+  marketFeed: z.string().nullable(),
+  retVolBaseline: z.number().nullable(),
+  volumeBaseline: z.number().nullable(),
+  profileSessions: z.number().int().nullable(),
+  marketAsOf: z.number().nullable(),
 })
 
 export const MoverSchema = z.object({
@@ -52,12 +57,30 @@ export const MoverSchema = z.object({
 
 export const WindowSchema = z.object({
   start: z.number(),
-  end: z.number(), // start + windowSeconds
+  scoringVersion: z.string().nullable(),
+  end: z.number(),
   generatedAt: z.number().nullable(),
+  finalizedAt: z.number().nullable(),
   totalMentions: z.number().nullable(),
   quiet: z.boolean().nullable(),
   capped: z.boolean().nullable(),
   newestUtc: z.number().nullable(),
+  newestPostUtc: z.number().nullable(),
+  newestCommentUtc: z.number().nullable(),
+  marketStatus: z.enum(['fresh', 'partial', 'preserved', 'unavailable', 'disabled']).nullable(),
+  marketRequested: z.number().int().nullable(),
+  marketUsable: z.number().int().nullable(),
+  marketAsOf: z.number().nullable(),
+})
+
+export const SourceRunSchema = z.object({
+  source: z.string(),
+  status: z.enum(['fresh', 'partial', 'capped', 'stale', 'no-data']),
+  pollTs: z.number(),
+  newestUtc: z.number().nullable(),
+  lagSeconds: z.number().nullable(),
+  itemsFetched: z.number().int(),
+  capped: z.boolean(),
 })
 
 export const BoardResponseSchema = z.object({
@@ -66,6 +89,10 @@ export const BoardResponseSchema = z.object({
   window: WindowSchema.nullable(),
   // thresholds the client needs to derive staleness/age relative to ITS clock (avoids cached-HTML drift)
   thresholds: z.object({ windowSeconds: z.number(), maxStalenessSeconds: z.number() }),
+  source: z.object({
+    posts: SourceRunSchema.nullable(),
+    comments: SourceRunSchema.nullable(),
+  }),
   rows: z.array(BoardRowSchema),
   movers: z.array(MoverSchema),
 })
@@ -74,4 +101,5 @@ export type Quadrant = NonNullable<z.infer<typeof QuadrantSchema>>
 export type BoardRow = z.infer<typeof BoardRowSchema>
 export type Mover = z.infer<typeof MoverSchema>
 export type BoardWindow = z.infer<typeof WindowSchema>
+export type SourceRun = z.infer<typeof SourceRunSchema>
 export type BoardResponse = z.infer<typeof BoardResponseSchema>

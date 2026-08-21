@@ -22,12 +22,13 @@ export const rawPosts = pgTable('raw_posts', {
   author: text('author'),
   title: text('title'),
   selftext: text('selftext'),
+  removed: boolean('removed').notNull().default(false),
   linkFlairText: text('link_flair_text'),
   score: integer('score'),
   numComments: integer('num_comments'),
   retrievedOn: int8('retrieved_on'),
   source: text('source'),
-})
+}, (t) => [index('raw_posts_removed_idx').on(t.removed)])
 
 export const rawComments = pgTable('raw_comments', {
   id: text('id').primaryKey(),
@@ -36,10 +37,11 @@ export const rawComments = pgTable('raw_comments', {
   linkId: text('link_id'),
   parentId: text('parent_id'),
   body: text('body'),
+  removed: boolean('removed').notNull().default(false),
   score: integer('score'),
   retrievedOn: int8('retrieved_on'),
   source: text('source'),
-})
+}, (t) => [index('raw_comments_removed_idx').on(t.removed)])
 
 export const mentions = pgTable('mentions', {
   ticker: text('ticker').notNull(),
@@ -52,6 +54,25 @@ export const mentions = pgTable('mentions', {
 }, (t) => [
   primaryKey({ columns: [t.ticker, t.thingId] }),
   index('mentions_created_utc_idx').on(t.createdUtc),
+  index('mentions_thing_type_id_idx').on(t.thingType, t.thingId),
+])
+
+/** One persisted source-kind poll attempt. Unlike `cycle_runs`, failed/stale attempts are retained so
+ *  the board can distinguish upstream degradation from a dead worker immediately. */
+export const ingestionRuns = pgTable('ingestion_runs', {
+  source: text('source').notNull(),
+  kind: text('kind').notNull(), // posts | comments
+  pollTs: int8('poll_ts').notNull(),
+  status: text('status').notNull(), // fresh | partial | capped | stale | no-data
+  oldestUtc: int8('oldest_utc'),
+  newestUtc: int8('newest_utc'),
+  itemsFetched: integer('items_fetched').notNull(),
+  pages: integer('pages').notNull(),
+  capped: boolean('capped').notNull(),
+  lagSeconds: integer('lag_seconds'),
+}, (t) => [
+  primaryKey({ columns: [t.source, t.kind, t.pollTs] }),
+  index('ingestion_runs_kind_poll_idx').on(t.kind, t.pollTs),
 ])
 
 export const empiricalFeatures = pgTable('empirical_features', {
@@ -108,6 +129,11 @@ export const analyticalFeatures = pgTable('analytical_features', {
   ret: doublePrecision('ret'),
   rvol: doublePrecision('rvol'),
   rvolConf: text('rvol_conf'),
+  feed: text('feed'),
+  asOf: int8('as_of'),
+  retVolBaseline: doublePrecision('ret_vol_baseline'),
+  volumeBaseline: doublePrecision('volume_baseline'),
+  profileSessions: integer('profile_sessions'),
   pcr: doublePrecision('pcr'),
   ivRank: doublePrecision('iv_rank'),
   breadth: integer('breadth'),
@@ -295,14 +321,24 @@ export const playLinks = pgTable('play_links', {
  * the degraded-state flags the v0.0.1 snapshot used to expose.
  */
 export const cycleRuns = pgTable('cycle_runs', {
+  repairVersion: text('repair_version'),
+  /** Last time a stable window's empirical+signal rows were rebuilt or verified under repairVersion. */
+  repairedAt: int8('repaired_at'),
   windowStart: int8('window_start').primaryKey(),
+  scoringVersion: text('scoring_version'),
   generatedAt: int8('generated_at'),
+  /** Non-null only after the lateness horizon has moved past this window and dependent signals match
+   *  the final empirical board. Publish-complete current snapshots deliberately remain null. */
+  finalizedAt: int8('finalized_at'),
   totalMentions: integer('total_mentions'),
   quiet: boolean('quiet'),
   capped: boolean('capped'),
-  // `newest_utc` = the freshest source item seen this cycle. Persisted (not just logged) so a reader can
-  // banner DATA staleness (now − newest_utc) distinctly from WORKER liveness (now − generated_at) — the
-  // never-serve-stale requirement (v2-porting-spec.md §7). Null when the poll returned nothing.
-  newestUtc: int8('newest_utc'),
-  status: text('status'), // 'complete' (forward-compat; a row already implies complete)
+  newestUtc: int8('newest_utc'), // max across both kinds; compatibility/display convenience
+  newestPostUtc: int8('newest_post_utc'),
+  newestCommentUtc: int8('newest_comment_utc'),
+  marketStatus: text('market_status'), // fresh | partial | preserved | unavailable | disabled
+  marketRequested: integer('market_requested'),
+  marketUsable: integer('market_usable'),
+  marketAsOf: int8('market_as_of'), // oldest effective row as-of; conservative overlay vintage
+  status: text('status'), // 'complete' = publish transaction committed, NOT longitudinally finalized
 })

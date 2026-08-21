@@ -12,8 +12,9 @@ export interface HeartbeatVerdict {
 }
 
 /**
- * Port of the detail-building + exit-code logic in `cli.cmd_heartbeat`. Minutes are rounded to 1 decimal
- * for lags and 0 decimals for the threshold (matching Python's format). `0` OK / `1` STALE / `2` NO-DATA.
+ * Coverage verdict for the two independently indexed content kinds. This deliberately supersedes the
+ * oracle's `min(lags)` rule: posts and comments both feed SoV, so one fresh kind cannot mask a
+ * missing/stale peer. `0` OK / `1` STALE / `2` NO-DATA.
  */
 export function heartbeatVerdict(
   lagComments: number | null,
@@ -25,9 +26,7 @@ export function heartbeatVerdict(
     (lagPosts != null ? `, post=${(lagPosts / 60).toFixed(1)} min` : ', post=?') +
     `; threshold=${(threshold / 60).toFixed(0)} min`
 
-  const lags = ([lagComments, lagPosts] as Array<number | null>).filter((x): x is number => x != null)
-
-  if (lags.length === 0) return { code: 2, status: 'NO-DATA', detail }
-  if (Math.min(...lags) <= threshold) return { code: 0, status: 'OK', detail }
+  if (lagComments == null || lagPosts == null) return { code: 2, status: 'NO-DATA', detail }
+  if (Math.max(lagComments, lagPosts) <= threshold) return { code: 0, status: 'OK', detail }
   return { code: 1, status: 'STALE', detail }
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { ArcticShiftSource } from '../src/ingest'
+import { ArcticShiftSource, ingestionStatus } from '../src/ingest'
 import { startMockArctic, type Cassette, type CassettePage } from './helpers/mockArctic'
 
 // Slice-4 behavioral checks (porting-spec §4 + §8 checklist) that are about TIMING and HEADER PARSING
@@ -201,5 +201,37 @@ describe('ingest retry / backoff (transient page failures)', () => {
     }, { signal: ac.signal, sleep })
     expect(res.ok).toBe(false)
     expect(requests.filter((r) => r.kind === 'posts')).toHaveLength(1) // failed once, aborted before retry
+  })
+})
+
+describe('per-kind ingestion coverage', () => {
+  it('does not let a cap hide missing or stale source data', () => {
+    expect(ingestionStatus(false, true, NOW, NOW, 60)).toBe('partial')
+    expect(ingestionStatus(true, true, null, NOW, 60)).toBe('no-data')
+    expect(ingestionStatus(true, true, NOW - 61, NOW, 60)).toBe('stale')
+    expect(ingestionStatus(true, true, NOW - 60, NOW, 60)).toBe('capped')
+    expect(ingestionStatus(true, false, NOW - 60, NOW, 60)).toBe('fresh')
+  })
+
+  it('records independent post and comment coverage bounds', async () => {
+    const { res } = await pollWith({
+      posts: [page(post('p', NOW - 20))],
+      comments: [page({
+        id: 'c', created_utc: NOW - 5, author: 'u', body: 'x', link_id: 't3_p', parent_id: 't3_p',
+      })],
+    })
+    expect(res).toMatchObject({
+      newestUtc: NOW - 5,
+      newestPostUtc: NOW - 20,
+      newestCommentUtc: NOW - 5,
+      oldestPostUtc: NOW - 20,
+      oldestCommentUtc: NOW - 5,
+      postPages: 1,
+      commentPages: 1,
+      postsCapped: false,
+      commentsCapped: false,
+      postsOk: true,
+      commentsOk: true,
+    })
   })
 })

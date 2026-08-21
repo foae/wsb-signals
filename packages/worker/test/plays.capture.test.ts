@@ -106,6 +106,8 @@ describe('isRemovedPost', () => {
   it('flags removal markers and nothing else', () => {
     expect(isRemovedPost(rawPost({ selftext: '[removed]' }))).toBe(true)
     expect(isRemovedPost(rawPost({ selftext: '[deleted]' }))).toBe(true)
+    expect(isRemovedPost(rawPost({ selftext: ' [REMOVED] ' }))).toBe(true)
+    expect(isRemovedPost(rawPost({ title: '[Deleted]' }))).toBe(true)
     expect(isRemovedPost(rawPost({ removed_by_category: 'automod_filtered' }))).toBe(true)
     expect(isRemovedPost(rawPost())).toBe(false)
     expect(isRemovedPost(rawPost({ selftext: 'I removed my hedge' }))).toBe(false)

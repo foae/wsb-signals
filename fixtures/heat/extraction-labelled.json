@@ -1,0 +1,18 @@
+{
+  "schema_version": "heat-extraction-v1",
+  "universe": ["AMD", "BTC", "DRAM", "ETH", "GME", "NVDA", "SPY"],
+  "cases": [
+    { "id": "crypto-btc-chat", "text": "BTC is pumping again while everything else is flat", "expected": [] },
+    { "id": "crypto-eth-chat", "text": "ETH gas fees are finally coming down", "expected": [] },
+    { "id": "btc-etf-position", "text": "Bought BTC shares in my brokerage account", "expected": ["BTC"] },
+    { "id": "btc-cashtag", "text": "$BTC broke out of the range", "expected": ["BTC"] },
+    { "id": "eth-trading-context", "text": "ETH calls for next month", "expected": ["ETH"] },
+    { "id": "dram-common-word", "text": "DRAM prices are rising for memory chips", "expected": [] },
+    { "id": "dram-position", "text": "Long DRAM shares into earnings", "expected": ["DRAM"] },
+    { "id": "two-equity-positions", "text": "NVDA calls and AMD puts", "expected": ["AMD", "NVDA"] },
+    { "id": "non-ticker-uppercase", "text": "The CEO said AI demand remains high", "expected": [] },
+    { "id": "gme-plain", "text": "GME to the moon", "expected": ["GME"] },
+    { "id": "spy-options", "text": "SPY 0DTE calls", "expected": ["SPY"] },
+    { "id": "two-crypto-assets", "text": "BTC and ETH are both down today", "expected": [] }
+  ]
+}

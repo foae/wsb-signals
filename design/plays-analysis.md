@@ -57,11 +57,11 @@ API responses carry stable caveat codes; `GET /api/analysis` maps each code to i
 - A play's correlation anchor comes from the current interpretation's stored
   `evidence.anchor_utc`/`anchor_basis`. `opened_at` anchors were already derived and clamped by the
   worker; `post_time` is the explicitly weaker fallback. Analysis must not derive a different anchor.
-- A radar window is **finalized only when a later `cycle_runs` window exists**. The worker republishes
-  the current bucket every five minutes and re-aggregates W−1 before W. Ticker analysis therefore
-  excludes the newest cycle and reports the latest included window as `meta.asOfWindowStart`.
-- A later cycle is an honest but imperfect finalization marker: after a short outage, a boundary
-  window can remain short by one final poll slice. Responses carry `finalization-approximation`.
+- A radar window is finalized only when `cycle_runs.finalized_at` is non-null. The worker republishes
+  current W every five minutes, refreshes W−1 empirical features **and signals**, and on every successful
+  cycle catches up all eligible stable rows through W−2. Exceptional source-removal replay advances
+  `repaired_at`/`repair_version` and restamps `scoring_version`; ticker analysis reports both provenance
+  markers and the latest included window as `meta.asOfWindowStart`.
 - Each HTTP analysis is one PostgreSQL `REPEATABLE READ, READ ONLY` snapshot. Each web process
   executes at most two analysis reads concurrently so the board retains database capacity; the
   shipped deployment has one web process. Excess requests return 429 with `Retry-After: 15`. The
@@ -190,17 +190,14 @@ where p.id = :play_id;
 ### Finalized ticker trajectory
 
 ```sql
-with newest as (
-  select max(window_start) as window_start
-  from cycle_runs where status = 'complete'
-)
-select c.window_start, c.generated_at, c.quiet, c.capped, c.newest_utc,
+select c.window_start, c.scoring_version, c.repair_version, c.repaired_at, c.generated_at, c.finalized_at,
+       c.quiet, c.capped, c.newest_post_utc, c.newest_comment_utc, c.market_status,
        e.mentions, e.authors, e.sov, e.velocity, e.accel, e.z,
        e.net_dir, e.dd_count, e.baseline_status, e.h_e,
        s.h_m, s.divergence, s.quadrant, s.rank, s.rank_delta,
-       a.ret, a.rvol, a.rvol_conf
+       a.ret, a.rvol, a.rvol_conf, a.feed, a.as_of,
+       a.ret_vol_baseline, a.volume_baseline, a.profile_sessions
 from cycle_runs c
-cross join newest n
 left join empirical_features e
   on e.window_start = c.window_start and e.ticker = :ticker
 left join signals s
@@ -208,8 +205,8 @@ left join signals s
 left join analytical_features a
   on a.window_start = c.window_start and a.ticker = :ticker
 where c.status = 'complete'
+  and c.finalized_at is not null
   and c.window_start >= :from and c.window_start < :to
-  and c.window_start < n.window_start
 order by c.window_start;
 ```
 

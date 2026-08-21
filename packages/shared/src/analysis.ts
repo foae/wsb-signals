@@ -19,7 +19,7 @@ export const ANALYSIS_CAVEATS = {
   'non-causal': 'Heat and play proximity are observational context, not evidence that attention caused an outcome and not a trading recommendation.',
   'no-ticker-win-rate': 'Never aggregate these per-post observations into a per-ticker win rate; survivorship and selection bias make that statistic misleading.',
   'capped-window': 'A capped radar window is undercounted; its share-of-voice and derived heat are low-trust.',
-  'finalization-approximation': 'A later cycle finalizes W−1; a short outage at a boundary can leave up to one final poll slice undercounted.',
+  'finalization-approximation': 'Longitudinal heat includes only rows with an explicit finalized_at marker. After an outage, stable windows remain excluded until the next successful cycle repairs their dependent signals and finalizes them.',
 } as const satisfies Record<AnalysisCaveatCode, string>
 
 export const OUTCOME_TRACKING_CAPABILITY = {

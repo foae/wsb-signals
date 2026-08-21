@@ -11,3 +11,4 @@
 # One or more tokens per line; '#' starts a comment.
 
 DRAM
+BTC ETH  # crypto-token usage dominates the Grayscale mini-trust ticker symbols

@@ -191,9 +191,18 @@ Reproduce `_fetch` + `poll` exactly:
 - Ran all `max_pages` without stopping → `capped = true`.
 - `in_window = items where created_utc >= cutoff`.
 - **`ok` semantics:** any of {request exception, non-200 status, non-JSON body} mid-walk → `ok = false`,
-  break, return partial. The caller **discards** an `ok=false` poll whole.
+  break, return partial. The caller skips radar scoring for the poll, but v2 still persists raw rows and
+  mentions from each independently successful kind so good data cannot age out during a peer failure.
 - `poll`: fetch **posts then comments** separately; `capped = pcap || ccap`; `ok = pok && cok`;
   `newest_utc = max(all created_utc)` or null.
+- **v2 coverage/provenance divergence:** retain posts/comments bounds, pages, caps, and transport results
+  separately in `ingestion_runs`. Each kind is classified `partial | no-data | stale | capped | fresh`
+  (in that precedence); radar scoring requires both kinds usable (`fresh` or `capped`). A comments
+  failure may not block Plays capture from a usable posts walk.
+- **v2 removal divergence:** normalized posts/comments retain irreversible `removed` state when the
+  source later reports `[removed]`/`[deleted]`. Aggregation excludes those mentions and exact-replaces
+  affected empirical/signal window sets; the startup repair replays stable history forward from the
+  earliest known removal.
 - **HTTP client choice (landmine):** `httpx` does **not** throw on 4xx/5xx (the code checks
   `status != 200`). Use **`undici`/`fetch` with a manual `res.ok`/status check** — do **NOT** use a
   client that throws on non-2xx (e.g. `ofetch` default), which would invert the `ok` logic.
@@ -228,14 +237,20 @@ frozen oracle** (its `config.py` reads only the keys it knows).
 - Auth headers: `APCA-API-KEY-ID`, `APCA-API-SECRET-KEY`. Base `https://data.alpaca.markets`. `feed=iex`.
 - `snapshots(tickers)`: chunk by **100** symbols (URL-length); GET `/v2/stocks/snapshots?symbols=…&feed=`;
   non-200 → warn & **continue** (best-effort, partial OK). Map: `price=latestTrade.p`,
-  `day_open/close/volume=dailyBar.{o,c,v}`, `prev_close/volume=prevDailyBar.{c,v}`, `as_of=now`.
+  `day_open/close/volume=dailyBar.{o,c,v}`, `prev_close/volume=prevDailyBar.{c,v}`. **v2 correctness
+  divergence:** retain the configured `feed` and the true latest observation time from
+  `latestTrade.t` / `minuteBar.t`; fetch time is not market-data provenance.
 - `screeners(top)`: GET `/v1beta1/screener/stocks/most-actives?top=` → `kind="active"`, rank by order,
   `volume`. GET `/v1beta1/screener/stocks/movers?top=` → gainers (`kind="gainer"`) + losers
   (`kind="loser"`), rank by order, `price`,`percent_change`. Best-effort per call.
-- `compute_analytical` (`analytical.py`): `ret = (price-prev_close)/prev_close` if both present else null;
-  `rvol = day_volume/prev_volume` if both present else null; `rvol_conf = "low"`; `h_m = w.ret·|ret|ₙ +
-  w.rvol·rvolₙ` (max-norm over the hot list, None→0). Market overlay is **best-effort: a failure must
-  never kill the cycle.**
+- `compute_analytical` (`analytical.py`) deliberately diverges for correctness. Raw
+  `ret = (price-prev_close)/prev_close`; `rvol` is cumulative volume divided by the ticker's trailing
+  average daily volume at the same regular-session progress. `H_m` blends fixed-capped
+  `|ret|/trailing_daily_volatility` and session-adjusted `rvol`, using only timestamped available
+  components. It is stable per ticker and never max-normalized against the current top-N. Daily profiles
+  are cached per ticker/session; insufficient history falls back to the previous session and a
+  conservative volatility floor. No timestamped component ⇒ `h_m = null`, never fabricated calm (`0`).
+  Market overlay remains best-effort: a failure must never kill the cycle.
 
 ## 6. Persistence & schema (Postgres + Drizzle)
 
@@ -255,20 +270,26 @@ frozen oracle** (its `config.py` reads only the keys it knows).
   **65535 bind parameters** (7-col `mentions` × ~9k/cycle ≈ 63k; a peak DDT window busts it). Python's
   `executemany` round-trips avoid this; Drizzle's `.values([...])` does not.
 - **Atomic publication (MANDATORY, not optional):** wrap each cycle's writes (empirical + analytical +
-  movers) in **one transaction**, and/or write a `run_status`/`cycle_runs` publish marker. The web must
-  read only **publish-complete** cycles — never a window where empirical rows exist but analytical rows
-  are still in-flight (that renders market columns blank for in-scope tickers, indistinguishable from
-  "not top-N"). Reads select the latest **complete** `window_start`. The `cycle_runs` marker also carries
-  **`newest_utc`** so a reader can banner DATA staleness (`now − newest_utc`) distinctly from WORKER
-  liveness (`now − generated_at`) — the never-serve-stale requirement (§7).
+  movers) in **one transaction**, and write a `cycle_runs` publish marker. The web reads only
+  **publish-complete** snapshots — never a transaction where empirical rows exist but analytical rows
+  are still in-flight. `status="complete"` means the snapshot transaction committed; it does **not**
+  mean the clock hour has elapsed. `cycle_runs.finalized_at` is the separate longitudinal-read gate:
+  it is set only once the lateness horizon has moved past the window and dependent signals have been
+  rebuilt. `repaired_at`/`repair_version` disclose the exceptional source-removal repair that may later
+  revise a stable row; `scoring_version` is restamped with the contract that produced the repaired score.
+  The marker also carries per-kind Reddit freshness plus market overlay coverage/provenance so readers
+  can distinguish source degradation, market degradation, and worker liveness.
 - **Overlay replacement vs. preservation (v2):** publishing a window's analytical set is **delete-then-
-  insert** so a shrunk top-N can't leave stale rows. But an **empty** overlay must **preserve** the prior
-  (it means every snapshot chunk failed — `snapshots()` swallows non-200s — not "no hot tickers"); only a
-  **non-empty** overlay replaces. The oracle's `upsert_analytical_features([])` is a no-op (never deletes),
-  so this keeps v2 from wiping good prices on a total market outage.
-- **W−1 finalize is transactional (v2):** the persist-only re-aggregation of W−1 wraps its (chunked)
-  `empirical_features` upsert in **one transaction** — a crash mid-chunk must not half-write the prior
-  baseline. (This does not defeat self-heal: a rolled-back W−1 is simply re-aggregated next cycle.)
+  insert** so a shrunk top-N can't leave stale rows. But an overlay with zero usable market-heat rows
+  must **preserve** the prior same-window set (it means every snapshot failed or carried no evidence,
+  not "no hot tickers"); only a usable overlay replaces. The cycle marker records `fresh`, `partial`,
+  `preserved`, `unavailable`, or `disabled`, requested/usable counts, and the oldest effective market
+  `as_of` so preservation is visible rather than silently current-looking.
+- **W−1 refresh is transactional (v2 correctness divergence):** re-aggregation of W−1 refreshes
+  `empirical_features` **and every dependent `signals` row together**. Persisting empirical only leaves
+  historical `signals.h_e`, rank, divergence, and quadrant attached to an earlier provisional board.
+  Every successful cycle catches up all unfinalized rows through W−2, so a multi-window outage cannot
+  strand a stable row until restart. Malformed legacy rows remain unfinalized and are logged, not fatal.
 
 ## 7. Worker loop & lifecycle (`cli.cmd_run`)
 
@@ -294,12 +315,16 @@ frozen oracle** (its `config.py` reads only the keys it knows).
 - **`uncaughtException` exits** (non-zero) for a clean restart — only `unhandledRejection` is log-and-continue.
 - Startup throttle: persist `.last_poll`; on boot, if `elapsed < min_poll_gap_seconds`, wait the
   remainder (ignore a future-dated/corrupt marker).
-- **Cycle order (preserve exactly):** poll → if `!ok` skip whole cycle → mark poll → extract+upsert →
-  **re-aggregate W−1 (persist-only)** → aggregate W (snapshot, `capped` flag) → market overlay
-  (best-effort) → freshness log. The W−1 re-aggregation's writes **must be committed before** the W
-  aggregation reads them (pooled connections can otherwise read stale W−1).
-- **Freshness / never-serve-stale:** persist the cycle's freshness state; the web banners stale/dead-
-  worker rather than letting route caching serve a polished-but-dead board.
+- **Cycle order (v2 correctness contract):** poll → persist one `ingestion_runs` record per content kind
+  plus raw/mentions for each successfully fetched kind → if transport is partial **or either kind is
+  missing/stale, discard the scoring cycle** → mark poll → **refresh W−1 empirical+signals atomically**
+  → repair/finalize every stable row through W−2 → aggregate W → market overlay (best-effort, coverage
+  persisted) → atomic publish W. The W−1 refresh must commit before W reads it.
+- **Freshness / never-serve-incomplete:** posts and comments are both required inputs to the SoV
+  denominator. The v0 probe's `min(comment_lag, post_lag)` behavior is deliberately superseded:
+  heartbeat succeeds only when **both** kinds are present and within the threshold. A fresh kind never
+  masks a stale/missing peer. The web reads `ingestion_runs` to distinguish source degradation from a
+  dead worker immediately; it does not wait for the last good board to age past the stale threshold.
 
 ## 8. Cross-language landmines (the checklist)
 
@@ -358,13 +383,14 @@ formatting (`db.pretty_name`).
   worker finds its config + wordlists regardless of cwd. The documented `pnpm -C packages/worker …`
   commands and the container both run with cwd=`packages/worker`, which holds no `config.toml`; the prior
   `process.cwd()` assumption would have thrown ENOENT on the first real run.
-- ⏳ **`pretty_name`** — deferred with the web (slice 8); display-only, not on the headless data path.
-- ⤬ **Diagnostic/ops CLIs intentionally NOT ported** (decision 2026-06-06): `eval-extractor`, `poll-once`,
-  and the one-shot `aggregate`/`market` wrappers. All are off the data path and either redundant with
-  `start --once [--no-market]` (aggregate/market) or low-value next to the `heartbeat` probe + per-cycle
-  logs (poll-once); `eval-extractor` (extractor precision proxy) is the only one with distinct value and can
-  be ported later if extractor tuning needs it. `init-db` is superseded by migrate-on-boot;
-  `aggregate.write_snapshot` is the v0.0.1 JSON/Parquet workaround, replaced by the Postgres atomic publish.
+- ✅ **`pretty_name`** — shared helper used by the Nuxt board and market-context rows.
+- ✅ **`heat-extract-eval`** — a committed labeled precision/recall corpus exercises the production
+  stoplist/ambiguous-context rules, including BTC/ETH instrument-vs-crypto collisions.
+- ✅ **`heat-calibrate`** — bounded diagnostics over finalized rows (coverage, support violations,
+  score distributions, top-10 stability, scoring-version mix); deliberately no per-ticker win rate.
+- ⤬ The remaining retired diagnostic CLIs (`poll-once`, `init-db`, JSON snapshot exporters) stay
+  unported. `init-db` is superseded by migrate-on-boot; `aggregate.write_snapshot` was the v0.0.1
+  DuckDB workaround, replaced by atomic Postgres publish.
 
 **→ The headless Python→TS migration is functionally COMPLETE** (data path fully ported + parity-gated;
 248 tests). The only remaining work is the Nuxt web (slice 8), deferred by plan — a Streamlit→SSR reframe,
@@ -380,23 +406,21 @@ unlike §2–§5, there is nothing to diff against; the math is gated by its own
 Code: `analytics.ts` (pure), `pipeline.buildSignals` (orchestration), `db.ts` reads + `upsertSignals`.
 
 - **Grain & population.** One `signals` row per **board ticker** per window (mirrors `empirical_features`),
-  in the atomic publish. `H_m`/divergence/quadrant/lead-lag are populated **only for the overlaid subset**
-  (the top-N hot tickers that have an `analytical_features` row) — you can't compare attention to action
-  with no action measurement; the rest carry `H_e` + `rank` only. **Effective `H_m`** at W = this cycle's
-  fresh overlay, or — when the market fetch failed and the cycle PRESERVES the prior overlay (§6) — the
-  committed `analytical_features` at W (read back), so signals always reflect the H_m the window carries.
+  in the atomic publish. `H_m`/divergence/quadrant/lead-lag are populated **only for the overlaid subset
+  with usable market evidence** — you can't compare attention to action with no action measurement;
+  the rest carry `H_e` + `rank` only. **Effective `H_m`** at W = this cycle's usable overlay, or — when
+  the market fetch failed and the cycle PRESERVES the prior same-window overlay (§6) — the committed
+  `analytical_features` at W (read back). Feed/as-of and preservation status remain visible.
 - **`divergence = H_e − H_m`** (signed; null when no H_m). +ve = chatter ahead of market (HYPE side);
   −ve = market ahead of chatter (STEALTH side).
 - **Quadrant = GLOBAL rolling median split**, with **per-axis populations** (the M3-review correction).
   Recomputed each cycle: the **`H_e` threshold** = median over the trailing `median_lookback_seconds` of
-  the **FULL board's** cells **+ this window's board** — so "WSB quiet" means *genuinely low attention*
-  and a top-N-hot ticker is never mislabelled STEALTH; the **`H_m` threshold** = median over the trailing
-  **overlaid** cells (only they have market data) **+ this window's overlaid cells** (W isn't committed
-  yet, so the current cells are added in-memory). **"Hot" = STRICTLY above** the threshold. CONFIRMED =
-  hot/hot, HYPE = hot/quiet, STEALTH = quiet/hot, QUIET = quiet/quiet. Rolling (not cross-sectional-per-
-  window, not per-ticker — matches the literal "rolling median" and avoids a per-ticker cold-start). A
-  quadrant is assigned only once the limiting (**overlaid**) population ≥ `min_quadrant_population` (else
-  null) so a 1–2-cell cold start can't produce a degenerate / flip-flopping split.
+  the **FULL board's** cells **+ this window's board**; the **`H_m` threshold** = median over trailing
+  **overlaid** cells **+ this window's usable overlay**. **"Hot" = STRICTLY above** the threshold.
+  CONFIRMED = hot/hot, HYPE = hot/quiet, STEALTH = quiet/hot, QUIET = quiet/quiet. A quadrant is assigned
+  only when the limiting population ≥ `min_quadrant_population` **and the row has at least
+  `min_row_authors` distinct authors**. Thin rows retain H_e/rank but carry a null quadrant; population
+  size cannot make one comment into "CONFIRMED".
   > **Earlier draft (superseded):** both thresholds over the *overlaid* population. The M3 review (gemini/
   > codex/qwen/deepseek) showed that splitting H_e over the top-N-gated set mislabels genuinely-hot tickers
   > as STEALTH (median of "the hottest" ⇒ half the hottest are "quiet"). Fixed to the full-board H_e
@@ -414,28 +438,24 @@ Code: `analytics.ts` (pure), `pipeline.buildSignals` (orchestration), `db.ts` re
   **k>0 ⇒ WSB attention LEADS market action** → `k·window_seconds/3600` hours. **Null** unless some lag has
   ≥ `min_pairs` overlapping pairs AND peak correlation ≥ a **sample-size-scaled bar** `max(min_corr,
   2/√pairs)` (≈ p<0.05 — small early samples need a much higher r, partly offsetting the multi-lag search).
-  - **Why off by default (M3 review, UNANIMOUS HIGH):** `H_m` is **day-to-date, not window-aligned**
-    (`ret`/`rvol` share the day's denominator — §5, architecture §5). So intraday `H_m(t)` is a near-daily
-    accumulation ramp, and an *hourly* cross-correlation against it measures that ramp, not a genuine
-    lead-lag — a category error tuning can't fix. Both series are also **within-window max-normalized**
-    (non-stationary), and `H_m` exists only where the ticker was top-N-gated (**selection on the very
-    signal being correlated**). The code + guards are kept (and tested) so the path is ready, but it
-    **persists null** until `H_m` is window-aligned (intraday bars land). Enabling it on day-to-date `H_m`
-    would publish a misleading "WSB leads by Xh" — exactly what "badge, don't predict" (§6.2) forbids.
-- **Out of scope (deferred):** screener-movers ∖ WSB-hot **STEALTH discovery** (tickers with no H_e, so
-  not (ticker, H_e, H_m) rows) — the inputs stay captured in `market_movers`; surfacing them is a later
-  query/web concern.
-- **Acknowledged (not changed):** `signals.h_m`/`divergence` are the **publish-time** H_m, written in the
-  **same atomic transaction** as `analytical_features` so the two are consistent in any committed state
-  (cycle-level staleness is surfaced via `cycle_runs.newest_utc`/`generated_at`, §6/§7, not per signals
-  row). `signals` uses a **plain upsert** (no delete-then-insert) — sound for live operation because the
-  board is monotonic within a window (mentions only accumulate); an admin re-run *after deleting* mentions
-  could leave stale rows, same as `empirical_features` (clear the window manually for such corrections).
+  - **Why off by default (M3 review, UNANIMOUS HIGH):** `H_m` remains **day-to-date, not
+    window-aligned**. Stable per-ticker normalization fixed cross-sectional rescaling, but an hourly
+    cross-correlation still measures a session accumulation path, not a genuine lead-lag. `H_m` also
+    exists only where the ticker was top-N-gated (selection on the attention signal). The code + guards
+    remain tested, but it **persists null** until intraday bars make `H_m` window-aligned.
+- **Market-wide screener context:** latest screeners are surfaced separately from WSB-native signals,
+  filtered to named assets with conservative price/volume floors. They never auto-create STEALTH rows.
+- **Publish/finalization consistency:** current-window empirical/signals are exact-replaced in one
+  transaction (removed content can shrink a board). W−1 is refreshed the same way while provisional;
+  every successful cycle repairs and finalizes all eligible rows through W−2. Longitudinal readers
+  require the explicit marker. Removed-content repair detects observations newer than `repaired_at`,
+  replays every stable window forward so momentum/baseline dependencies converge, and restamps repair
+  time/version, score version, total mentions, and quiet state.
 - **Persistence:** `signals_window_start_idx` on `window_start` (the web reads the latest-window board;
   the `(ticker, window_start)` PK can't serve that) — mirrors the empirical/analytical window indexes.
-- **Config** (`config.toml [signals]`): `median_lookback_seconds`, `min_quadrant_population`;
-  `[signals.lead_lag]` `enabled`, `lookback_seconds`, `max_lag_windows`, `min_pairs`, `min_corr`. Tunables,
-  not on any parity path.
+- **Config** (`config.toml [signals]`): `median_lookback_seconds`, `min_quadrant_population`,
+  `min_row_authors`; `[signals.lead_lag]` `enabled`, `lookback_seconds`, `max_lag_windows`, `min_pairs`,
+  `min_corr`. Tunables, not on any parity path.
 
 ## 12. Live shadow — replay-vs-oracle (slice 9, M4) — the cutover gate
 

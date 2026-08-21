@@ -2,8 +2,8 @@
  * Read-only, agent-facing analysis views (plays-product §5; plays-plan §8).
  *
  * These queries deliberately expose facts and provenance rather than conclusions. Ticker timelines use
- * only FINALIZED radar windows: a window is final when a later `cycle_runs` row exists, matching the
- * evidence builder's W−1 rule. Every multi-query response is one REPEATABLE READ / READ ONLY snapshot.
+ * only rows with explicit `cycle_runs.finalized_at`; publish completeness and longitudinal immutability
+ * are separate contracts. Every multi-query response is one REPEATABLE READ / READ ONLY snapshot.
  * Analysis never inherits the board's confidence/category hiding: all published plays are eligible.
  */
 import {
@@ -12,11 +12,12 @@ import {
   OUTCOME_TRACKING_CAPABILITY, WINDOW_SECONDS, analyticalFeatures, cycleRuns, empiricalFeatures,
   playInterpretations, plays, signals, tickerNames, type AnalysisCaveatCode,
 } from '@wsb/shared'
-import { and, asc, desc, eq, gte, isNull, lt, max, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, isNotNull, isNull, lt, max, sql } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { z } from 'zod'
 
 import { EvidenceSchema, PlayDetailSchema, readPlayDetail } from './plays'
+import { QuadrantSchema } from './schemas'
 
 export const MAX_DOSSIER_RANGE_SECONDS = 180 * 86_400
 export const DEFAULT_DOSSIER_RANGE_SECONDS = 7 * 86_400
@@ -87,12 +88,19 @@ const AnalysisMetaSchema = z.object({
 })
 
 export const HeatPointSchema = z.object({
+  scoringVersion: z.string().nullable(),
+  repairVersion: z.string().nullable(),
+  repairedAt: z.number().int().nullable(),
   windowStart: z.number().int(),
   generatedAt: z.number().int().nullable(),
   totalMentions: z.number().int().nullable(),
   quiet: z.boolean().nullable(),
   capped: z.boolean().nullable(),
   newestUtc: z.number().int().nullable(),
+  finalizedAt: z.number().int().nullable(),
+  newestPostUtc: z.number().int().nullable(),
+  newestCommentUtc: z.number().int().nullable(),
+  marketStatus: z.string().nullable(),
   mentions: z.number().int().nullable(),
   authors: z.number().int().nullable(),
   sov: z.number().nullable(),
@@ -105,12 +113,17 @@ export const HeatPointSchema = z.object({
   hE: z.number().nullable(),
   hM: z.number().nullable(),
   divergence: z.number().nullable(),
-  quadrant: z.string().nullable(),
+  quadrant: QuadrantSchema,
   rank: z.number().int().nullable(),
   rankDelta: z.number().int().nullable(),
   ret: z.number().nullable(),
   rvol: z.number().nullable(),
   rvolConf: z.string().nullable(),
+  retVolBaseline: z.number().nullable(),
+  volumeBaseline: z.number().nullable(),
+  profileSessions: z.number().int().nullable(),
+  marketFeed: z.string().nullable(),
+  marketAsOf: z.number().int().nullable(),
 })
 
 export const DossierPlaySchema = z.object({
@@ -158,6 +171,13 @@ export const TickerDossierSchema = z.object({
     excludedGlobal: z.object({ unknownCreatedUtc: z.number().int() }),
   }),
   outcomes: OutcomeCapabilitySchema,
+})
+
+export const TickerHeatHistorySchema = TickerDossierSchema.pick({
+  meta: true,
+  range: true,
+  ticker: true,
+  heat: true,
 })
 
 const OutcomeStatusSchema = z.enum([
@@ -209,7 +229,9 @@ export const AnalysisCatalogSchema = z.object({
   caveats: z.record(CaveatCodeSchema, z.string()),
 })
 
+export type HeatPoint = z.infer<typeof HeatPointSchema>
 export type TickerDossier = z.infer<typeof TickerDossierSchema>
+export type TickerHeatHistory = z.infer<typeof TickerHeatHistorySchema>
 export type PlayAudit = z.infer<typeof PlayAuditSchema>
 export type AnalysisCatalog = z.infer<typeof AnalysisCatalogSchema>
 
@@ -266,26 +288,30 @@ async function readFinalizedHeat(
   from: number,
   to: number,
 ): Promise<HeatRead> {
-  const [latest] = await db.select({ ws: max(cycleRuns.windowStart) }).from(cycleRuns)
-    .where(eq(cycleRuns.status, 'complete'))
-  const newest = latest?.ws ?? null
-  if (newest == null) return { asOfWindowStart: null, rows: [] }
+  const finalized = and(
+    eq(cycleRuns.status, 'complete'),
+    isNotNull(cycleRuns.finalizedAt),
+    gte(cycleRuns.windowStart, from),
+    lt(cycleRuns.windowStart, to),
+  )
   const [lastIncluded] = await db.select({ ws: max(cycleRuns.windowStart) }).from(cycleRuns)
-    .where(and(
-      eq(cycleRuns.status, 'complete'),
-      gte(cycleRuns.windowStart, from),
-      lt(cycleRuns.windowStart, Math.min(to, newest)),
-    ))
+    .where(finalized)
   const asOfWindowStart = lastIncluded?.ws ?? null
-
 
   const rows = await db.select({
     windowStart: cycleRuns.windowStart,
     generatedAt: cycleRuns.generatedAt,
+    repairVersion: cycleRuns.repairVersion,
+    repairedAt: cycleRuns.repairedAt,
+    scoringVersion: cycleRuns.scoringVersion,
+    finalizedAt: cycleRuns.finalizedAt,
     totalMentions: cycleRuns.totalMentions,
     quiet: cycleRuns.quiet,
     capped: cycleRuns.capped,
     newestUtc: cycleRuns.newestUtc,
+    newestPostUtc: cycleRuns.newestPostUtc,
+    newestCommentUtc: cycleRuns.newestCommentUtc,
+    marketStatus: cycleRuns.marketStatus,
     mentions: empiricalFeatures.mentions,
     authors: empiricalFeatures.authors,
     sov: empiricalFeatures.sov,
@@ -304,6 +330,11 @@ async function readFinalizedHeat(
     ret: analyticalFeatures.ret,
     rvol: analyticalFeatures.rvol,
     rvolConf: analyticalFeatures.rvolConf,
+    retVolBaseline: analyticalFeatures.retVolBaseline,
+    volumeBaseline: analyticalFeatures.volumeBaseline,
+    profileSessions: analyticalFeatures.profileSessions,
+    marketFeed: analyticalFeatures.feed,
+    marketAsOf: analyticalFeatures.asOf,
   }).from(cycleRuns)
     .leftJoin(empiricalFeatures, and(
       eq(empiricalFeatures.windowStart, cycleRuns.windowStart),
@@ -317,11 +348,7 @@ async function readFinalizedHeat(
       eq(analyticalFeatures.windowStart, cycleRuns.windowStart),
       eq(analyticalFeatures.ticker, ticker),
     ))
-    .where(and(
-      eq(cycleRuns.status, 'complete'),
-      gte(cycleRuns.windowStart, from),
-      lt(cycleRuns.windowStart, Math.min(to, newest)),
-    ))
+    .where(finalized)
     .orderBy(asc(cycleRuns.windowStart))
 
   return { asOfWindowStart, rows: HeatPointSchema.array().parse(rows) }
@@ -404,6 +431,30 @@ async function readCorpus(db: Db, from: number, to: number): Promise<{
     byStatus: rows.map((row) => ({ status: row.status, count: Number(row.count) })),
     excludedGlobal: { unknownCreatedUtc: Number(unknown?.count ?? 0) },
   }
+}
+
+/** Lightweight human-board history: finalized heat only, without play/corpus fan-out or agent slots. */
+export async function readTickerHeatHistory(
+  db: Db,
+  ticker: string,
+  range: { from: number; to: number },
+): Promise<TickerHeatHistory> {
+  return db.transaction(async (tx) => {
+    const snapshot = tx as unknown as Db
+    const [nameRow] = await snapshot.select({ name: tickerNames.name }).from(tickerNames)
+      .where(eq(tickerNames.symbol, ticker)).limit(1)
+    const heat = await readFinalizedHeat(snapshot, ticker, range.from, range.to)
+    const known = nameRow != null || heat.rows.some((point) =>
+      point.mentions != null || point.hE != null || point.hM != null || point.rank != null
+      || point.ret != null || point.rvol != null,
+    )
+    return TickerHeatHistorySchema.parse({
+      meta: meta(heat.asOfWindowStart),
+      range: { ...range, semantics: '[from,to)' },
+      ticker: { symbol: ticker, name: nameRow?.name ?? null, known },
+      heat: heat.rows,
+    })
+  }, { isolationLevel: 'repeatable read', accessMode: 'read only' })
 }
 
 /** Ticker facts in one snapshot. `range` selects play anchors and finalized radar window starts. */

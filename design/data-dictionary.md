@@ -444,14 +444,13 @@ dimension (degraded, not broken).
 ### 10.5 Divergence & quadrant *(Phase 3)*
 ```
 divergence(T,W) = H_e − H_m  (only when BOTH present, else null)   ∈ [−1, +1]
-quadrant(T,W)   = f(H_e vs median(H_e), H_m vs median(H_m))         (a missing heat ⇒ "quiet" on that axis)
-                  → CONFIRMED | HYPE | STEALTH | QUIET   (signal-framework §6.1)
+quadrant(T,W)   = f(H_e vs median(H_e), H_m vs median(H_m))
+                  → CONFIRMED | HYPE | STEALTH | QUIET
 ```
-Split each heat at its **rolling median**. A **STEALTH** cell comes from a `screener_mover`
-(`coverage_scope`) with **no `empirical_feature` row** → `H_e` is `null`, treated as WSB-quiet, so the
-cell still earns a `stealth` badge even though `divergence` is `null` (you can't subtract an unknown).
-STEALTH candidates = screener movers ∖ WSB-hot (liquidity-filtered). Reports **association and divergence
-— never prediction** (reflexivity).
+Split each heat at its rolling median only when both axes have a populated rolling sample and the
+ticker row clears the distinct-author support floor. Otherwise the quadrant is `null`; missing market
+evidence is never fabricated as quiet. Market-wide screener rows remain a separate, liquidity-filtered
+context table. They do not create empirical cells, divergence, quadrants, or automatic STEALTH labels.
 
 ### 10.6 Lead-lag *(Phase 3)*
 ```

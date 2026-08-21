@@ -1,5 +1,5 @@
 import {
-  analyticalFeatures, empiricalFeatures, signals as signalsTable,
+  analyticalFeatures, cycleRuns, empiricalFeatures, signals as signalsTable,
   type AnalyticalFeatureInsert, type EmpiricalFeatureInsert,
 } from '@wsb/shared'
 import { eq } from 'drizzle-orm'
@@ -8,7 +8,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { EmpiricalFeature } from '../src/aggregate'
 import type { SignalsConfig } from '../src/analytics'
 import { publishCycle } from '../src/db'
-import { buildSignals } from '../src/pipeline'
+import { buildSignals, repairFinalizedSignalDrift } from '../src/pipeline'
 import { startPg, type PgHarness } from './helpers/pg'
 
 // Slice 7 integration (NEW, no oracle): drive buildSignals on real Postgres — exercising the empirical⋈
@@ -20,6 +20,7 @@ const WS = 3600
 const cfg: SignalsConfig = {
   medianLookbackSeconds: 7 * 24 * 3600,
   minQuadrantPopulation: 2, // low so the small seeded worlds still get quadrants
+  minRowAuthors: 1,
   leadLag: { enabled: false, lookbackSeconds: 7 * 24 * 3600, maxLagWindows: 6, minPairs: 6, minCorr: 0.3 },
 }
 
@@ -32,6 +33,12 @@ const ana = (ticker: string, hM: number, windowStart = W): AnalyticalFeatureInse
   ({ ticker, windowStart, ret: null, rvol: null, rvolConf: 'low', hM })
 const emp = (ticker: string, windowStart: number, hE: number): EmpiricalFeatureInsert =>
   ({ ticker, windowStart, mentions: 1, authors: 1, sov: hE, hE })
+const meta = (totalMentions: number) => ({
+  windowStart: W, scoringVersion: 'test-heat', generatedAt: W + 1,
+  totalMentions, quiet: false, capped: false,
+  newestUtc: W, newestPostUtc: W, newestCommentUtc: W,
+  marketStatus: 'fresh' as const, marketRequested: 4, marketUsable: 4, marketAsOf: W,
+})
 
 let pg: PgHarness
 beforeAll(async () => { pg = await startPg() })
@@ -81,7 +88,7 @@ describe('buildSignals — divergence / quadrant / rank', () => {
 
     // persists atomically through publishCycle
     await publishCycle(pg.db, {
-      meta: { windowStart: W, generatedAt: W + 1, totalMentions: 5, quiet: false, capped: false, newestUtc: W },
+      meta: meta(5),
       features: rows, signals: out,
     })
     const stored = await pg.db.select().from(signalsTable).where(eq(signalsTable.windowStart, W))
@@ -104,11 +111,81 @@ describe('buildSignals — divergence / quadrant / rank', () => {
 
     // and it persists atomically
     await publishCycle(pg.db, {
-      meta: { windowStart: W, generatedAt: W + 1, totalMentions: 2, quiet: false, capped: false, newestUtc: W },
+      meta: meta(2),
       features: rows, signals: out,
     })
     const stored = await pg.db.select().from(signalsTable).where(eq(signalsTable.windowStart, W))
     expect(stored.find((s) => s.ticker === 'A')!.quadrant).toBe('CONFIRMED')
+  })
+
+  it('withholds row-level quadrants below the distinct-author floor without hiding divergence', async () => {
+    const supportedCfg = { ...cfg, minRowAuthors: 3 }
+    const rows = [
+      ef('THIN', 0.9, { authors: 1 }),
+      ef('SUPPORTED', 0.2, { authors: 3 }),
+    ]
+    const fresh = [ana('THIN', 0.9), ana('SUPPORTED', 0.2)]
+    const by = new Map((await buildSignals(pg.db, W, WS, supportedCfg, rows, fresh))
+      .map((s) => [s.ticker, s]))
+
+    expect(by.get('THIN')!.divergence).toBe(0)
+    expect(by.get('THIN')!.quadrant).toBeNull()
+    expect(by.get('SUPPORTED')!.quadrant).toBe('QUIET')
+  })
+})
+
+describe('explicit heat finalization repair', () => {
+  it('repairs stable signals before finalizing and leaves W−1 provisional', async () => {
+    const stable = W - 2 * WS
+    const provisional = W - WS
+    await pg.db.insert(cycleRuns).values([
+      { windowStart: stable, generatedAt: stable + 1, status: 'complete' },
+      { windowStart: provisional, generatedAt: provisional + 1, status: 'complete' },
+    ])
+    await pg.db.insert(empiricalFeatures).values([
+      { ticker: 'NVDA', windowStart: stable, mentions: 4, authors: 4, sov: 1, netDir: 0, ddCount: 0, baselineStatus: 'cold', hE: 0.8 },
+      { ticker: 'NVDA', windowStart: provisional, mentions: 5, authors: 5, sov: 1, netDir: 0, ddCount: 0, baselineStatus: 'cold', hE: 0.9 },
+    ])
+    await pg.db.insert(signalsTable).values({
+      ticker: 'NVDA', windowStart: stable, hE: 0.1, rank: 99,
+    })
+
+    expect(await repairFinalizedSignalDrift(pg.db, W, WS, cfg, {
+      at: W + 10, scoringVersion: 'test-score', repairVersion: 'test-repair',
+    })).toBe(1)
+
+    const [stableCycle] = await pg.db.select().from(cycleRuns)
+      .where(eq(cycleRuns.windowStart, stable))
+    const [provisionalCycle] = await pg.db.select().from(cycleRuns)
+      .where(eq(cycleRuns.windowStart, provisional))
+    const [repaired] = await pg.db.select().from(signalsTable)
+      .where(eq(signalsTable.windowStart, stable))
+    expect(stableCycle).toMatchObject({
+      finalizedAt: W + 10,
+      repairedAt: W + 10,
+      scoringVersion: 'test-score',
+      repairVersion: 'test-repair',
+    })
+    expect(provisionalCycle!.finalizedAt).toBeNull()
+    expect(repaired).toMatchObject({ hE: 0.8, rank: 1 })
+  })
+
+  it('leaves malformed legacy rows unfinalized without aborting catch-up', async () => {
+    const stable = W - 3 * WS
+    await pg.db.insert(cycleRuns).values({
+      windowStart: stable, generatedAt: stable + 1, status: 'complete',
+    })
+    await pg.db.insert(empiricalFeatures).values({
+      ticker: 'BROKEN', windowStart: stable, mentions: 1, authors: 1, sov: 1,
+      netDir: 0, ddCount: 0, baselineStatus: 'cold', hE: null,
+    })
+
+    await expect(repairFinalizedSignalDrift(pg.db, W, WS, cfg, {
+      at: W + 10, scoringVersion: 'test-score', repairVersion: 'test-repair',
+    })).resolves.toBe(0)
+    const [cycle] = await pg.db.select().from(cycleRuns)
+      .where(eq(cycleRuns.windowStart, stable))
+    expect(cycle!.finalizedAt).toBeNull()
   })
 })
 

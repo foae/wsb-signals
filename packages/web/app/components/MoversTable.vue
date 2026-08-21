@@ -50,12 +50,12 @@ function fmtVolume(v: number | null | undefined): string {
   <section v-if="props.movers.length > 0" class="surface-panel rounded-2xl p-5 sm:p-6">
     <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between mb-2">
       <h2 class="text-lg font-black text-highlighted">
-        Market movers
+        Market-wide context
       </h2>
       <span v-if="captureLabel" class="text-xs text-muted">{{ captureLabel }}</span>
     </div>
     <p class="text-sm leading-relaxed text-muted mb-4">
-      Free market-wide screener snapshot: active names, gainers, and losers that WSB may not have noticed yet.
+      Separate from the WSB ranking: named market leaders only, with a conservative price/volume filter.
     </p>
     <div class="overflow-x-auto rounded-xl border border-default">
       <UTable :data="props.movers" :columns="columns">

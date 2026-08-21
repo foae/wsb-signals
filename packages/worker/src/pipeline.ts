@@ -1,7 +1,6 @@
 /**
- * Pipeline glue — TS port of `aggregate.run_aggregation` + `analytical.overlay_market` (porting-spec §7).
- * These tie the pure scorers (aggregate.ts, market.ts) to the Postgres reads/writes. Persistence of the
- * CURRENT window is deferred to the atomic `publishCycle` (db.ts); only the W−1 finalize persists here.
+ * Pipeline glue — the pure scorers plus Postgres orchestration. Current W publishes atomically; W−1
+ * refreshes empirical features and dependent signals together so longitudinal rows never drift.
  */
 import type { AnalyticalFeatureInsert, MarketMoverInsert, SignalInsert } from '@wsb/shared'
 
@@ -10,12 +9,16 @@ import {
   classifyQuadrant, divergence, leadLagHours, median, type SignalsConfig,
 } from './analytics'
 import {
-  readAnalyticalHmAt, readBoardHeCells, readFeatureHistory, readFeaturesAt, readHeRanksAt,
-  readMentionsInWindow, readOverlaidCells, readSignalSeries, readSovRanksAt, upsertEmpiricalFeatures,
-  type Db,
+  markWindowFinalized, markWindowRepaired, readAnalyticalHmAt, readBoardHeCells,
+  readCompleteWindowsInRange, readEarliestRemovedWindowNeedingRepair, readEmpiricalBoardAt,
+  readFeatureHistory, readFeaturesAt, readHeRanksAt, readMentionsInWindow, readOverlaidCells,
+  readSignalSeries, readSovRanksAt, readUnfinalizedWindows, replaceHeatWindow,
+  upsertEmpiricalFeatures, type Db, type HeatWindowStamp,
 } from './db'
 import { log } from './logger'
-import { computeAnalytical, type MarketData, type MarketWeights } from './market'
+import {
+  computeAnalytical, type MarketData, type MarketNormalization, type MarketProfile, type MarketWeights,
+} from './market'
 
 export interface AggregateConfig {
   windowSeconds: number
@@ -31,6 +34,15 @@ export interface MarketConfig {
   topN: number
   screenerTop: number
   weights: MarketWeights
+  normalization: MarketNormalization
+}
+
+export interface MarketOverlayResult {
+  analytical: AnalyticalFeatureInsert[]
+  movers: MarketMoverInsert[]
+  requested: number
+  usable: number
+  asOf: number | null
 }
 
 /**
@@ -71,9 +83,8 @@ export async function runAggregation(
   }
   const rows = aggregateWindow(inputs)
 
-  // The W−1 finalize persists in ONE transaction so a crash can't leave the prior window's baseline
-  // half-written across the ≤1000-row chunks. (This doesn't defeat the self-heal: a rolled-back W−1 is
-  // simply re-aggregated, idempotently, next cycle.)
+  // Optional persistence remains for isolated callers/tests. The live loop uses `persist:false` and
+  // commits empirical features with their dependent signals in `refreshPriorWindow`/`publishCycle`.
   if (opts.persist && rows.length) await db.transaction((tx) => upsertEmpiricalFeatures(tx, rows))
   return rows
 }
@@ -92,10 +103,20 @@ export async function overlayMarket(
   rows: readonly EmpiricalFeature[],
   cfg: MarketConfig,
   now: number,
-): Promise<{ analytical: AnalyticalFeatureInsert[]; movers: MarketMoverInsert[] }> {
-  const top = rows.slice(0, cfg.topN).map((r) => r.ticker)
-  const snaps = await market.snapshots(top, now)
-  const analytical = computeAnalytical(snaps.values(), windowStart, cfg.weights)
+): Promise<MarketOverlayResult> {
+  const top = rows.slice(0, cfg.topN).map((row) => row.ticker)
+  const snaps = await market.snapshots(top, now) // may throw — loop owns never-kill
+  let profiles = new Map<string, MarketProfile>()
+  try {
+    profiles = await market.profiles?.(top, now) ?? new Map()
+  } catch (error) {
+    log.warn({ err: String(error) }, 'market profiles failed — using conservative snapshot baselines')
+  }
+  const analytical = computeAnalytical(snaps.values(), windowStart, cfg.weights, profiles, cfg.normalization)
+  const usableRows = analytical.filter((a) => a.hM != null)
+  const asOf = usableRows.length > 0 && usableRows.every((a) => a.asOf != null)
+    ? Math.min(...usableRows.map((a) => a.asOf!))
+    : null
 
   let movers: MarketMoverInsert[] = []
   try {
@@ -103,7 +124,7 @@ export async function overlayMarket(
   } catch (e) {
     log.warn({ err: String(e) }, 'screeners failed — keeping analytical, skipping movers this cycle')
   }
-  return { analytical, movers }
+  return { analytical, movers, requested: top.length, usable: usableRows.length, asOf }
 }
 
 /**
@@ -175,10 +196,101 @@ export async function buildSignals(
       hE: r.hE,
       hM,
       divergence: hM != null ? divergence(r.hE, hM) : null,
-      quadrant: hM != null && canQuadrant ? classifyQuadrant(r.hE, hM, thrHe, thrHm) : null,
+      quadrant: hM != null && canQuadrant && r.authors >= cfg.minRowAuthors
+        ? classifyQuadrant(r.hE, hM, thrHe, thrHm)
+        : null,
       rank: i + 1,
       rankDelta: prior != null ? prior - (i + 1) : null,
       leadLagHrs: hM != null ? (leadLag.get(r.ticker) ?? null) : null,
     }
   })
+}
+
+
+/** Re-aggregate provisional W−1 and commit its empirical rows and dependent signals atomically. */
+export async function refreshPriorWindow(
+  db: Db,
+  windowStart: number,
+  windowSeconds: number,
+  aggregateCfg: AggregateConfig,
+  signalsCfg: SignalsConfig,
+): Promise<void> {
+  const rows = await runAggregation(db, windowStart, aggregateCfg, { persist: false })
+  const signalRows = await buildSignals(db, windowStart, windowSeconds, signalsCfg, rows, undefined)
+  await db.transaction((tx) => replaceHeatWindow(tx, windowStart, rows, signalRows))
+}
+
+export interface HeatRepairStamp extends HeatWindowStamp {
+  minWindowMentions: number
+}
+
+/** Rebuild newly removal-affected history forward so momentum/baseline dependencies also converge. */
+export async function repairRemovedHeatHistory(
+  db: Db,
+  currentWindowStart: number,
+  windowSeconds: number,
+  aggregateCfg: AggregateConfig,
+  signalsCfg: SignalsConfig,
+  stamp: HeatRepairStamp,
+): Promise<number> {
+  const through = currentWindowStart - 2 * windowSeconds
+  const earliest = await readEarliestRemovedWindowNeedingRepair(
+    db, windowSeconds, through, stamp.repairVersion,
+  )
+  if (earliest == null) return 0
+  const windows = await readCompleteWindowsInRange(db, earliest, through)
+  let repaired = 0
+  for (const ws of windows) {
+    try {
+      const rows = await runAggregation(db, ws, aggregateCfg, { persist: false })
+      const signalRows = await buildSignals(db, ws, windowSeconds, signalsCfg, rows, undefined)
+      const totalMentions = rows.reduce((sum, row) => sum + row.mentions, 0)
+      await db.transaction(async (tx) => {
+        await replaceHeatWindow(tx, ws, rows, signalRows)
+        await markWindowFinalized(tx, ws, stamp)
+        await markWindowRepaired(tx, ws, {
+          ...stamp,
+          totalMentions,
+          quiet: totalMentions < stamp.minWindowMentions,
+        })
+      })
+      repaired++
+    } catch (error) {
+      // Momentum and baselines flow forward: continuing past a broken window would certify stale
+      // downstream derivatives. Leave this and later rows unstamped, but let the worker boot.
+      log.error({ windowStart: ws, err: String(error) },
+        'removed-content heat repair stopped at malformed window')
+      break
+    }
+  }
+  if (repaired) log.info({ windows: repaired }, 'repaired heat history after source removals')
+  return repaired
+}
+
+/** Rebuild and finalize every stable pre-contract/gap window, oldest first. Safe to run every cycle. */
+export async function repairFinalizedSignalDrift(
+  db: Db,
+  currentWindowStart: number,
+  windowSeconds: number,
+  signalsCfg: SignalsConfig,
+  stamp: HeatWindowStamp,
+): Promise<number> {
+  const windows = await readUnfinalizedWindows(db, currentWindowStart - 2 * windowSeconds)
+  let finalized = 0
+  for (const ws of windows) {
+    try {
+      const rows = await readEmpiricalBoardAt(db, ws)
+      const signalRows = await buildSignals(db, ws, windowSeconds, signalsCfg, rows, undefined)
+      await db.transaction(async (tx) => {
+        await replaceHeatWindow(tx, ws, rows, signalRows)
+        await markWindowFinalized(tx, ws, stamp)
+      })
+      finalized++
+    } catch (error) {
+      log.error({ windowStart: ws, err: String(error) },
+        'stable heat window malformed — leaving it unfinalized')
+    }
+  }
+  if (finalized) log.info({ windows: finalized }, 'repaired and finalized stable heat windows')
+  return finalized
 }

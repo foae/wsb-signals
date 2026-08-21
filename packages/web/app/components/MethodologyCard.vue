@@ -18,8 +18,8 @@ const empiricalGlossary = [
 
 const marketGlossary = [
   { column: 'ret', what: 'Today\'s price return (day-to-date, not window-aligned).', formula: '(latest price − previous close) ÷ previous close.', range: 'typically −20%…+20%', lowHigh: 'Down → up on the day.' },
-  { column: 'rvol', what: 'Relative volume — today\'s volume vs a normal day.', formula: 'day volume ÷ previous full-day volume. Low-confidence on free IEX; structurally small early in the session.', range: '≥ 0  (×1 = normal)', lowHigh: '<1 quiet → >1 unusually active. The market twin of sov/z.' },
-  { column: 'h_m', what: 'Market Heat — "how hard the market is actually moving it".', formula: 'Weighted blend of max-normed {|ret|, rvol}. Put/call + IV join with the options increment.', range: '≈ 0–1', lowHigh: 'Calm → moving hard. Only filled for the top-N WSB-hot tickers.' },
+  { column: 'rvol', what: 'Session-adjusted relative volume.', formula: 'cumulative volume ÷ expected cumulative volume on a generic 9:30–16:00 ET curve, using the ticker\'s trailing average daily volume.', range: '≥ 0  (×1 = normal pace)', lowHigh: '<1 quiet → >1 unusually active. Low-confidence on free IEX; early-close sessions are not calendar-adjusted.' },
+  { column: 'h_m', what: 'Market Heat — "how hard the market is actually moving it".', formula: 'Weighted blend of |return| ÷ trailing daily volatility and session-adjusted rvol, each capped on a fixed scale. Never normalized against the current top-N.', range: '0–1', lowHigh: 'Calm → moving hard. Only filled when timestamped evidence exists.' },
 ]
 </script>
 
@@ -47,13 +47,19 @@ const marketGlossary = [
           so a ticker's <em>slice</em> of the chatter is the honest signal.
         </li>
         <li>
-          <strong>Components are max-normalized within the window</strong> (each scaled by the window's max, negatives
-          floored to 0), then weighted-blended — so they share a comparable [0, 1] scale before mixing.
+          <strong>WSB Heat components are max-normalized within the window</strong> (each scaled by
+          the window's max, negatives floored to 0), then weighted-blended. Market Heat uses stable
+          per-ticker baselines instead, so another ticker entering the top-N cannot rescale it.
         </li>
         <li>
           <strong>Support shrink:</strong> <code>H_e</code> is multiplied by
           <code>min(1, authors / min_authors_full)</code>, so a lone off-hours comment can't
           max-norm its way to the top of the board.
+        </li>
+        <li>
+          <strong>The current hour is provisional.</strong> It is republished as overlapping polls add
+          coverage; after one full lateness window, empirical rows and their dependent signals are
+          finalized together for historical reads.
         </li>
         <li>
           <strong>"—" means undefined this window</strong> — e.g. <code>velocity</code>/<code>accel</code>
@@ -62,8 +68,13 @@ const marketGlossary = [
         </li>
         <li>
           <strong>Market columns are day-to-date, not window-aligned</strong>
-          (<code>H_m</code> answers "hot <em>today</em>", not "hot <em>this hour</em>");
-          <code>rvol</code> is low-confidence on the free IEX feed.
+          (<code>H_m</code> answers "hot <em>today</em>", not "hot <em>this hour</em>").
+          The header reports the oldest source observation used; <code>H_m</code> stays blank when
+          neither return nor relative volume is available, and <code>rvol</code> is low-confidence on IEX.
+        </li>
+        <li>
+          <strong>Quadrants require support:</strong> enough overlaid rows to define the split and at
+          least three distinct WSB authors on the individual ticker row.
         </li>
         <li>
           <strong>This measures the attention↔market relationship</strong> — it doesn't predict it.
@@ -146,9 +157,9 @@ const marketGlossary = [
       </div>
 
       <p class="text-xs text-muted mt-3">
-        <strong>Market movers table (below)</strong> is the free market-wide screener —
-        <code>kind</code> is <code>active</code> / <code>gainer</code> / <code>loser</code>.
-        These are STEALTH candidates: names the market is moving that WSB may not have noticed yet.
+        <strong>Market-wide context (below)</strong> is a separate, filtered free-market screener.
+        <code>kind</code> is <code>active</code> / <code>gainer</code> / <code>loser</code>; these rows
+        are context only and are never promoted to WSB heat or STEALTH labels.
       </p>
     </div>
   </UCard>

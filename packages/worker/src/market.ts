@@ -1,30 +1,15 @@
 /**
- * Alpaca market funnel — TS port of the frozen v0.0.1 `wsb_signals/market/alpaca.py` +
- * `wsb_signals/analytical.py` (porting-spec §5). The free IEX overlay: per-ticker stock snapshots →
- * `ret`/`rvol` → composite Market Heat `H_m`, plus the market-wide screeners (most-actives + movers).
+ * Alpaca market funnel. Stock snapshots provide current price/volume; cached daily history supplies
+ * per-ticker baselines for stable Market Heat (`H_m`). Market scoring is intentionally not normalized
+ * against whichever tickers happen to occupy today's top-N WSB list.
  *
- * Parity-critical semantics reproduced here:
- *  - snapshots chunk by **100** symbols; a non-200 chunk is WARNED and SKIPPED (best-effort partial) —
- *    other chunks still run. `latestTrade`/`dailyBar`/`prevDailyBar` each default to `{}` (missing field
- *    → null). Insertion order is preserved (a Map), because `compute_analytical` iterates `.values()`.
- *  - screeners: most-actives then movers, each a separate best-effort call; rank is **1-based per kind**
- *    and counts EVERY entry (a symbol-less entry consumes its rank → ranks can have gaps), matching
- *    Python `enumerate(..., 1)` + `if symbol`.
- *  - `compute_analytical`: `ret = (price-prevClose)/prevClose` only when `price != null AND prevClose`
- *    truthy (0/None prevClose → null, the div-by-zero guard); `rvol = dayVolume/prevVolume` likewise;
- *    `|ret|` and `rvol` are max-normed over the hot list (None→0), `H_m = w.ret·|ret|ₙ + w.rvol·rvolₙ`
- *    in that exact op order; `rvolConf` is always `"low"` (thin IEX feed).
- *
- * **Best-effort never-kill lives in the LOOP (slice 6), not here** — exactly as the oracle: `snapshots`/
- * `screeners` swallow non-200s but let a network error PROPAGATE; `cmd_run` wraps the overlay in
- * try/catch so the cycle survives (porting-spec §7). Don't add a network try/catch here — it would move
- * the guard and diverge from the oracle's structure.
+ * Snapshot and screener HTTP failures remain best-effort; network errors propagate to the loop's
+ * never-kill guard. True source timestamps come from Alpaca's latest trade/minute bar, never fetch time.
  */
 import { fetch, type Response } from 'undici'
 
 import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
 
-import { maxNorm } from './aggregate'
 import { log } from './logger'
 
 const NAME = 'alpaca'
@@ -39,7 +24,8 @@ export interface StockSnapshot {
   prevClose: number | null
   prevVolume: number | null
   feed: string
-  asOf: number
+  priceAsOf: number | null
+  volumeAsOf: number | null
 }
 
 /** H_m blend weights (`config.toml [market.weights]`); absent keys default to 0 (Python `w.get(k, 0)`). */
@@ -48,6 +34,20 @@ export interface MarketWeights {
   rvol?: number
   pcr?: number
   iv?: number
+}
+
+export interface MarketNormalization {
+  retSigmaCap: number
+  retVolFloor: number
+  rvolCap: number
+  minProfileSessions: number
+  minSessionMinutes: number
+}
+
+export interface MarketProfile {
+  dailyVolatility: number | null
+  averageVolume: number | null
+  sessions: number
 }
 
 /** One daily bar (plays evidence, P3). `ts` = bar timestamp, epoch seconds. */
@@ -61,44 +61,147 @@ export interface MarketData {
   readonly name: string
   snapshots(tickers: readonly string[], now?: number): Promise<Map<string, StockSnapshot>>
   screeners(top?: number, now?: number): Promise<MarketMoverInsert[]>
-  /** Daily bars for ONE symbol over [startUtc, endUtc] — the plays evidence's post-date returns
-   *  (P3; P5 grows this interface further with calendar + option snapshots). OPTIONAL so radar-only
-   *  fakes/impls stay untouched; evidence degrades to "unavailable" without it. Unlike the radar
-   *  methods above, errors PROPAGATE — the plays caller degrades, it has no cycle to protect. */
+  /** Cached per-ticker daily baselines for stable radar H_m. Optional implementations fall back to
+   *  the snapshot's previous session plus a conservative return-volatility floor. */
+  profiles?(tickers: readonly string[], now?: number): Promise<Map<string, MarketProfile>>
+  /** Daily bars for ONE symbol over [startUtc, endUtc] — the plays evidence's post-date returns.
+   *  Errors propagate; the plays caller degrades because it has no radar cycle to protect. */
   dailyBars?(symbol: string, startUtc: number, endUtc: number): Promise<DailyBar[]>
   close(): Promise<void>
 }
 
-// --- H_m scoring (pure — `analytical.compute_analytical`) -------------------------------------------
+// --- H_m scoring ----------------------------------------------------------------------------------
 
-/**
- * Compute the analytical (market) features + `H_m` over the hot-list snapshots. Pure; the B4 market
- * parity target. Iterates snapshots in insertion order (`.values()`), so callers must preserve order.
- */
+export const DEFAULT_MARKET_NORMALIZATION: MarketNormalization = {
+  retSigmaCap: 3,
+  retVolFloor: 0.005,
+  rvolCap: 3,
+  minProfileSessions: 10,
+  minSessionMinutes: 30,
+}
+const EMPTY_PROFILES: ReadonlyMap<string, MarketProfile> = new Map()
+const NY_FORMAT = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/New_York',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  weekday: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+})
+const VOLUME_CURVE: ReadonlyArray<readonly [number, number]> = [
+  [0, 0], [30, 0.15], [60, 0.25], [120, 0.40], [180, 0.52],
+  [240, 0.65], [300, 0.78], [360, 0.90], [390, 1],
+]
+
+function nyParts(epoch: number): { date: string; weekday: string; minute: number } {
+  const parts = Object.fromEntries(NY_FORMAT.formatToParts(new Date(epoch * 1000))
+    .map((part) => [part.type, part.value]))
+  return {
+    date: `${parts.year}-${parts.month}-${parts.day}`,
+    weekday: parts.weekday ?? '',
+    minute: Number(parts.hour) * 60 + Number(parts.minute),
+  }
+}
+
+/** Generic regular-session cumulative-volume curve; null before the open, 1 after the close/weekends. */
+export function sessionVolumeFraction(asOf: number, minSessionMinutes = 30): number | null {
+  const p = nyParts(asOf)
+  if (p.weekday === 'Sat' || p.weekday === 'Sun') return 1
+  const elapsed = p.minute - 9 * 60 - 30
+  if (elapsed < 0) return null
+  if (elapsed >= 390) return 1
+  const bounded = Math.max(elapsed, minSessionMinutes)
+  for (let i = 1; i < VOLUME_CURVE.length; i++) {
+    const [x1, y1] = VOLUME_CURVE[i]!
+    if (bounded > x1) continue
+    const [x0, y0] = VOLUME_CURVE[i - 1]!
+    return y0 + (y1 - y0) * (bounded - x0) / (x1 - x0)
+  }
+  return 1
+}
+
+/** Build a 20-session per-ticker baseline, excluding the current New York session. */
+export function buildMarketProfile(
+  bars: readonly DailyBar[],
+  now: number,
+  lookbackSessions = 20,
+): MarketProfile {
+  const currentDate = nyParts(now).date
+  const completed = [...bars]
+    .filter((bar) => nyParts(bar.ts).date !== currentDate)
+    .sort((a, b) => a.ts - b.ts)
+    .slice(-lookbackSessions)
+  const closes = completed.flatMap((bar) => bar.close != null && bar.close > 0 ? [bar.close] : [])
+  const volumes = completed.flatMap((bar) => bar.volume != null && bar.volume > 0 ? [bar.volume] : [])
+  const returns = closes.slice(1).map((close, i) => (close - closes[i]!) / closes[i]!)
+  const mean = returns.length ? returns.reduce((sum, value) => sum + value, 0) / returns.length : 0
+  const variance = returns.length > 1
+    ? returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / (returns.length - 1)
+    : null
+  return {
+    dailyVolatility: variance == null ? null : Math.sqrt(variance),
+    averageVolume: volumes.length ? volumes.reduce((sum, value) => sum + value, 0) / volumes.length : null,
+    sessions: Math.min(closes.length, volumes.length),
+  }
+}
+
+/** Stable per-ticker market heat: volatility-scaled return + session-adjusted relative volume. */
 export function computeAnalytical(
   snapshots: Iterable<StockSnapshot>,
   windowStart: number,
   weights: MarketWeights,
+  profiles: ReadonlyMap<string, MarketProfile> = EMPTY_PROFILES,
+  normalization: MarketNormalization = DEFAULT_MARKET_NORMALIZATION,
 ): AnalyticalFeatureInsert[] {
-  const items = [...snapshots]
-  // `prevClose`/`prevVolume` use TRUTHINESS (0 or null → null) — the div-by-zero guard; `price`/
-  // `dayVolume` use an explicit null check (a genuine 0 is a valid numerator).
-  const rets = items.map((s) => (s.price != null && s.prevClose ? (s.price - s.prevClose) / s.prevClose : null))
-  const rvols = items.map((s) => (s.dayVolume != null && s.prevVolume ? s.dayVolume / s.prevVolume : null))
+  const wRet = Math.max(0, weights.ret ?? 0)
+  const wRvol = Math.max(0, weights.rvol ?? 0)
 
-  const absretN = maxNorm(rets.map((r) => (r != null ? Math.abs(r) : 0)))
-  const rvolN = maxNorm(rvols.map((v) => (v != null ? v : 0)))
-  const wRet = weights.ret ?? 0
-  const wRvol = weights.rvol ?? 0
-
-  return items.map((s, i) => ({
-    ticker: s.ticker,
-    windowStart,
-    ret: rets[i]!,
-    rvol: rvols[i]!,
-    rvolConf: 'low',
-    hM: wRet * absretN[i]! + wRvol * rvolN[i]!,
-  }))
+  return [...snapshots].map((s) => {
+    const profile = profiles.get(s.ticker)
+    const supported = profile != null && profile.sessions >= normalization.minProfileSessions
+    const ret = s.price != null && s.prevClose ? (s.price - s.prevClose) / s.prevClose : null
+    const retVolBaseline = supported && profile.dailyVolatility != null
+      ? Math.max(profile.dailyVolatility, normalization.retVolFloor)
+      : normalization.retVolFloor
+    const volumeBaseline = supported && profile.averageVolume != null
+      ? profile.averageVolume
+      : (s.prevVolume || null)
+    const volumeFraction = s.volumeAsOf == null
+      ? null
+      : sessionVolumeFraction(s.volumeAsOf, normalization.minSessionMinutes)
+    const rvol = s.dayVolume != null && volumeBaseline && volumeFraction
+      ? s.dayVolume / (volumeBaseline * volumeFraction)
+      : null
+    const retScore = ret != null && s.priceAsOf != null && wRet > 0
+      ? Math.min(1, Math.abs(ret) / retVolBaseline / normalization.retSigmaCap)
+      : null
+    const rvolScore = rvol != null && s.volumeAsOf != null && wRvol > 0
+      ? Math.min(1, rvol / normalization.rvolCap)
+      : null
+    const activeWeight = (retScore == null ? 0 : wRet) + (rvolScore == null ? 0 : wRvol)
+    const hM = activeWeight > 0
+      ? ((retScore ?? 0) * wRet + (rvolScore ?? 0) * wRvol) / activeWeight
+      : null
+    const evidenceTimes = [
+      ...(retScore != null ? [s.priceAsOf!] : []),
+      ...(rvolScore != null ? [s.volumeAsOf!] : []),
+    ]
+    return {
+      ticker: s.ticker,
+      windowStart,
+      ret,
+      rvol,
+      rvolConf: s.feed.toLowerCase() === 'iex' ? 'low' : 'high',
+      feed: s.feed,
+      asOf: evidenceTimes.length ? Math.min(...evidenceTimes) : null,
+      retVolBaseline,
+      volumeBaseline,
+      profileSessions: profile?.sessions ?? 0,
+      hM,
+    }
+  })
 }
 
 // --- the client ------------------------------------------------------------------------------------
@@ -112,9 +215,16 @@ export interface AlpacaOptions {
 
 /** Raw snapshot shape from `/v2/stocks/snapshots` (only the fields the overlay reads). */
 interface RawSnap {
-  latestTrade?: { p?: number } | null
+  latestTrade?: { p?: number; t?: string } | null
+  minuteBar?: { t?: string } | null
   dailyBar?: { o?: number; c?: number; v?: number } | null
   prevDailyBar?: { c?: number; v?: number } | null
+}
+
+function parseMarketTime(value: string | undefined): number | null {
+  if (!value) return null
+  const ms = Date.parse(value)
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null
 }
 
 export class AlpacaMarketData implements MarketData {
@@ -123,6 +233,7 @@ export class AlpacaMarketData implements MarketData {
   private readonly feed: string
   private readonly headers: Record<string, string>
   private readonly timeoutMs: number
+  private readonly profileCache = new Map<string, { date: string; value: MarketProfile }>()
 
   constructor(key: string, secret: string, opts: AlpacaOptions = {}) {
     this.baseUrl = (opts.dataUrl ?? 'https://data.alpaca.markets').replace(/\/+$/, '')
@@ -166,7 +277,7 @@ export class AlpacaMarketData implements MarketData {
 
   async snapshots(
     tickers: readonly string[],
-    now: number = Math.floor(Date.now() / 1000),
+    _now: number = Math.floor(Date.now() / 1000),
   ): Promise<Map<string, StockSnapshot>> {
     const out = new Map<string, StockSnapshot>()
     if (tickers.length === 0) return out // no symbols → no call (Python early return)
@@ -181,6 +292,7 @@ export class AlpacaMarketData implements MarketData {
       const json = (await r.json()) as Record<string, RawSnap>
       for (const [sym, s] of Object.entries(json)) {
         const lt = s.latestTrade ?? {}
+        const mb = s.minuteBar ?? {}
         const db = s.dailyBar ?? {}
         const pdb = s.prevDailyBar ?? {}
         out.set(sym, {
@@ -192,10 +304,35 @@ export class AlpacaMarketData implements MarketData {
           prevClose: pdb.c ?? null,
           prevVolume: pdb.v ?? null,
           feed: this.feed,
-          asOf: now,
+          priceAsOf: parseMarketTime(lt.t),
+          volumeAsOf: parseMarketTime(mb.t),
         })
       }
     }
+    return out
+  }
+
+  async profiles(
+    tickers: readonly string[],
+    now: number = Math.floor(Date.now() / 1000),
+  ): Promise<Map<string, MarketProfile>> {
+    const out = new Map<string, MarketProfile>()
+    const date = nyParts(now).date
+    await Promise.all([...new Set(tickers)].map(async (ticker) => {
+      const cached = this.profileCache.get(ticker)
+      if (cached?.date === date) {
+        out.set(ticker, cached.value)
+        return
+      }
+      try {
+        const bars = await this.dailyBars(ticker, now - 70 * 86_400, now)
+        const value = buildMarketProfile(bars, now)
+        this.profileCache.set(ticker, { date, value })
+        out.set(ticker, value)
+      } catch (error) {
+        log.warn({ ticker, err: String(error) }, 'market profile unavailable')
+      }
+    }))
     return out
   }
 

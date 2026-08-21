@@ -31,7 +31,13 @@ function pollFromFixture(): PollResult {
   const comments: RawCommentInsert[] = fx.comments.map((c: Snake) => ({
     id: c.id, createdUtc: c.created_utc, author: c.author ?? null, body: c.body ?? null,
   }))
-  return { posts, comments, rawPosts: [], newestUtc: null, capped: false, ok: true, postsOk: true }
+  return {
+    posts, comments, rawPosts: [],
+    newestUtc: null, newestPostUtc: null, newestCommentUtc: null,
+    oldestPostUtc: null, oldestCommentUtc: null,
+    postPages: 0, commentPages: 0, postsCapped: false, commentsCapped: false,
+    capped: false, ok: true, postsOk: true, commentsOk: true,
+  }
 }
 
 const byThingTicker = (a: { thingId: string; ticker: string }, b: { thingId: string; ticker: string }): number =>

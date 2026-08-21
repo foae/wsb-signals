@@ -1,14 +1,17 @@
 import { and, count, eq } from 'drizzle-orm'
 import {
-  analyticalFeatures, empiricalFeatures, mentions as mentionsTable, rawPosts,
-  type AnalyticalFeatureInsert,
+  analyticalFeatures, cycleRuns, empiricalFeatures, mentions as mentionsTable, rawPosts,
+  signals as signalsTable, type AnalyticalFeatureInsert,
 } from '@wsb/shared'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
 import type { EmpiricalFeature } from '../src/aggregate'
+import type { SignalsConfig } from '../src/analytics'
 import {
-  latestCompleteWindow, publishCycle, upsertEmpiricalFeatures, upsertMentions, upsertPosts,
+  latestCompleteWindow, publishCycle, readMentionsInWindow, upsertEmpiricalFeatures, upsertMentions,
+  upsertPosts,
 } from '../src/db'
+import { repairRemovedHeatHistory, type AggregateConfig } from '../src/pipeline'
 import { startPg, type PgHarness } from './helpers/pg'
 
 // Slice-3 persistence: exercises the EXACT per-table ON CONFLICT semantics, ≤1000-row chunking, and the
@@ -20,6 +23,12 @@ function feature(ticker: string, windowStart: number, over: Partial<EmpiricalFea
     netDir: 0, ddCount: 0, flairCounts: {}, baselineStatus: 'cold', hE: 0.4, ...over,
   }
 }
+const cycleMeta = (windowStart: number, totalMentions: number, newestUtc: number | null = null) => ({
+  windowStart, scoringVersion: 'test-heat', generatedAt: windowStart + 100,
+  totalMentions, quiet: false, capped: false, newestUtc,
+  newestPostUtc: newestUtc, newestCommentUtc: newestUtc,
+  marketStatus: 'unavailable' as const, marketRequested: 0, marketUsable: 0, marketAsOf: null,
+})
 
 let pg: PgHarness
 
@@ -56,6 +65,23 @@ describe('persistence on Postgres', () => {
     expect(rows[0]!.numComments).toBe(42)
   })
 
+  it('excludes a mention after its source post is observed removed', async () => {
+    await upsertPosts(pg.db, [{
+      id: 'gone', createdUtc: 100, title: 'NVDA calls', selftext: '', removed: false,
+    }])
+    await upsertMentions(pg.db, [{
+      ticker: 'NVDA', thingId: 'gone', thingType: 'post', createdUtc: 100, author: 'u',
+    }])
+    expect(await readMentionsInWindow(pg.db, 0, 200)).toHaveLength(1)
+
+    await upsertPosts(pg.db, [{
+      id: 'gone', createdUtc: 100, title: '[removed]', selftext: '[removed]', removed: true,
+    }])
+    expect(await readMentionsInWindow(pg.db, 0, 200)).toHaveLength(0)
+    const [stored] = await pg.db.select().from(rawPosts).where(eq(rawPosts.id, 'gone'))
+    expect(stored).toMatchObject({ title: 'NVDA calls', removed: true })
+  })
+
   it('empirical features DO UPDATE on re-aggregation of the same window', async () => {
     await upsertEmpiricalFeatures(pg.db, [feature('AMD', 3600, { hE: 0.4, mentions: 3 })])
     await upsertEmpiricalFeatures(pg.db, [feature('AMD', 3600, { hE: 0.9, mentions: 7 })])
@@ -79,7 +105,7 @@ describe('persistence on Postgres', () => {
   it('publishCycle is atomic and records the latest complete window', async () => {
     expect(await latestCompleteWindow(pg.db)).toBeNull()
     await publishCycle(pg.db, {
-      meta: { windowStart: 7200, generatedAt: 7300, totalMentions: 12, quiet: false, capped: false, newestUtc: 7250 },
+      meta: cycleMeta(7200, 12, 7250),
       features: [feature('NVDA', 7200, { hE: 0.95 }), feature('AMD', 7200, { hE: 0.3 })],
     })
     expect(await latestCompleteWindow(pg.db)).toBe(7200)
@@ -88,7 +114,7 @@ describe('persistence on Postgres', () => {
   })
 
   it('publishCycle replaces the window analytical set, but preserves it when no overlay is given', async () => {
-    const meta = { windowStart: 4000, generatedAt: 4100, totalMentions: 5, quiet: false, capped: false, newestUtc: null }
+    const meta = cycleMeta(4000, 5)
     const an = (ticker: string, hM: number): AnalyticalFeatureInsert =>
       ({ ticker, windowStart: 4000, hM, rvolConf: 'low' })
     const analyticalAt = () => pg.db.select().from(analyticalFeatures)
@@ -103,6 +129,8 @@ describe('persistence on Postgres', () => {
     // re-publish with A only → stale B is removed (exact-cycle replacement)
     await publishCycle(pg.db, { meta, features: [feature('A', 4000)], analytical: [an('A', 0.9)] })
     const after = await analyticalAt()
+    expect((await pg.db.select().from(empiricalFeatures)
+      .where(eq(empiricalFeatures.windowStart, 4000))).map((r) => r.ticker)).toEqual(['A'])
     expect(after.map((r) => r.ticker)).toEqual(['A'])
     expect(after[0]!.hM).toBeCloseTo(0.9, 9)
 
@@ -118,5 +146,88 @@ describe('persistence on Postgres', () => {
     })).rejects.toThrow('boom')
     const rows = await pg.db.select().from(empiricalFeatures).where(eq(empiricalFeatures.windowStart, 9000))
     expect(rows).toHaveLength(0) // rolled back
+  })
+
+  it('replays newly removed stable content forward and records the repair contract', async () => {
+    const first = 3600
+    const second = 7200
+    const aggregateCfg: AggregateConfig = {
+      windowSeconds: 3600,
+      weights: { sov: 0.35, accel: 0.25, rank_delta: 0.15, authors: 0.15, conviction: 0.05, net_dir: 0.05, z: 0 },
+      minSamplesReady: 8,
+      baselineLookbackSeconds: 26 * 7 * 24 * 3600,
+      minAuthorsFull: 3,
+    }
+    const signalsCfg: SignalsConfig = {
+      medianLookbackSeconds: 24 * 3600,
+      minQuadrantPopulation: 5,
+      minRowAuthors: 3,
+      leadLag: { enabled: false, lookbackSeconds: 24 * 3600, maxLagWindows: 6, minPairs: 10, minCorr: 0.5 },
+    }
+    await pg.db.insert(cycleRuns).values([
+      { windowStart: first, generatedAt: 7000, finalizedAt: 8000, totalMentions: 2, quiet: false, status: 'complete' },
+      { windowStart: second, generatedAt: 9000, finalizedAt: 10_000, totalMentions: 1, quiet: false, status: 'complete' },
+    ])
+    await upsertPosts(pg.db, [
+      { id: 'removed-first', createdUtc: first + 1, removed: true, retrievedOn: 9000 },
+      { id: 'live-first', createdUtc: first + 2, removed: false, retrievedOn: 7000 },
+      { id: 'live-second', createdUtc: second + 1, removed: false, retrievedOn: 9000 },
+    ])
+    await upsertMentions(pg.db, [
+      { ticker: 'NVDA', thingId: 'removed-first', thingType: 'post', createdUtc: first + 1, author: 'a' },
+      { ticker: 'AMD', thingId: 'live-first', thingType: 'post', createdUtc: first + 2, author: 'b' },
+      { ticker: 'NVDA', thingId: 'live-second', thingType: 'post', createdUtc: second + 1, author: 'c' },
+    ])
+    await upsertEmpiricalFeatures(pg.db, [
+      feature('NVDA', first, { mentions: 1, authors: 1 }),
+      feature('AMD', first, { mentions: 1, authors: 1 }),
+      feature('NVDA', second, { mentions: 1, authors: 1, velocity: 0 }),
+    ])
+    await pg.db.insert(signalsTable).values([
+      { ticker: 'NVDA', windowStart: first, hE: 0.4, rank: 1 },
+      { ticker: 'AMD', windowStart: first, hE: 0.4, rank: 2 },
+      { ticker: 'NVDA', windowStart: second, hE: 0.4, rank: 1 },
+    ])
+
+    const stamp = {
+      at: 11_000,
+      scoringVersion: 'score-v2',
+      repairVersion: 'removed-v2',
+      minWindowMentions: 2,
+    }
+    expect(await repairRemovedHeatHistory(
+      pg.db, 14_400, 3600, aggregateCfg, signalsCfg, stamp,
+    )).toBe(2)
+    expect((await pg.db.select().from(empiricalFeatures)
+      .where(eq(empiricalFeatures.windowStart, first))).map((row) => row.ticker)).toEqual(['AMD'])
+    const [downstream] = await pg.db.select().from(empiricalFeatures)
+      .where(and(eq(empiricalFeatures.windowStart, second), eq(empiricalFeatures.ticker, 'NVDA')))
+    expect(downstream!.velocity).toBe(1)
+    const [firstCycle] = await pg.db.select().from(cycleRuns)
+      .where(eq(cycleRuns.windowStart, first))
+    expect(firstCycle).toMatchObject({
+      repairedAt: 11_000,
+      repairVersion: 'removed-v2',
+      scoringVersion: 'score-v2',
+      totalMentions: 1,
+      quiet: true,
+    })
+    expect(await repairRemovedHeatHistory(
+      pg.db, 14_400, 3600, aggregateCfg, signalsCfg, { ...stamp, at: 12_000 },
+    )).toBe(0)
+
+    // A newly observed removal in an already-versioned window invalidates it and every downstream
+    // derivative; the observation timestamp, not a manually bumped version, drives the replay.
+    await upsertPosts(pg.db, [{
+      id: 'live-first', createdUtc: first + 2, removed: true, retrievedOn: 12_500,
+    }])
+    expect(await repairRemovedHeatHistory(
+      pg.db, 14_400, 3600, aggregateCfg, signalsCfg, { ...stamp, at: 13_000 },
+    )).toBe(2)
+    expect(await pg.db.select().from(empiricalFeatures)
+      .where(eq(empiricalFeatures.windowStart, first))).toEqual([])
+    const [replayed] = await pg.db.select().from(empiricalFeatures)
+      .where(and(eq(empiricalFeatures.windowStart, second), eq(empiricalFeatures.ticker, 'NVDA')))
+    expect(replayed!.velocity).toBeNull()
   })
 })

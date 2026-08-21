@@ -144,12 +144,14 @@ A second structured-output call whose prompt contains only **evidence the system
   the herd gate fire on chatter that postdates the trade's entry. So: **extraction captures the
   position-open date** (`opened_at` — visible on most broker screenshots) and evidence windows
   anchor there when present; post-time anchoring is the fallback and is **badged as weaker
-  evidence**. Window semantics: the **last complete radar window at or before the anchor**, where
-  "complete" requires a LATER `cycle_runs` row to exist (the first cycle of the next bucket is
-  what finalizes W−1 — a bare `max(window_start)` read can catch features that are still being
-  rewritten), with a **staleness bound**: if the newest complete
-  window is more than a few hours older than the anchor (radar outage), the chip reads "heat
-  evidence unavailable" rather than serving stale context. The **herd measure**, precisely:
+  evidence**. Window semantics: the **last finalized radar window at or before the anchor**.
+  Finalization is explicit (`cycle_runs.finalized_at`): the worker refreshes W−1 empirical features
+  and dependent signals together, then catches up every eligible stable row through W−2. Exceptional
+  source-removal replay is disclosed by `repaired_at`/`repair_version`; a publish-complete current
+  snapshot is not a finalized longitudinal cell. A **staleness bound**
+  still applies: if the newest finalized window is more than a few hours older than the anchor
+  (radar outage), the chip reads "heat evidence unavailable" rather than serving stale context.
+  The **herd measure**, precisely:
   count of **distinct authors** (not posts — WSB serial-reposters would fabricate a herd) of prior
   posts (`thing_type = 'post'`, flair in the plays set) on the same ticker with the same derived
   direction in the trailing 72 h before the anchor, **excluding the play's own author**.

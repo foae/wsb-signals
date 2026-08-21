@@ -244,7 +244,8 @@ Each entity below lists its **grain** (what one row/document represents), **natu
   `title` (post-only), `body` (selftext / comment body / message text), `flair` (Reddit-only label),
   `roles` (Discord author roles — a `Map`/list), `score` (Reddit upvotes — **settled**),
   `reaction_counts` (Discord emoji reactions — **live**; `Map`), `num_replies`/`num_comments`,
-  `retrieved_on` (observation time), `source` (`Source` — the specific tap).
+  `removed` (irreversible source-observed removal/deletion), `retrieved_on` (observation time),
+  `source` (`Source` — the specific tap).
 - **Field applicability** (which fields are meaningful per `(platform, kind)`):
 
   | Field | reddit·post | reddit·comment | discord·message |
@@ -258,9 +259,9 @@ Each entity below lists its **grain** (what one row/document represents), **natu
   | `reaction_counts` (live) | — | — | ✓ |
   | `root_id` / `parent_id` | self / — | post / parent comment | thread / replied msg |
 
-- **Mutability:** identity is immutable; **engagement is re-fetched** — Reddit `score`/`num_comments`
-  settle slowly (~36 h), Discord `reaction_counts` are live. Settled engagement is reconciled into
-  `engagement_settled`.
+- **Mutability:** identity/content are kept first-seen; engagement is refreshed. `removed` can only move
+  `false → true`. Mentions remain as extraction provenance but aggregation excludes any mention whose
+  source content is removed; affected window feature/signal sets are exact-rebuilt.
 - **Relationships:** self-referential thread tree (`root_id`/`parent_id`); produces 0..N `mention`;
   N:1 → `author`.
 - **Lifecycle:** the current v0.0.1 splits this into Reddit-only `raw_posts` + `raw_comments`
@@ -321,8 +322,8 @@ Each entity below lists its **grain** (what one row/document represents), **natu
 - **Natural key:** `(ts, kind, rank)`.
 - **Attributes:** `ts` (`Instant`), `kind` (`MoverKind`), `rank` (`Count`, 1=top), `symbol`, `price`
   (`Money`), `percent_change` (`Real`), `volume` (`Count`).
-- **Relationships:** N:1 → `instrument` (`symbol`). The bounded market-wide read that powers STEALTH
-  (screener movers ∖ WSB-hot — Phase 3 detection).
+- **Relationships:** N:1 → `instrument` (`symbol`). The web presents the latest capture as separate,
+  filtered market-wide context; a screener row never automatically becomes a WSB STEALTH label.
 
 #### `ingestion_run` — *coverage / provenance of each raw pull*
 - **Grain:** one ingestion pass per source (and content kind) at a poll time.
@@ -331,12 +332,11 @@ Each entity below lists its **grain** (what one row/document represents), **natu
   (`Instant`), `cursor` (`Text` — pagination/since token), `oldest_item`/`newest_item` (`Instant` — the
   event-time span fetched), `items_fetched` (`Count`), `pages` (`Count`), `capped` (`Boolean` — hit the
   pagination cap ⇒ **the window may be incomplete**), `lag_seconds` (`Duration`, s — newest item vs
-  wall clock), `status` (`Text`/enum — ok / stale / down).
-- **Relationships:** none (provenance metadata). **Why it's first-class:** a near-live radar's `sov`
-  denominator is only as honest as ingest completeness — a `capped` peak-hour Daily-Discussion pull
-  silently biases every `sov`. Consumers/quality checks read `ingestion_run` to know when a window's
-  counts are trustworthy (it is the structured form of the heartbeat + the `[CAP]` canary in
-  [architecture §3](./architecture.md)).
+  wall clock), `status` (`Text`/enum — fresh / partial / capped / stale / no-data).
+- **Relationships:** none. **Why it is first-class:** posts and comments both feed the SoV denominator;
+  either kind being partial/stale invalidates the scoring cycle. Consumers read the latest run per kind
+  to distinguish upstream degradation from a dead worker immediately, rather than allowing one fresh
+  kind to mask the other or waiting for the last good board to age.
 
 ### 5.3 Derived rollups (regenerable; grain = `instrument × window_start × resolution`)
 
@@ -368,16 +368,15 @@ Each entity below lists its **grain** (what one row/document represents), **natu
 #### `analytical_feature` — *market-side cell*
 - **Grain:** `(ticker, window_start, resolution)`.
 - **Natural key:** `(ticker, window_start, resolution)`.
-- **Attributes (Family B):** `ret`, `gap` *(P4)*, `range` *(P4)*, `realized_vol` *(P4)*, `rvol`,
-  `rvol_conf` (`Confidence`), `pcr`, `iv_rank`, `iv_skew` *(P4)*, `uoa` *(P4)*, `breadth`, `h_m`,
-  `coverage_scope` (`CoverageScope`), `feed` (provenance), `as_of` (observation time).
-- **`ret` is window-aligned** (`close(W)/close(W−1) − 1` at this resolution); v0.0.1 approximates it
-  with a day-to-date return until intraday bars are stored — see [dictionary §4.1](./data-dictionary.md).
-- **Relationships:** aggregated from `market_bar` + `options_snapshot`; joined to `empirical_feature`
-  on the grain. **NOT a subset of `empirical_feature`** — a cell exists for any ticker the funnel
-  fetched, i.e. **WSB-hot top-N (`coverage_scope=wsb_hot`) ∪ screener movers
-  (`coverage_scope=screener_mover`)**. A `screener_mover` cell with no matching empirical row is a
-  STEALTH candidate (market moving, WSB silent).
+- **Attributes (Family B):** `ret`, `rvol`, `rvol_conf`, `ret_vol_baseline`, `volume_baseline`,
+  `profile_sessions`, `pcr`, `iv_rank`, `breadth`, `h_m`, `feed`, and `as_of`.
+- **Current radar semantics:** `ret` is day-to-date; `rvol` compares cumulative volume with expected
+  cumulative volume at the same regular-session progress. `H_m` uses fixed-capped
+  return-volatility/rvol components, not current-hot-list normalization. `feed`/`as_of` and baseline
+  support remain on the row; no timestamped component means `h_m = null`.
+- **Relationships:** daily profile bars + the current snapshot feed the row; joined to
+  `empirical_feature` on the grain. The live funnel remains WSB-hot top-N; market screeners retain their
+  own separate capture grain.
 
 #### `signal` — *the product cell (Phase 3)*
 - **Grain:** `(ticker, window_start, resolution)`.
@@ -491,11 +490,13 @@ The single most important structural decision. **Raw `mention` events are resolu
 - **`z` compares like-with-like:** a cell's `mentions` vs the `baseline` for *its* `(ticker, resolution,
   bucket_scheme, seasonal_bucket)`.
 
-**Late-arriving data.** A cell is **re-aggregated within a bounded lateness horizon** (config; the
-current code re-runs the open window + finalizes `W−1` each cycle). An event whose `created_utc` falls
-in an already-closed window inside the horizon triggers a **recompute of that window's cell**; past the
-horizon it is late-bucketed (or dropped) and flagged in `ingestion_run` — never folded into the current
-window, which would corrupt boundary `velocity`/`accel`.
+**Late-arriving data.** A cell is **re-aggregated within a bounded lateness horizon**. The worker
+refreshes the open window and W−1; each publish exact-replaces empirical rows and every dependent
+signal together (source removals can shrink the set). Every successful cycle catches up all eligible
+rows through W−2 and sets `cycle_run.finalized_at`, making them eligible for longitudinal reads.
+Exceptional removed-source repair is explicit rather than silently "immutable": `repaired_at` and
+`repair_version` advance while the original finalization time remains. Other older late events are
+late-bucketed (or dropped) and flagged in `ingestion_run` — never folded into the current window.
 
 **Realization mapping.** The simple time-bucket rollups (`empirical_feature`, `analytical_feature`) map
 onto **TimescaleDB continuous aggregates** — one per resolution over the `mention`/`market_bar`
@@ -570,11 +571,11 @@ The logical model is invariant; only the physical clustering differs. Two refere
     engagement *history* is captured only at the reconciled checkpoint (`engagement_settled`, keyed with
     `as_of` if you opt to keep versions), not by versioning every re-fetch.
   - **Derived cells** hold the **latest computed value** (overwritten on recompute), because they are
-    regenerable from raw. They are **not** bitemporally versioned.
-  - **Point-in-time radar state** ("what did the board show at 14:00?") is preserved by the **immutable
-    snapshot/history exports** (the JSON snapshot + `history.parquet` today), *not* by versioning cells.
-  - If true as-was-known-at-T audit of derived cells is ever needed, add an explicit `valid_from`/
-    `valid_to` versioning layer then — it is deliberately out of scope now (cost > value for a radar).
+    regenerable from raw. They are **not** bitemporally versioned. `finalized_at` gates stable reads;
+    exceptional source-removal recomputation is disclosed by `repaired_at`/`repair_version`, but the
+    system does not retain both pre- and post-repair cell values.
+  - A true as-was-known-at-T audit would require an explicit `valid_from`/`valid_to` history layer. It is
+    deliberately out of scope; current exports are snapshots of the latest repaired state.
 - **`x-requires` is intra-entity documentation, not the full dependency graph.** The `x-requires` /
   `x-mode` / `x-sources` annotations on schema fields list a field's *same-entity* inputs and degradation
   mode for readability. They are **not** a transitive, cross-entity execution graph (e.g. `sov` → `mention`

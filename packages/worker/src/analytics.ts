@@ -49,6 +49,8 @@ export interface SignalsConfig {
   /** Minimum population on the limiting (overlaid) axis before a quadrant is assigned (else null) — keeps
    *  a 1–2-cell cold-start population from producing degenerate / flip-flopping quadrants. */
   minQuadrantPopulation: number
+  /** Per-row evidence floor: population history cannot make a thin row authoritative. */
+  minRowAuthors: number
   leadLag: LeadLagConfig
 }
 

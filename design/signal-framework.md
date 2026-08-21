@@ -143,12 +143,14 @@ before it enters a score:
   `sov` (+ `authors`, `velocity`, `accel`); surface `z` only once a per-(ticker, bucket) sample
   floor is met, weighted by `1/√N` (or use median/MAD), and badge it low-confidence until then.**
   Never rank on raw `mentions`.
-- **Analytical:** use `rvol` (vs the ticker's own average), `iv_rank` (percentile), and express
-  returns in **vol-units** (`ret / realized_vol`) so a 3% move on a calm name outranks 3% on a
-  meme name.
-- **Baselines** are trailing *K* weeks, **session-aware** (pre-market / regular / after-hours),
-  recomputed rolling, and carry a **`baseline_status`** (cold / warming / ready) so consumers know
-  when `z` is trustworthy. The cold-start seeding is in
+- **Analytical:** `H_m` is per-ticker and stable across hot-list membership. Day return is expressed
+  in trailing daily-volatility units; cumulative volume is divided by expected cumulative volume at
+  the same regular-session progress using the ticker's trailing average daily volume. Fixed caps map
+  both components to `[0,1]`; the current top-N is never the normalization denominator. The free path's
+  generic 9:30–16:00 ET curve is not early-close-calendar-aware, so volume remains low-confidence.
+  Without a true trade/minute-bar timestamp, `H_m` is `null`, not zero.
+- **Empirical baselines** are trailing *K* weeks and carry `baseline_status` (cold / warming / ready)
+  so consumers know when `z` is trustworthy. The cold-start seeding is in
   [`../sources/reddit-data-access.md`](../sources/reddit-data-access.md).
 
 ---
@@ -164,12 +166,13 @@ Two single, rank-able numbers per `(T, W)`, each a weighted blend of standardize
   its baseline is `ready`** (§4) — until then its weight is zeroed, not faked. **Engagement is
   excluded from the live blend** (scrapers-only; scores lag ~36 h) and folded into a separate
   *settled* `H_e` recomputed post-hoc.
-- **Market Heat `H_m`** (analytical) = weighted blend of
-  `{ rvol, |ret|/realized_vol, z(call_vol), Δiv_rank, uoa }`.
+- **Market Heat `H_m`** (analytical) = weighted mean of available, timestamped
+  `{ session-adjusted rvol, |ret|/trailing_realized_vol }`, each capped on a fixed configured scale.
   → "How much is the market actually moving `T` right now?"
 
-Weights are **tunable config**, not hardcoded; v0.0.1 ships sensible defaults (documented in
-the config) and logs the components so weights can be tuned against observed outcomes later.
+Weights and normalization caps are **tunable config**, not hardcoded. Every published cycle stores a
+`scoring_version`; analytical rows retain feed/as-of and profile-support metadata so historical scores
+cannot silently mix contracts.
 
 ---
 
@@ -188,13 +191,13 @@ Plot `H_e` (x) against `H_m` (y); split at each one's rolling median:
 - **`divergence = H_e − H_m`** (signed): large +ve = hype ahead of market; large −ve = market
   ahead of WSB.
 
-> **STEALTH is feasible (bounded) on free data — revised 2026-06-03.** Per-ticker market data is
-> gated to the WSB-hot list, but Alpaca's free **screeners** (most-actives + movers) are a
-> market-wide read (`scripts/probe_alpaca.py`). "Market moving, WSB hasn't noticed" = screener
-> movers **∖** the WSB-hot list — discoverable among the **loudest movers** (penny / leveraged-ETF
-> noise needs a liquidity filter), though not the full quiet market. Screener data is captured in
-> Phase 2 (`market_movers`); STEALTH *detection* lands in Phase 3. A paid full-market snapshot
-> would widen coverage. CONFIRMED/HYPE (both gated on WSB heat) already work on free data.
+Quadrants require both axes, a populated rolling split, and at least the configured number of distinct
+authors on the ticker row (three by default). Thin rows retain `H_e`, rank, and divergence but receive
+no authoritative quadrant label.
+
+Alpaca's market-wide screeners are captured separately as filtered market context. They are **not**
+automatically promoted to STEALTH labels: the screener has a different universe and grain from the
+WSB-gated quadrant calculation.
 
 ### 6.2 Lead-lag (the defensible insight)
 Even in radar mode, **store the `H_e(t)` and `H_m(t)` time-series.** Over a trailing window,

@@ -4,28 +4,35 @@
  * per-cycle self-heal, an advisory-lock double-run guard, a startup throttle, and unhandled-rejection
  * guards. The per-cycle order is the load-bearing part:
  *
- *   poll → if !ok DISCARD whole cycle → mark poll → extract+upsert → re-aggregate W−1 (persist-only,
- *   committed BEFORE the W reads) → aggregate W → market overlay (best-effort) → atomic publish.
+ *   poll → persist each successfully fetched source kind → if coverage unusable SKIP scoring → mark poll
+ *   → re-aggregate W−1 → catch up stable finalization → aggregate W → market overlay → atomic publish.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { AnalyticalFeatureInsert, MarketMoverInsert } from '@wsb/shared'
+import {
+  HEAT_REPAIR_VERSION, HEAT_SCORING_VERSION,
+  type AnalyticalFeatureInsert, type IngestionRunInsert, type MarketMoverInsert,
+} from '@wsb/shared'
 
 import { windowStartFor } from './aggregate'
 import type { PlaysConfig, WorkerConfig } from './config'
 import { buildExtractor, buildMarket, buildSource, findRoot, loadConfig, loadWhitelistSet } from './config'
 import {
-  acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, upsertComments,
-  upsertMentions, upsertPosts, verifyPublished, type Db,
+  acquireAdvisoryLock, advisoryLockAlive, createDb, migrateToLatest, publishCycle, readMarketOverlayMetaAt,
+  upsertComments, upsertIngestionRuns, upsertMentions, upsertPosts, verifyPublished,
+  type CycleMeta, type Db,
 } from './db'
 import { ensureReadRole } from './ensure-read-role'
 import type { TickerExtractor } from './extract'
-import type { Source } from './ingest'
+import { ingestionStatus, type Source } from './ingest'
 import { log } from './logger'
 import type { MarketData } from './market'
 import { mentionsFromPoll } from './mentions'
-import { buildSignals, overlayMarket, runAggregation } from './pipeline'
+import {
+  buildSignals, overlayMarket, refreshPriorWindow, repairFinalizedSignalDrift,
+  repairRemovedHeatHistory, runAggregation,
+} from './pipeline'
 import { capturePlays } from './plays/capture'
 import { buildAnalyzer } from './plays/analyzer'
 import { runPlaysQueue } from './plays/queue'
@@ -62,76 +69,133 @@ export interface CycleResult {
 }
 
 /**
- * One radar cycle. Returns `{skipped:true}` when the poll was incomplete (`!ok`) — that window is
- * undercounted, so it is discarded WHOLE (not persisted, aggregated, or marked) to avoid biasing the SoV
- * denominator, and retried next interval.
+ * One radar cycle. Returns `{skipped:true}` when either source kind is partial, stale, or empty.
+ * Both content kinds feed the SoV denominator, so incomplete coverage is discarded whole.
  */
 export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResult> {
   const { db, source, market, extractor, bots, config } = deps
 
   const poll = await source.poll(config.windowSeconds, { now, signal: deps.signal })
-  if (!poll.ok) {
-    // Plays capture keys on the POSTS-side fetch succeeding, not the whole poll: the whole-poll discard
-    // protects the SoV denominator, which capture doesn't touch — a prolonged comments-side failure must
-    // not lose a window of plays whose media is meanwhile being deleted (plays-plan §3, invariant P7).
-    if (deps.plays && poll.postsOk) {
-      await capturePlays(deps.plays.db, poll.rawPosts, deps.plays.config, now)
-    }
-    log.error('poll incomplete (Arctic-Shift error mid-fetch) — skipping this cycle, will retry')
-    return { skipped: true }
-  }
+  const postStatus = ingestionStatus(
+    poll.postsOk, poll.postsCapped, poll.newestPostUtc, now, config.maxStalenessSeconds,
+  )
+  const commentStatus = ingestionStatus(
+    poll.commentsOk, poll.commentsCapped, poll.newestCommentUtc, now, config.maxStalenessSeconds,
+  )
+  const runs: IngestionRunInsert[] = [
+    {
+      source: source.name, kind: 'posts', pollTs: now, status: postStatus,
+      oldestUtc: poll.oldestPostUtc, newestUtc: poll.newestPostUtc,
+      itemsFetched: poll.posts.length, pages: poll.postPages, capped: poll.postsCapped,
+      lagSeconds: poll.newestPostUtc == null ? null : now - poll.newestPostUtc,
+    },
+    {
+      source: source.name, kind: 'comments', pollTs: now, status: commentStatus,
+      oldestUtc: poll.oldestCommentUtc, newestUtc: poll.newestCommentUtc,
+      itemsFetched: poll.comments.length, pages: poll.commentPages, capped: poll.commentsCapped,
+      lagSeconds: poll.newestCommentUtc == null ? null : now - poll.newestCommentUtc,
+    },
+  ]
+  await upsertIngestionRuns(db, runs)
 
-  // Ingest atomically (raw + mentions in ONE tx) so a crash can't leave the window partially persisted —
-  // a partial mention set would bias the SoV denominator. Mark the poll only AFTER it durably commits
-  // (a crash before this leaves no marker → a restart retries promptly rather than throttling on nothing).
-  const mentions = mentionsFromPoll(poll, extractor, bots)
+  const postsUsable = postStatus === 'fresh' || postStatus === 'capped'
+  const commentsUsable = commentStatus === 'fresh' || commentStatus === 'capped'
+
+  // Retain every independently successful source kind even when its peer is degraded. Scoring still
+  // fails closed below, but a quiet/failed peer cannot make the good kind's mentions age out forever.
+  const persistedPoll = {
+    ...poll,
+    posts: poll.postsOk ? poll.posts : [],
+    comments: poll.commentsOk ? poll.comments : [],
+  }
+  const mentions = mentionsFromPoll(persistedPoll, extractor, bots)
   await db.transaction(async (tx) => {
-    await upsertPosts(tx, poll.posts)
-    await upsertComments(tx, poll.comments)
+    await upsertPosts(tx, persistedPoll.posts)
+    await upsertComments(tx, persistedPoll.comments)
     await upsertMentions(tx, mentions)
   })
+
+  if (!postsUsable || !commentsUsable) {
+    // Plays capture depends only on the posts side; radar scoring requires BOTH kinds because both feed SoV.
+    if (deps.plays && postsUsable) {
+      await capturePlays(deps.plays.db, poll.rawPosts, deps.plays.config, now)
+    }
+    log.error({ postStatus, commentStatus },
+      'source coverage incomplete — retained usable source data but skipped scoring')
+    return { skipped: true }
+  }
   await deps.markPoll(now)
 
   const ws = windowStartFor(now, config.windowSeconds)
-  // Finalize the just-closed prior window first (persist-only): this poll covers the full trailing
-  // window, so it carries W−1's last mentions. Its autocommit MUST land before the current window reads
-  // features_at(W−1)/feature_history (pooled connections could otherwise read stale W−1) — porting-spec §7.
-  await runAggregation(db, ws - config.windowSeconds, config.aggregate, { persist: true })
+  // W−1 remains inside the lateness horizon, so refresh its empirical board AND dependent signals
+  // atomically before W reads it. Then catch up every unfinalized stable window through W−2; this
+  // cannot strand history after a multi-window outage.
+  await refreshPriorWindow(
+    db, ws - config.windowSeconds, config.windowSeconds, config.aggregate, config.signals,
+  )
+  await repairFinalizedSignalDrift(db, ws, config.windowSeconds, config.signals, {
+    at: now,
+    scoringVersion: HEAT_SCORING_VERSION,
+    repairVersion: HEAT_REPAIR_VERSION,
+  })
   const rows = await runAggregation(db, ws, config.aggregate, { persist: false })
 
   let analytical: AnalyticalFeatureInsert[] | undefined
   let movers: MarketMoverInsert[] | undefined
-  if (market && rows.length) {
+  let marketStatus: CycleMeta['marketStatus'] = market ? 'fresh' : 'disabled'
+  let marketRequested = 0
+  let marketUsable = 0
+  let marketAsOf: number | null = null
+
+  if (market) {
+    marketRequested = Math.min(rows.length, config.market.topN)
     try {
       const o = await overlayMarket(market, ws, rows, config.market, now)
-      // EMPTY analytical means every snapshot chunk failed (snapshots() swallows non-200s) — treat it as
-      // a total market failure and PRESERVE the prior overlay (leave `analytical` undefined), exactly as a
-      // thrown error would. Only a non-empty overlay replaces the window's analytical rows; a genuinely
-      // shrunk top-N (fewer but ≥1 rows) still replaces and clears the stale tickers.
-      if (o.analytical.length) analytical = o.analytical
-      else log.warn('market overlay returned no priced tickers — preserving prior overlay')
+      marketRequested = o.requested
+      marketUsable = o.usable
+      marketAsOf = o.asOf
       movers = o.movers
+      if (o.usable > 0) {
+        analytical = o.analytical
+        marketStatus = o.usable === o.requested ? 'fresh' : 'partial'
+      } else if (o.requested === 0) {
+        analytical = []
+        marketStatus = 'fresh'
+      } else {
+        const prior = await readMarketOverlayMetaAt(db, ws)
+        marketStatus = prior.usable > 0 ? 'preserved' : 'unavailable'
+        if (prior.usable > 0) marketRequested = prior.requested
+        marketUsable = prior.usable
+        marketAsOf = prior.asOf
+        log.warn({ marketStatus }, 'market overlay returned no usable heat — preserving prior overlay')
+      }
     } catch (e) {
-      // best-effort: a market failure must NEVER kill the cycle. Leaving `analytical` undefined makes
-      // publishCycle PRESERVE the prior overlay (never-kill) rather than wipe it (porting-spec §5/§7).
-      log.warn({ err: String(e) }, 'market overlay failed this cycle — publishing empirical-only')
+      const prior = await readMarketOverlayMetaAt(db, ws)
+      marketStatus = prior.usable > 0 ? 'preserved' : 'unavailable'
+      if (prior.usable > 0) marketRequested = prior.requested
+      marketUsable = prior.usable
+      marketAsOf = prior.asOf
+      log.warn({ err: String(e), marketStatus }, 'market overlay failed — publishing empirical with explicit degradation')
     }
   }
 
-  // Attention×Action signals (slice 7): divergence / quadrant / lead-lag from the board + the effective
-  // H_m (fresh overlay, or the preserved prior when `analytical` is undefined). Computed before the publish
-  // so it lands in the SAME atomic transaction.
   const signals = await buildSignals(db, ws, config.windowSeconds, config.signals, rows, analytical)
-
   const totalMentions = rows.reduce((s, r) => s + r.mentions, 0)
   await publishCycle(db, {
     meta: {
+      scoringVersion: HEAT_SCORING_VERSION,
       windowStart: ws,
       generatedAt: now,
       totalMentions,
       quiet: totalMentions < config.minWindowMentions,
       capped: poll.capped,
       newestUtc: poll.newestUtc,
+      newestPostUtc: poll.newestPostUtc,
+      newestCommentUtc: poll.newestCommentUtc,
+      marketStatus,
+      marketRequested,
+      marketUsable,
+      marketAsOf,
     },
     features: rows,
     analytical,
@@ -139,37 +203,28 @@ export async function runCycle(deps: CycleDeps, now: number): Promise<CycleResul
     signals,
   })
 
-  // Post-publish read-back: re-read what landed in Postgres and diff it against the board just published.
-  // Catches write-path bugs (NULL h_e, JSONB round-trips, BIGINT coercion, a missing publish marker) the
-  // cycle they happen — the web reads exactly what this re-reads. ~4 cheap window reads per cycle.
   const readback = await verifyPublished(db, ws, { features: rows, analytical, signals })
   if (!readback.ok) {
     log.error({ windowStart: ws, diffs: readback.diffs.length, cycleRun: readback.cycle_run },
       'READ-BACK mismatch — persisted board diverges from the published board (write-path bug)')
   }
 
-  const lag = poll.newestUtc != null ? now - poll.newestUtc : null
-  const hb = lag == null ? 'NO-DATA' : lag <= config.maxStalenessSeconds ? 'OK' : 'STALE'
   const top = rows[0]
   log.info({
     posts: poll.posts.length, comments: poll.comments.length, mentions: mentions.length,
-    tickers: rows.length, priced: analytical?.length ?? 0, capped: poll.capped,
+    tickers: rows.length, priced: marketUsable, capped: poll.capped, marketStatus,
     top: top ? `${top.ticker} H_e=${top.hE.toFixed(2)}` : '—',
-    lagMin: lag != null ? Math.floor(lag / 60) : null, freshness: hb,
+    postLagMin: poll.newestPostUtc == null ? null : Math.floor((now - poll.newestPostUtc) / 60),
+    commentLagMin: poll.newestCommentUtc == null ? null : Math.floor((now - poll.newestCommentUtc) / 60),
   }, 'cycle complete')
-  if (hb !== 'OK') {
-    log.error({ freshness: hb }, 'freshness degraded — Arctic-Shift is the sole live tap; see README runbook')
-  }
 
-  // Plays capture: a best-effort ON CONFLICT DO NOTHING insert, OUTSIDE every radar transaction and
-  // AFTER publishCycle committed — inside it, a plays-table error would roll back the radar cycle
-  // (invariant P1). capturePlays never throws (plays-plan §3).
+  // Plays capture stays outside radar transactions and after publish.
   if (deps.plays) {
     await capturePlays(deps.plays.db, poll.rawPosts, deps.plays.config, now)
   }
 
   return {
-    skipped: false, windowStart: ws, tickers: rows.length, priced: analytical?.length ?? 0,
+    skipped: false, windowStart: ws, tickers: rows.length, priced: marketUsable,
     readbackOk: readback.ok,
   }
 }
@@ -305,6 +360,23 @@ export async function startWorker(opts: StartOptions = {}): Promise<void> {
     return
   }
 
+  const startupNow = Math.floor(Date.now() / 1000)
+  const startupWindow = windowStartFor(startupNow, worker.windowSeconds)
+  await repairRemovedHeatHistory(
+    handle.db, startupWindow, worker.windowSeconds, worker.aggregate, worker.signals,
+    {
+      at: startupNow,
+      scoringVersion: HEAT_SCORING_VERSION,
+      repairVersion: HEAT_REPAIR_VERSION,
+      minWindowMentions: worker.minWindowMentions,
+    },
+  )
+  // Migration 0005 introduced explicit finalization. Rebuild dependent signals for remaining stable
+  // pre-contract or outage-stranded windows before longitudinal readers can observe them.
+  await repairFinalizedSignalDrift(
+    handle.db, startupWindow, worker.windowSeconds, worker.signals,
+    { at: startupNow, scoringVersion: HEAT_SCORING_VERSION, repairVersion: HEAT_REPAIR_VERSION },
+  )
   const source = buildSource(raw)
   const market = opts.noMarket ? null : buildMarket(raw, env)
   if (!market && !opts.noMarket) log.warn('market overlay disabled — ALPACA creds missing (empirical-only)')

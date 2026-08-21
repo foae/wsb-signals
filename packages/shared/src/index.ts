@@ -5,7 +5,7 @@ export * from './plays'
 export * from './analysis'
 
 import {
-  rawPosts, rawComments, mentions, empiricalFeatures, analyticalFeatures,
+  rawPosts, rawComments, mentions, ingestionRuns, empiricalFeatures, analyticalFeatures,
   marketMovers, tickerNames, cycleRuns, signals,
   plays, playExtractions, playInterpretations, playMarks, playLinks,
 } from './schema'
@@ -17,6 +17,8 @@ export type RawCommentRow = typeof rawComments.$inferSelect
 export type RawCommentInsert = typeof rawComments.$inferInsert
 export type MentionRow = typeof mentions.$inferSelect
 export type MentionInsert = typeof mentions.$inferInsert
+export type IngestionRunRow = typeof ingestionRuns.$inferSelect
+export type IngestionRunInsert = typeof ingestionRuns.$inferInsert
 export type EmpiricalFeatureRow = typeof empiricalFeatures.$inferSelect
 export type EmpiricalFeatureInsert = typeof empiricalFeatures.$inferInsert
 export type AnalyticalFeatureRow = typeof analyticalFeatures.$inferSelect
