@@ -211,7 +211,8 @@ The web never connects as the writer role and never migrates. Instead:
 
 1. The **worker** provisions a read-only Postgres role on boot (`ensure-read-role.ts`), using the
    credentials in `WEB_RO_USER` and `WEB_RO_PASSWORD`. It grants `SELECT` on all current and future
-   public-schema tables.
+   public-schema tables, defaults every transaction to read-only, and applies a 15-second statement
+   timeout so broad agent reads cannot starve the writer.
 2. The **web** connects via `NUXT_DATABASE_URL`, which must use those same credentials.
 
 **Implication:** the web service requires the worker to have run at least once. On a brand-new
@@ -220,6 +221,32 @@ will provision the role before the web's first request arrives, since `start_per
 healthcheck gives the worker time to boot). Until the role exists the web `/api/board` returns a
 transient `503` and the **healthcheck** (`/api/health`, which runs a real `SELECT 1` over the read-only
 pool) reports the container `unhealthy` — both self-heal the moment the worker finishes provisioning.
+
+### Agent analysis tools
+
+The machine-readable discovery entry point is `GET http://localhost:3000/api/analysis`; the complete
+semantics and canonical SQL are in `design/plays-analysis.md`. Each web process caps agent reads at
+two concurrent requests so the board retains read-pool capacity; the shipped deployment has one web
+process, and excess requests return 429 with `Retry-After: 15`.
+
+Repo-local agents can use the HTTP client:
+
+```bash
+WSB_ANALYSIS_URL=http://localhost:3000 \
+  pnpm -C packages/worker analyze -- ticker NVDA --from 2026-08-01 --to 2026-08-21 --pretty
+```
+
+Bulk exports bypass Nitro and hold one direct read-only PG snapshot. Source the deploy `.env`, then
+explicitly pass its read-only web DSN (the exporter refuses the worker writer `DATABASE_URL`):
+
+```bash
+ANALYSIS_DATABASE_URL="$NUXT_DATABASE_URL" \
+  pnpm -C packages/worker plays-export -- \
+  --from 2026-08-01 --to 2026-08-21 --range-basis anchor --format json
+```
+
+Exports land under the gitignored `data/exports/` directory unless `--out` is supplied. Use
+`--range-basis anchor` for correlation cohorts; `post` is the default for post-time corpora.
 
 ### Degraded behavior (near-live, "stale > nothing")
 

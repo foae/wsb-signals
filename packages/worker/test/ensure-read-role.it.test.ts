@@ -61,9 +61,14 @@ describe('ensureReadRole', () => {
     try {
       // can read a migrated table
       await expect(ro.query('SELECT * FROM cycle_runs')).resolves.toBeDefined()
+      const { rows: settings } = await ro.query(
+        `SELECT current_setting('statement_timeout') AS timeout,
+                current_setting('default_transaction_read_only') AS read_only`,
+      )
+      expect(settings[0]).toEqual({ timeout: '15s', read_only: 'on' })
       // cannot write
       await expect(ro.query(`INSERT INTO cycle_runs (window_start, status) VALUES (1, 'complete')`))
-        .rejects.toThrow(/permission denied/i)
+        .rejects.toThrow(/permission denied|read-only transaction/i)
     } finally {
       await ro.end()
     }

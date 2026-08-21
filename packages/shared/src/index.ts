@@ -2,6 +2,7 @@ export * from './schema'
 export * from './helpers'
 export * from './constants'
 export * from './plays'
+export * from './analysis'
 
 import {
   rawPosts, rawComments, mentions, empiricalFeatures, analyticalFeatures,

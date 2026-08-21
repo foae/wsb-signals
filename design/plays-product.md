@@ -234,12 +234,18 @@ Auto-publish, no human gate. The web app (Nuxt, same read-only DB role) gains:
 
 For longitudinal analysis on request (manual, agent-driven):
 
-- **`design/plays-analysis.md`** (written in the tooling slice): schema map, canonical SQL for the
-  common questions (plays by category over a period, mark trajectories, herd cohorts, resolution
-  rates), and the **mandatory caveats** — see invariant P5.
-- **`pnpm -C packages/worker plays-export`** — CLI dumping joined plays + extractions + marks for a
-  date range to JSON/CSV under `data/exports/`, so an agent can analyze without DB access.
-- The read-only PG role (already provisioned by the worker) is the direct-SQL path.
+- **`design/plays-analysis.md`** — progressive discovery entry point: schema map, API/CLI usage,
+  canonical SQL for common questions (ticker trajectories, play audits, stored-anchor cohorts,
+  category counts, mark trajectories), and the **mandatory caveats** — see invariant P5.
+- **Read-only analysis API** — `GET /api/analysis` catalog, bounded
+  `/api/analysis/tickers/:ticker` dossiers, and `/api/analysis/plays/:id` audits. Longitudinal heat
+  uses finalized windows only; every response carries provenance and caveat codes.
+- **`pnpm -C packages/worker analyze`** — thin JSON-to-stdout client for those endpoints.
+- **`pnpm -C packages/worker plays-export`** — snapshot-consistent joined plays + current
+  extractions/interpretations + P5-ready marks/links to JSON/CSV under `data/exports/`, using the
+  provisioned read-only PG role. It supports explicit post-time or stored-anchor range bases so an
+  agent can analyze the resulting file without DB access or silently changing cohort semantics.
+- The read-only PG role is also the bounded direct-SQL path.
 
 ## 6. Non-goals (v1)
 

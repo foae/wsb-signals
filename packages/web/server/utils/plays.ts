@@ -15,7 +15,10 @@ import { and, desc, eq, gte, lt, ne, sql, type SQL } from 'drizzle-orm'
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { z } from 'zod'
 
-import { playExtractions, playInterpretations, plays, type PlayMediaItem } from '@wsb/shared'
+import {
+  ANALYSIS_MAX_EPOCH_SECONDS, ANALYSIS_MIN_EPOCH_SECONDS, playExtractions,
+  playInterpretations, plays, type PlayMediaItem,
+} from '@wsb/shared'
 
 export const PlayCardSchema = z.object({
   id: z.string(),
@@ -119,15 +122,21 @@ const InterpretationOutputSchema = z.object({
   herd_allowed: z.boolean().nullable().catch(null),
 }).nullable().catch(null)
 
+const EvidenceEpochSchema = z.preprocess(
+  (value) => typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value,
+  z.number().int().min(ANALYSIS_MIN_EPOCH_SECONDS).max(ANALYSIS_MAX_EPOCH_SECONDS).nullable(),
+).catch(null)
+
 /** Worker evidence.ts `PlayEvidence` — the stored block the interpret prompt saw (invariant P2:
  *  every published label traceable to it). Lenient for the same drift reason. */
-const EvidenceSchema = z.object({
+export const EvidenceSchema = z.object({
+  evidence_version: z.string().nullable().catch(null),
   ticker: z.string().nullable().catch(null),
   ticker_outcome: z.string().nullable().catch(null),
   direction: z.string().nullable().catch(null),
-  anchor_utc: z.number().nullable().catch(null),
+  anchor_utc: EvidenceEpochSchema,
   anchor_basis: z.string().nullable().catch(null),
-  post_utc: z.number().nullable().catch(null),
+  post_utc: EvidenceEpochSchema,
   radar: z.object({
     window_start: z.number().nullable().catch(null),
     heat: z.object({

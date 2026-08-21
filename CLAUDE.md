@@ -27,7 +27,9 @@ in docs and analysis output, but the owner removed the disclaimer taglines from 
   issue #4) is BUILT — live gate (~20 hand-reviewed published plays) pending.** **P4 (web board,
   issue #5) is BUILT 2026-08-20** — plays are the primary UI at `/` (heat board at `/board`),
   server-side filters/sorts, default hide of low-confidence/`unclassifiable`; the owner
-  browse-the-LAN-deploy gate is pending.
+  browse-the-LAN-deploy gate is pending. **P6 agent analysis tooling is BUILT and live 2026-08-21**
+  — progressive discovery docs, bounded read-only API/CLI, direct snapshot exports, and canonical
+  SQL; P6's separate reprocess path/polish work remains.
 - **The radar — v2 full-stack TypeScript; BUILT, cutover-approved (2026-06-09), running.** Node
   worker + Nuxt 4 SSR web + Postgres in a pnpm monorepo (`packages/{shared,worker,web}`); deploy is
   `deploy/v2/` (db + worker + web). The radar's behavior is **stable** — Plays adds beside it, and
@@ -51,7 +53,8 @@ here is a real bug.
 
 **Plays — the active direction (approved 2026-08-18):**
 - `design/plays-product.md` — WSB Plays spec (what + why + invariants).
-- `design/plays-plan.md` — its build plan (slices P0–P6; P0 landed).
+- `design/plays-plan.md` — its build plan and current slice contracts.
+- `design/plays-analysis.md` — agent-facing read-only API/CLI/export contract and canonical SQL.
 
 **Concept & math (version-agnostic):**
 - `design/signal-framework.md` — two signal families, normalization, `H_e`/`H_m`, divergence
@@ -86,6 +89,8 @@ pnpm -C packages/worker typecheck
 pnpm -C packages/worker dev           # run the worker entry (tsx; the 5-min poll loop)
 pnpm -C packages/worker build-whitelist  # fetch Alpaca asset universe → whitelist/symbols.txt
 pnpm -C packages/worker heartbeat     # Arctic-Shift freshness probe; exits 0 OK / 1 stale / 2 down
+pnpm -C packages/worker analyze -- catalog  # discover the deployed read-only analysis API
+pnpm -C packages/worker plays-export -- --from 2026-08-01 --to 2026-08-21 --range-basis anchor --format json
 
 # web (@wsb/web) — Nuxt 4 SSR (read-only)
 pnpm -C packages/web dev              # dev server
@@ -119,8 +124,9 @@ validate → evidence build → LLM interpret/categorize → publish → daily o
 | Signals | `analytics.ts` | divergence / quadrants / lead-lag (v2-only; porting-spec §11). |
 | Orchestrate | `pipeline.ts` + `loop.ts` + `index.ts` | The 5-min cycle; SIGTERM, advisory lock, W−1-before-W. `index.ts` owns process-level handlers. |
 | Store | `db.ts` (+ `@wsb/shared` schema/migrations) | Postgres via Drizzle; atomic per-cycle publish; ≤1000-row upsert chunks; unconditional post-publish read-back (`verifyPublished`). |
-| Aux CLIs | `build-whitelist.ts` (`assets.ts`), `heartbeat.ts` | Ported from the v0.0.1 CLI. |
+| Aux CLIs | `build-whitelist.ts` (`assets.ts`), `heartbeat.ts`, `analysis/{cli,plays-export}.ts` | Radar maintenance plus read-only agent analysis/export tools. |
 | Web | `packages/web` (`server/api/board`) | Read-only Nuxt 4 SSR; one REPEATABLE READ tx over the latest complete cycle. |
+| Agent analysis | `packages/web/server/api/analysis` + `server/utils/analysis.ts` | Bounded dossiers/audits over finalized heat; see `design/plays-analysis.md`. |
 | Config | `config.ts` | `config.toml` (tunables) + env (`DATABASE_URL`, `ALPACA_*`). |
 
 Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`. Landed at P1:

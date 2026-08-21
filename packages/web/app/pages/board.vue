@@ -28,15 +28,25 @@ const generatedAgo = computed(() => {
 </script>
 
 <template>
-  <main class="max-w-screen-2xl mx-auto px-4 py-8 space-y-6">
-    <div class="flex items-baseline gap-3">
-      <h1 class="text-2xl font-bold">
-        WSB Signals
-      </h1>
-      <span class="text-sm text-muted">trending radar</span>
-    </div>
+  <main class="page-shell space-y-7">
+    <section class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-[0.18em] text-primary mb-2">
+          Attention radar
+        </p>
+        <h1 class="text-3xl sm:text-4xl font-black tracking-[-0.045em] text-highlighted">
+          WSB Heat Board
+        </h1>
+        <p class="mt-2 max-w-2xl text-sm sm:text-base text-muted">
+          The crowd tape, market overlay, and the distance between them.
+        </p>
+      </div>
+      <div v-if="data?.state === 'ok'" class="flex items-center gap-2 text-sm text-muted">
+        <span class="size-2 rounded-full bg-success" />
+        <span>Latest complete window</span>
+      </div>
+    </section>
 
-    <!-- Error state -->
     <UAlert
       v-if="error"
       color="error"
@@ -46,30 +56,38 @@ const generatedAgo = computed(() => {
     />
 
     <template v-if="data">
-      <!-- Window header -->
-      <div v-if="windowHeader" class="space-y-0.5">
-        <p class="text-base font-medium">
+      <section v-if="windowHeader" class="surface-panel rounded-2xl p-4 sm:p-5">
+        <p class="text-[11px] font-bold uppercase tracking-[0.15em] text-primary mb-1.5">
+          Current window
+        </p>
+        <p class="text-sm sm:text-base font-semibold text-highlighted">
           {{ windowHeader }}
         </p>
-        <p v-if="generatedAgo" class="text-xs text-muted">
-          {{ generatedAgo }}
+        <p v-if="generatedAgo" class="mt-1 text-xs text-muted">
+          Published {{ generatedAgo }}
         </p>
-      </div>
+      </section>
 
-      <!-- Status banners -->
       <StatusBanners
         :state="data.state"
         :window="data.window"
         :thresholds="data.thresholds"
       />
 
-      <!-- Board -->
-      <template v-if="data.state === 'ok'">
-        <BoardTable :rows="data.rows" />
+      <section v-if="data.state === 'ok'" class="space-y-8">
+        <div>
+          <div class="flex items-end justify-between gap-4 mb-3">
+            <div>
+              <h2 class="text-lg font-black text-highlighted">Ticker heat</h2>
+              <p class="text-xs text-muted">Ranked by WSB Heat, share-of-voice primary.</p>
+            </div>
+            <span class="hidden sm:block text-xs text-muted">{{ data.rows.length }} tickers</span>
+          </div>
+          <BoardTable :rows="data.rows" />
+        </div>
         <MoversTable :movers="data.movers" />
-      </template>
+      </section>
 
-      <!-- Methodology always shown -->
       <MethodologyCard />
     </template>
   </main>

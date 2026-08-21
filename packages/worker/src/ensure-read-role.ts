@@ -65,6 +65,10 @@ export async function ensureReadRole(
     } else {
       await client.query(`ALTER ROLE ${ro} WITH LOGIN PASSWORD ${pw}`)
     }
+    // Agent-facing longitudinal reads share this role with the web. Bound accidental fan-out so a
+    // broad LAN query cannot starve the single writer's five-minute publish cycle (invariant P1).
+    await client.query(`ALTER ROLE ${ro} SET statement_timeout = '15s'`)
+    await client.query(`ALTER ROLE ${ro} SET default_transaction_read_only = on`)
     await client.query(`GRANT CONNECT ON DATABASE ${db} TO ${ro}`)
     await client.query(`GRANT USAGE ON SCHEMA public TO ${ro}`)
     await client.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${ro}`)

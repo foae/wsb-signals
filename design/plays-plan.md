@@ -355,10 +355,13 @@ option-feed probe outcome recorded in this doc.
 
 ## 8. Slice P6 — agent analysis tooling & polish
 
-- `design/plays-analysis.md`: schema map, canonical SQL, and the **mandatory bias caveats**
-  (invariant P5) an analyzing agent must repeat in its output.
-- `plays-export` CLI (`pnpm -C packages/worker plays-export -- --from … --to … --format json|csv`)
-  → `data/exports/`.
+- `design/plays-analysis.md`: progressive discovery, schema map, API/CLI use, canonical SQL, and the
+  **mandatory bias caveats** (invariant P5) an analyzing agent must repeat in its output.
+- Read-only `GET /api/analysis` catalog + bounded ticker dossiers/play audits; finalized-window
+  semantics and one REPEATABLE READ snapshot per response. `analyze` is the JSON CLI client.
+- `plays-export` CLI (`pnpm -C packages/worker plays-export -- --from … --to …
+  --range-basis post|anchor --format json|csv`) → `data/exports/`, streamed atomically from a direct
+  read-only PG snapshot; anchor basis is mandatory for correlation cohorts.
 - **Reprocess path — a separate queue mode that NEVER touches `status`** (three reviewers
   independently flagged the contradiction with P8's "status never moves backwards"): rows whose
   `extractor_version`/`interpreter_version`/`taxonomy_version` trails current are picked by a

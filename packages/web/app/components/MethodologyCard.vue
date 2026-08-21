@@ -24,7 +24,7 @@ const marketGlossary = [
 </script>
 
 <template>
-  <UCard class="mt-8">
+  <UCard class="surface-panel mt-8 rounded-2xl">
     <template #header>
       <h2 class="text-base font-semibold">
         Column &amp; methodology guide
@@ -34,7 +34,7 @@ const marketGlossary = [
       </p>
     </template>
 
-    <div class="prose prose-sm dark:prose-invert max-w-none text-sm space-y-4">
+    <div class="max-w-none text-sm leading-relaxed text-toned space-y-4">
       <p>
         <strong>The unit is a <code>(ticker, 1-hour window)</code> cell.</strong> Each row is one ticker
         over the current hour, scored by two families: <strong>WSB Heat <code>H_e</code></strong>

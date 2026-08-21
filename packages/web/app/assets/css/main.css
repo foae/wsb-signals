@@ -1,2 +1,146 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
+
+:root {
+  color-scheme: light;
+  --ui-radius: 0.5rem;
+  --ui-container: 96rem;
+
+  --ui-primary: #c25b16;
+  --ui-success: #147653;
+  --ui-info: #3268a8;
+  --ui-warning: #aa6a08;
+  --ui-error: #c33f52;
+
+  --ui-text-dimmed: #929895;
+  --ui-text-muted: #68717a;
+  --ui-text-toned: #4c5762;
+  --ui-text: #29343f;
+  --ui-text-highlighted: #111920;
+  --ui-text-inverted: #fffdf8;
+
+  --ui-bg: #f4f1ea;
+  --ui-bg-muted: #ebe7dd;
+  --ui-bg-elevated: #fffdf8;
+  --ui-bg-accented: #ded8cc;
+  --ui-bg-inverted: #17212b;
+
+  --ui-border: #d8d2c7;
+  --ui-border-muted: #e5dfd5;
+  --ui-border-accented: #bfb7aa;
+  --ui-border-inverted: #17212b;
+}
+
+.dark {
+  color-scheme: dark;
+  --ui-primary: #f2a33a;
+  --ui-success: #42c995;
+  --ui-info: #71a7e5;
+  --ui-warning: #e9ad4d;
+  --ui-error: #f07888;
+
+  --ui-text-dimmed: #66727e;
+  --ui-text-muted: #929eaa;
+  --ui-text-toned: #b7c0c8;
+  --ui-text: #d9dee2;
+  --ui-text-highlighted: #fffaf0;
+  --ui-text-inverted: #111920;
+
+  --ui-bg: #0d141b;
+  --ui-bg-muted: #111b24;
+  --ui-bg-elevated: #17232e;
+  --ui-bg-accented: #223341;
+  --ui-bg-inverted: #fffaf0;
+
+  --ui-border: #293946;
+  --ui-border-muted: #21303c;
+  --ui-border-accented: #405361;
+  --ui-border-inverted: #fffaf0;
+}
+
+html {
+  min-width: 320px;
+  background: var(--ui-bg);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--ui-primary) 8%, transparent) 0, transparent 34rem),
+    var(--ui-bg);
+  color: var(--ui-text);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "kern" 1, "ss01" 1;
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--ui-primary) 24%, transparent);
+}
+
+.page-shell {
+  width: min(100%, var(--ui-container));
+  margin-inline: auto;
+  padding: 2.5rem 1rem 4rem;
+}
+
+.surface-panel {
+  border: 1px solid var(--ui-border);
+  background: color-mix(in srgb, var(--ui-bg-elevated) 94%, transparent);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 5%), 0 12px 32px rgb(15 23 42 / 4%);
+}
+
+.market-table {
+  scrollbar-color: var(--ui-border-accented) transparent;
+}
+
+.market-table table {
+  min-width: 70rem;
+}
+
+.market-table thead {
+  background: var(--ui-bg-muted);
+}
+
+.market-table th {
+  color: var(--ui-text-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.market-table tbody tr {
+  transition: background-color 140ms ease;
+}
+
+.market-table tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--ui-bg-muted) 54%, transparent);
+}
+
+.market-table tbody tr:hover {
+  background: color-mix(in srgb, var(--ui-primary) 8%, var(--ui-bg-elevated));
+}
+
+@media (min-width: 640px) {
+  .page-shell {
+    padding-inline: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-shell {
+    padding-inline: 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

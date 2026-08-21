@@ -47,19 +47,17 @@ function fmtVolume(v: number | null | undefined): string {
 </script>
 
 <template>
-  <div v-if="props.movers.length > 0" class="mt-8">
-    <div class="flex items-baseline gap-3 mb-1">
-      <h2 class="text-base font-semibold">
-        Market movers (free screener — STEALTH candidates)
+  <section v-if="props.movers.length > 0" class="surface-panel rounded-2xl p-5 sm:p-6">
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between mb-2">
+      <h2 class="text-lg font-black text-highlighted">
+        Market movers
       </h2>
       <span v-if="captureLabel" class="text-xs text-muted">{{ captureLabel }}</span>
     </div>
-    <p class="text-xs text-muted mb-3">
-      Market-wide screener snapshot (<code>kind</code>: <code>active</code> / <code>gainer</code> / <code>loser</code>).
-      These are STEALTH candidates: names the market is moving that WSB may not have noticed yet.
-      Captured independently of the WSB window; the timestamp above reflects screener poll time.
+    <p class="text-sm leading-relaxed text-muted mb-4">
+      Free market-wide screener snapshot: active names, gainers, and losers that WSB may not have noticed yet.
     </p>
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto rounded-xl border border-default">
       <UTable :data="props.movers" :columns="columns">
         <template #symbol-cell="{ row }">
           {{ row.original.symbol ?? '—' }}
@@ -67,8 +65,8 @@ function fmtVolume(v: number | null | undefined): string {
         <template #percentChange-cell="{ row }">
           <span
             :class="{
-              'text-green-600 dark:text-green-400': (row.original.percentChange ?? 0) > 0,
-              'text-red-600 dark:text-red-400': (row.original.percentChange ?? 0) < 0,
+              'text-success': (row.original.percentChange ?? 0) > 0,
+              'text-error': (row.original.percentChange ?? 0) < 0,
             }"
           >
             {{ fmtPct(row.original.percentChange) }}
@@ -82,5 +80,5 @@ function fmtVolume(v: number | null | undefined): string {
         </template>
       </UTable>
     </div>
-  </div>
+  </section>
 </template>
