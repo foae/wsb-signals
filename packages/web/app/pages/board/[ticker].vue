@@ -4,8 +4,9 @@ import { fmt2, fmtInt, fmtRankDelta, fmtRet, fmtRvol, fmtSov, fmtUtc } from '~/c
 
 const route = useRoute()
 const ticker = String(route.params.ticker ?? '').toUpperCase()
-const { data, error } = await useFetch(`/api/heat/tickers/${encodeURIComponent(ticker)}`)
+const { data, error, refresh, status } = await useFetch(`/api/heat/tickers/${encodeURIComponent(ticker)}`, { timeout: 10_000 })
 
+useAutoRefresh(data, refresh, 60_000, () => status.value !== 'pending')
 useHead({ title: `${ticker} Heat History — WSB Plays` })
 
 const observed = computed(() => (data.value?.heat ?? []).filter((point) => point.hE != null))

@@ -114,7 +114,11 @@ function resetFilters() {
 }
 
 const query = computed(() => route.query)
-const { data, error } = await useFetch('/api/plays', { query })
+const { data, error, refresh, status } = await useFetch('/api/plays', { query, timeout: 10_000 })
+
+// Plays are published incrementally by the queue loop (60s cadence) — poll faster than the heat board so a
+// freshly published play lands within about one queue cycle.
+useAutoRefresh(data, refresh, 30_000, () => status.value !== 'pending')
 
 const nowSeconds = useNow()
 </script>

@@ -2,20 +2,12 @@
 import { fmtUtc, fmtAgo } from '~/composables/useFormat'
 import { useNow } from '~/composables/useNow'
 
-const { data, error, refresh, status } = await useFetch('/api/board')
+const { data, error, refresh, status } = await useFetch('/api/board', { timeout: 10_000 })
 
 // Client-side now (0 during SSR, then ticking) for relative timestamps — avoids hydration mismatch and
 // keeps "ago" / staleness honest on a long-open page.
 const nowSeconds = useNow()
-let refreshTimer: ReturnType<typeof setInterval> | undefined
-onMounted(() => {
-  refreshTimer = setInterval(() => {
-    if (status.value !== 'pending') void refresh()
-  }, 60_000)
-})
-onBeforeUnmount(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
-})
+useAutoRefresh(data, refresh, 60_000, () => status.value !== 'pending')
 
 const windowProgress = computed(() => {
   const w = data.value?.window

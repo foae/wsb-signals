@@ -9,7 +9,10 @@ import { flairColor, categoryColor, pnlClass } from '~/utils/play-ui'
 // interpretation with evidence chips, permalink, versions footer. Outcome chart lands with P5 marks.
 const route = useRoute()
 const playUrl = computed(() => `/api/plays/${route.params.id}`)
-const { data, error } = await useFetch<PlayDetail>(playUrl)
+const { data, error, refresh, status } = await useFetch<PlayDetail>(playUrl, { timeout: 10_000 })
+
+// The worker can republish a play (new version) while the page is open — stay within one queue cycle.
+useAutoRefresh(data, refresh, 60_000, () => status.value !== 'pending')
 
 const nowSeconds = useNow()
 
