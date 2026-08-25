@@ -52,21 +52,22 @@ export function isRemovedPost(d: RawThing): boolean {
  *  Posts without a well-formed id are dropped — an unidentifiable play can't be deduped or linked,
  *  and the id must be path-safe (PLAY_ID_RE). Posts younger than `captureDelaySeconds` are DEFERRED
  *  (not returned; the poll re-delivers them ~12×/h and they enqueue once old enough) so moderation
- *  has time to act first; posts already removed are SKIPPED (isRemovedPost); text-only posts with
- *  less than `textOnlyMinChars` of selftext are SKIPPED as thin (a bare title can't yield positions
- *  — nothing for the LLM). Null `created_utc` can't prove age — captured anyway rather than
- *  deferred forever. */
+ *  has time to act first; posts already removed are SKIPPED (isRemovedPost). Text-only posts are
+ *  deliberately captured regardless of length: title + short body can still describe a real position,
+ *  and the extraction stage's zero-position result is the semantic no-play filter. Null `created_utc`
+ *  can't prove age — captured anyway rather than deferred forever. */
 export function playRowsFromRaw(
   rawPosts: readonly RawThing[], flairs: ReadonlySet<string>, now: number,
-  captureDelaySeconds: number, textOnlyMinChars: number,
-): { rows: PlayInsert[]; deferred: number; removed: number; thin: number } {
+  captureDelaySeconds: number,
+): { rows: PlayInsert[]; matched: number; deferred: number; removed: number } {
   const out: PlayInsert[] = []
+  let matched = 0
   let deferred = 0
   let removed = 0
-  let thin = 0
   for (const d of rawPosts) {
     const flair = typeof d.link_flair_text === 'string' ? d.link_flair_text : null
     if (flair == null || !flairs.has(flair)) continue
+    matched++
     if (isRemovedPost(d)) {
       removed++
       continue
@@ -75,15 +76,6 @@ export function playRowsFromRaw(
     if (created != null && created > now - captureDelaySeconds) {
       deferred++
       continue
-    }
-    // Thin gate only for genuinely media-less posts — a post whose media later FAILS still proceeds
-    // text-only (a fetch failure is not a content judgment, invariant P7).
-    if (initialMediaStatus(d) === 'none') {
-      const text = typeof d.selftext === 'string' ? d.selftext.trim() : ''
-      if (text.length < textOnlyMinChars) {
-        thin++
-        continue
-      }
     }
     if (typeof d.id !== 'string' || !PLAY_ID_RE.test(d.id)) {
       // Anomalous, not routine: a flair-MATCHED post is being dropped. Silent, this looks like a
@@ -113,23 +105,22 @@ export function playRowsFromRaw(
       nextAttemptAt: now, // due immediately — the queue's next tick picks it up
     })
   }
-  return { rows: out, deferred, removed, thin }
+  return { rows: out, matched, deferred, removed }
 }
 
 export interface CaptureStats {
-  /** Raw posts the poll delivered (the flair-rename canary: matched+deferred+removed all 0 with
-   *  seen>0 for a day ⇒ check `plays.flairs` against the sub — plays-plan §11). */
+  /** Raw posts delivered by the poll. */
   seen: number
+  /** Raw posts whose flair is in the configured plays set, before moderation/defer/id gates. This is
+   *  the flair-rename canary: matched=0 with seen>0 for a day ⇒ check `plays.flairs` (plan §11). */
   matched: number
   inserted: number
-  /** Galleries among the matched set — the P1 gate measures gallery prevalence (plays-plan §3). */
+  /** Galleries among rows eligible for insertion — the P1 gate measures gallery prevalence (plan §3). */
   galleries: number
   /** Flair-matched but younger than the capture delay — will enqueue on a later poll. */
   deferred: number
   /** Flair-matched but already removed/deleted upstream — never enqueued. */
   removed: number
-  /** Flair-matched text-only posts under `text_only_min_chars` — nothing for the LLM, never enqueued. */
-  thin: number
 }
 
 /**
@@ -140,16 +131,15 @@ export interface CaptureStats {
 export async function capturePlays(
   db: Db, rawPosts: readonly RawThing[], config: PlaysConfig, now: number,
 ): Promise<CaptureStats> {
-  const { rows, deferred, removed, thin } = playRowsFromRaw(
-    rawPosts, config.flairs, now, config.captureDelaySeconds, config.textOnlyMinChars)
+  const { rows, matched, deferred, removed } = playRowsFromRaw(
+    rawPosts, config.flairs, now, config.captureDelaySeconds)
   const stats: CaptureStats = {
     seen: rawPosts.length,
-    matched: rows.length,
+    matched,
     inserted: 0,
     galleries: rows.filter((r) => r.isGallery).length,
     deferred,
     removed,
-    thin,
   }
   try {
     let insertedIds: string[] = []

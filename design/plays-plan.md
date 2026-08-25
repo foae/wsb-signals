@@ -136,16 +136,16 @@ that actually exists.
   (invariant P8): the `plays` insert is **`ON CONFLICT DO NOTHING`**, and no writer ever moves
   `status` backwards. Explicitly NOT the radar's `onConflictDoUpdate` house style — that would
   reset status and re-enqueue (and re-charge) every play 12×/hour.
-  **Capture-time junk gates (added 2026-08-20, user decision):** a flair-matched post is (a)
-  **deferred** until it is `capture_delay_minutes` old (default 15 — mods remove junk fast; the
-  ~12×/h re-delivery enqueues it once old enough, so nothing is lost), (b) **skipped** if already
-  removed/deleted upstream (`isRemovedPost`: `[removed]`/`[deleted]` selftext or
-  `removed_by_category` — code-only, no LLM), and (c) **skipped as thin** if it has no resolvable
-  media and under `text_only_min_chars` (default 100) of selftext — a bare title can't yield
-  positions. Downstream, a **zero-position extraction tombstones the play as terminal `discarded`**
-  instead of advancing: no interpret call, hidden from the web, row kept so re-delivery can't
-  re-insert and re-charge it. A media FAILURE still degrades to text-only and proceeds (P7) — the
-  thin gate applies only to posts that never had media.
+  **Capture-time junk gates (added 2026-08-20, revised 2026-08-25 after live audit):** a
+  flair-matched post is (a) **deferred** until it is `capture_delay_minutes` old (default 15 —
+  mods remove junk fast; the ~12×/h re-delivery enqueues it once old enough, so nothing is lost),
+  and (b) **skipped** if already removed/deleted upstream (`isRemovedPost`:
+  `[removed]`/`[deleted]` selftext or `removed_by_category` — code-only, no LLM). Do **not** reject
+  text-only posts by character count: live data included a real position expressed only as
+  `"IOVA in at $8.88"` + `"58k"`, and product §3 accepts title + selftext evidence. Downstream, a
+  **zero-position extraction tombstones the play as terminal `discarded`** instead of advancing:
+  no interpret call, hidden from the web, row kept so re-delivery can't re-insert and re-charge it.
+  A media FAILURE still degrades to text-only and proceeds (P7).
 - **Media resolver** (`plays/media.ts`), per the media shapes (product §3): direct `i.redd.it`
   download; gallery → resolve **locally from the archived raw dict first** (the P1 gate found
   Arctic-Shift DOES archive `gallery_data` + `media_metadata` for fresh gallery posts, contra the

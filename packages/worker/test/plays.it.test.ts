@@ -32,8 +32,7 @@ const TMP = join(tmpdir(), `wsb-plays-it-${process.pid}`)
 
 const playsCfg = (over: Partial<PlaysConfig> = {}): PlaysConfig => ({
   enabled: true, flairs: new Set(['Gain', 'Loss', 'YOLO', 'Verified Trade']), queueIntervalSeconds: 60,
-  captureDelaySeconds: 0, // delay/thin-text semantics are pinned in plays.capture.test.ts; 0 keeps fixtures simple
-  textOnlyMinChars: 0,
+  captureDelaySeconds: 0, // delay semantics are pinned in plays.capture.test.ts; 0 keeps fixtures simple
   maxAttempts: 4, leaseSeconds: 600, mediaRetrySeconds: 600, maxImagesStored: 20, maxImagesLlm: 8,
   maxImageBytes: 10 * 1024 * 1024, maxRequestBytes: 24 * 1024 * 1024, redditUserAgent: 'test-ua',
   mediaDir: TMP,
@@ -283,6 +282,17 @@ describe('radar-cycle integration (invariant P1)', () => {
     expect(row.status).toBe('captured')
     expect(row.mediaStatus).toBe('pending')
     expect(row.raw).toEqual(rawPlay('p1', { title: 'NVDA gain' }))
+  })
+
+  it('plays-only removal filtering does not alter the heat input or published radar window', async () => {
+    const poll = okPoll({
+      rawPosts: [rawPlay('p1', { title: 'NVDA gain', removed_by_category: 'moderator' })],
+    })
+    const res = await runCycle(deps({ source: new FakeSource(() => poll) }), NOW)
+    expect(res.skipped).toBe(false)
+    expect(await pg.db.select().from(plays)).toHaveLength(0)
+    expect((await pg.db.select().from(mentions)).map((row) => row.ticker)).toEqual(['NVDA'])
+    expect(await latestCompleteWindow(pg.db)).toBe(WS)
   })
 
   it('a comments-side-failed poll still captures plays (keys on postsOk), radar discards whole', async () => {

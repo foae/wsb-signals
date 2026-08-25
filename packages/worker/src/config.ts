@@ -75,7 +75,6 @@ interface RawConfig {
     flairs: string[]
     queue_interval_s: number
     capture_delay_minutes?: number
-    text_only_min_chars?: number
     max_attempts: number
     lease_minutes: number
     media_retry_minutes: number
@@ -132,9 +131,6 @@ export interface PlaysConfig {
    *  once old enough). Lets WSB mods remove junk first — no media fetch or LLM spend on posts that
    *  don't survive their first minutes (user decision 2026-08-20; default 15 min). */
   captureDelaySeconds: number
-  /** A post with NO resolvable media needs at least this much selftext to be captured — a bare title
-   *  can't yield positions, so thinner text-only posts never reach the LLM (user decision 2026-08-20). */
-  textOnlyMinChars: number
   maxAttempts: number
   leaseSeconds: number
   mediaRetrySeconds: number
@@ -271,7 +267,6 @@ export function loadConfig(root: string): LoadedConfig {
       flairs: new Set(raw.plays.flairs),
       queueIntervalSeconds: raw.plays.queue_interval_s,
       captureDelaySeconds: (raw.plays.capture_delay_minutes ?? 15) * 60,
-      textOnlyMinChars: raw.plays.text_only_min_chars ?? 100,
       maxAttempts: raw.plays.max_attempts,
       leaseSeconds: raw.plays.lease_minutes * 60,
       mediaRetrySeconds: raw.plays.media_retry_minutes * 60,

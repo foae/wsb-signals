@@ -75,6 +75,10 @@ Per candidate, media falls into these shapes (the first three verified live):
 | Inline images in a self-post | text post with `media_metadata` present (images embedded in `selftext`) | resolve like a gallery — don't silently drop to text-only `[prevalence unverified — measure at P1]` |
 | Text-only | `url` empty or self-permalink, no media | no vision step; the play is analyzed from title + selftext alone |
 
+Character count is not a validity test: a title plus a short body can fully state a position.
+Text-only candidates therefore reach extraction regardless of length; a semantic zero-position
+result is the no-play decision and becomes a terminal `discarded` tombstone.
+
 **Images are archived to disk at capture** (shared volume). Reddit deletes/removes gain-porn posts
 routinely; live-forward capture is the one moment the media is reliably there. Media failure
 (deleted, 404, video) degrades the play to text-only with lowered confidence — it never drops it.
@@ -85,9 +89,10 @@ posts under other flairs (`DD`, `Discussion`) even when they contain position sc
 ## 4. Pipeline stages (product view)
 
 Statuses advance `captured → media_ready → extracted → published` (interpret + denormalize +
-publish are ONE stage advance — plan §5 pins them into a single row update), with `failed` as the
-only off-ramp — and only after bounded retries (media state is tracked separately; a media failure
-degrades the play to text-only, it doesn't park it). Each play is processed by a queue that is
+publish are ONE stage advance — plan §5 pins them into a single row update). Bounded-retry failures
+end at `failed`; a zero-position extraction ends at `discarded`. Media state is tracked separately:
+a media failure degrades the play to text-only rather than parking or failing it. Each play is
+processed by a queue that is
 **structurally isolated and budget-capped so the radar cycle is never delayed or broken by LLM
 trouble** (invariants P1/P9, §8).
 

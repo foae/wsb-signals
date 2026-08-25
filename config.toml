@@ -112,8 +112,6 @@ flairs = ["Gain", "Loss", "YOLO", "Verified Trade"]  # link_flair_text capture g
 queue_interval_s = 60
 capture_delay_minutes = 15     # don't capture a post until it's this old — mods remove junk fast, and a
                                # removed post skipped at capture costs zero media fetches / LLM calls
-text_only_min_chars = 100      # a post with no image needs at least this much selftext to be worth an
-                               # LLM call (a bare title can't yield positions)
 max_attempts = 4               # transient-failure retries before a play is terminally `failed`
 lease_minutes = 10             # stale-claim recovery: claimed_at older than this is re-claimable
 media_retry_minutes = 10       # re-attempt window for transient media-fetch failures before text-only

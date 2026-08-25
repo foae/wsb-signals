@@ -134,9 +134,11 @@ validate → evidence build → LLM interpret/categorize → publish → daily o
 
 Plays modules live under `packages/worker/src/plays/` per `design/plays-plan.md`. Landed at P1:
 `capture.ts` (flair filter + ON CONFLICT DO NOTHING enqueue, called from `runCycle` AFTER
-`publishCycle` commits; since 2026-08-20 also the junk gates — 15-min capture delay, removed-post
-skip, thin text-only skip — and a zero-position extraction tombstones as terminal `discarded`,
-hidden from the web, plays-plan §3), `media.ts` (resolver/archiver: direct + gallery-from-archived-raw (Reddit-JSON fallback, 403-prone) + inline
+`publishCycle` commits; since 2026-08-20 also the 15-min capture delay and removed-post skip; since
+2026-08-25 short text-only posts proceed to extraction because title + short body can describe a
+real position, while a zero-position extraction tombstones as terminal `discarded` and stays hidden
+from the web, plays-plan §3), `media.ts` (resolver/archiver: direct + gallery-from-archived-raw
+(Reddit-JSON fallback, 403-prone) + inline
 self-post images; transient-vs-permanent split), `queue.ts` (the second loop: `FOR UPDATE SKIP
 LOCKED` lease claim on a DEDICATED pool, stale-claim recovery, backoff). Landed at P2:
 `extraction.ts` (the PINNED zod schema + derived direction), `marking.ts` (the pure P2↔P5 markPlay
