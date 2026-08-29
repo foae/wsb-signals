@@ -13,6 +13,13 @@ in docs and analysis output, but the owner removed the disclaimer taglines from 
 
 ## ⚠ Current state — READ THIS FIRST
 
+> **🧊 CONSERVED 2026-08-29 — nothing is deployed and nothing is running.** The Incus CT, its Docker
+> images and **all three data volumes** were deleted; the database and media archive are gone. The
+> code, `design/` docs, `fixtures/` and the open P2–P7 milestone issues survive unchanged.
+> **[`CONSERVATION.md`](./CONSERVATION.md) is authoritative for anything deployment-, secret-,
+> model- or restart-related** — read it before acting on any operational instruction below, since
+> the sections that follow describe the stack **as it ran**, in the present tense.
+
 - **WSB Plays — the product; IN BUILD.** Design approved 2026-08-18; work is sliced **P0–P6** and
   tracked as GitHub Issues under milestone **"WSB Plays v1"** (one issue per slice, with the
   checklist + gate). **Slice P0 (repo repositioning) has landed**: the frozen v0.0.1 Python oracle

@@ -1,5 +1,13 @@
 # WSB Signals
 
+> ## 🧊 Conserved 2026-08-29 — nothing is running
+>
+> The experiment is mothballed. The deployment was torn down (container, images and **all data
+> volumes** deleted); the code, docs, fixtures and open milestone issues are intact.
+> **[`CONSERVATION.md`](./CONSERVATION.md) is the cold-start manual** — deployment target, how to
+> recreate the box, which secret keys to fill and where they live, the LLM/model/harness setup, and
+> what was destroyed. Read it before anything else below.
+
 Two things live here, one product direction:
 
 - **WSB Plays** (the product; **in build**) — capture r/wallstreetbets **Gain / Loss / YOLO**
