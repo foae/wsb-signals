@@ -4,10 +4,15 @@ This deployment runs three Compose services: PostgreSQL, one worker, and the Nux
 The base stack uses ordinary Docker Compose bridge networking. PostgreSQL is private to the Compose
 network; the board is published only at `http://127.0.0.1:3000` on the Docker host.
 
+Requires Docker Engine with Compose v2, provider network access, and disk space for PostgreSQL and
+captured media. The images supply PostgreSQL 18 and Node 24; no host Node installation is needed.
+For local development and checks, see [DEVELOPMENT.md](../../DEVELOPMENT.md).
+
 ## Configure before starting
 
 Copy the tracked template to the ignored runtime environment file and replace its placeholder
-passwords. Keep this file private.
+passwords with independent generated passwords. Keep real credentials in ignored `.env` files or
+`.private/`, never tracked TOML, screenshots, logs or release notes.
 
 ```bash
 cp deploy/v2/.env.example deploy/v2/.env
@@ -59,6 +64,8 @@ ports:
 This makes the board available to processes on the Docker host but not directly to the LAN. Put a
 separately configured reverse proxy in front of it if remote access is required; do not expose the
 database merely to access the board.
+Configure appropriate access controls before remote exposure: this is not a multi-tenant
+authenticated service. The web receives only its read-only database URL, not worker/provider secrets.
 
 Named volumes persist across container restarts and `docker compose down`:
 
@@ -88,6 +95,14 @@ not depend on OAuth credentials.
 
 ## Integrations and LLM operation
 
+Non-secret provider/model selection and spending limits live in the root `config.toml`. Supported
+environment keys are listed in `.env.example`; leave optional credentials empty unless you intend
+to use them.
+
+Arctic-Shift is the sole active source and requires no API key. Starting the worker contacts it;
+incomplete or stale source coverage prevents scoring. Market returns and relative volume are
+day-to-date, not window-aligned, so lead-lag is disabled. Free IEX data has limited market coverage.
+
 `ALPACA_API_KEY` and `ALPACA_API_SECRET` are optional. When they are absent, the worker remains
 usable in empirical-only/cashtag-only degraded mode. Supplying them authorizes the normal worker
 runtime to use the configured market-data integration.
@@ -100,6 +115,14 @@ provider by itself. Before changing the application configuration to the `openai
 and validate the platform models, confirm every selected model has a non-zero pricing entry, and
 run the appropriate evaluation. The existing pricing guard must remain fail-closed: missing or zero
 prices refuse LLM dispatch.
+Select provider/models in `[plays.llm]`, verify current model prices and `daily_budget_usd`, then
+rerun extraction evaluation with redacted image inputs. The committed model settings record an
+evaluated configuration, not guaranteed availability or current API prices. Subscription prices
+are notional and must not be reused as platform billing rates without verification.
+
+Captured media and OAuth stores may contain sensitive information; apply your own retention and
+access policy. JSON fixtures retain public source-post provenance where needed for evaluation,
+but brokerage screenshots are not distributed.
 
 ### Optional OAuth mount
 
