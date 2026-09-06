@@ -10,12 +10,12 @@
 # Build (from repo root):
 #   docker compose -f deploy/v2/compose.yml build worker
 #   # or directly:
-#   docker build -f deploy/v2/worker.Dockerfile --network=host -t wsb-worker:latest .
+#   docker build -f deploy/v2/worker.Dockerfile -t wsb-worker:latest .
 
 FROM node:24-slim
 
-# pnpm via corepack — pinned to match root package.json "packageManager"
-RUN corepack enable && corepack prepare pnpm@11.5.2 --activate
+# Corepack reads the exact pnpm version from package.json after manifests are copied.
+RUN corepack enable
 
 WORKDIR /app
 
@@ -28,7 +28,7 @@ COPY packages/shared/package.json   packages/shared/package.json
 COPY packages/worker/package.json   packages/worker/package.json
 COPY packages/web/package.json      packages/web/package.json
 
-RUN pnpm install --frozen-lockfile --filter @wsb/worker...
+RUN corepack install && pnpm install --frozen-lockfile --filter @wsb/worker...
 
 # ── Layer 2: source + runtime assets ─────────────────────────────────────────
 COPY packages/shared/src            packages/shared/src

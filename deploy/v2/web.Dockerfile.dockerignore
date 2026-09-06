@@ -3,9 +3,11 @@
 # the files actually COPYed are baked in — but we still exclude large/irrelevant trees to keep the
 # context transfer fast.
 
-# Secrets — never baked in; arrive via compose env_file at runtime
-.env
-.env.*
+# Secrets and private inputs never enter the build context, including nested env files.
+**/.env
+**/.env.*
+**/.private/
+.eval-staging/
 
 # Local Python env + caches
 .venv/

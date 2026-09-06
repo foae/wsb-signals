@@ -1,44 +1,25 @@
-# WSB Signals v2 — full deploy: db + worker + web (3 services).
-# The frozen Python radar is NOT deployed — it is the parity oracle only.
+# WSB Signals v2 — Postgres, worker, and read-only web board.
 #
 #   docker compose -f deploy/v2/compose.yml up -d --build
 #   docker compose -f deploy/v2/compose.yml logs -f worker
-#   docker compose -f deploy/v2/compose.yml logs -f web
-#   docker compose -f deploy/v2/compose.yml ps
-#   docker compose -f deploy/v2/compose.yml down            # volumes (PG data + worker data dir) survive
-#   docker compose -f deploy/v2/compose.yml down -v         # WIPES all volumes (loses history)
+#   docker compose -f deploy/v2/compose.yml down            # keeps named volumes
+#   docker compose -f deploy/v2/compose.yml down -v         # removes all history and media
 #
-# NETWORKING — this host is Docker-inside-Incus/LXC, where the default docker bridge has NO egress
-# (NAT through the nested netns fails), so all services use `network_mode: host` and the build uses
-# `network: host`. The worker MUST have egress (Arctic-Shift + Alpaca + heartbeat).
-# With host networking Postgres is reachable at localhost:5432, so DATABASE_URL must use localhost.
-# The web board is reachable at http://localhost:3000 (no port mapping needed with host networking).
-#
-# ON A NORMAL DOCKER HOST: drop `network_mode: host` from all services and `network: host` from the
-# builds, put all services on the default bridge, and use service names in connection URLs:
-#   DATABASE_URL=postgres://<user>:<pw>@db:5432/<dbname>
-#   NUXT_DATABASE_URL=postgres://<web_ro_user>:<web_ro_pw>@db:5432/<dbname>
-# Add explicit port mappings to expose services externally:
-#   db:     ports: ["5432:5432"]    (if external DB access is needed)
-#   web:    ports: ["3000:3000"]    (to reach the board from outside the host)
+# Services use Compose's default bridge network. Postgres is intentionally internal-only;
+# the worker and web connect to it by the service hostname `db`. The board is published only
+# on the Docker host's loopback interface at http://127.0.0.1:3000.
 name: wsb-signals-v2
 
 services:
-
-  # ── Postgres ──────────────────────────────────────────────────────────────
-  # Named volume persists all DB data across restarts and recreates.
-  # Only `down -v` deletes it (intentional — don't unless wiping history).
   db:
     image: postgres:18-alpine
     restart: unless-stopped
-    network_mode: host
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-wsb}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-wsb_signals}
     volumes:
-      # postgres:18+ images keep PGDATA in a version-specific subdirectory and require the mount
-      # one level up, at /var/lib/postgresql — mounting .../data makes the entrypoint refuse to start.
+      # postgres:18+ stores PGDATA in a version-specific child directory, so mount its parent.
       - wsb-v2-pg:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wsb} -d ${POSTGRES_DB:-wsb_signals}"]
@@ -47,70 +28,48 @@ services:
       retries: 5
       start_period: 15s
 
-  # ── Worker ────────────────────────────────────────────────────────────────
-  # The SINGLE Postgres writer. Runs the 5-min poll loop; acquires an advisory lock on boot so
-  # a second instance fails fast rather than double-writing. Runs migrateToLatest on boot — no
-  # separate migration step needed. Do not scale beyond 1 replica.
+  # Single Postgres writer. It migrates on boot and uses an advisory lock, so do not scale it.
   worker:
     build:
       context: ../..
       dockerfile: deploy/v2/worker.Dockerfile
-      network: host          # build-time egress to npmjs.com (nested-bridge has none); harmless elsewhere
     image: wsb-worker:latest
     restart: unless-stopped
-    # SIGTERM must outlive an in-flight LLM call + the graceful two-loop wind-down (P2, plays-plan
-    # §1) — compose's 10s default would SIGKILL mid-extraction and waste the paid call.
+    # Allow an in-flight LLM call and the graceful two-loop wind-down to finish on SIGTERM.
     stop_grace_period: 60s
-    network_mode: host       # runtime egress to Arctic-Shift / Alpaca / heartbeat
-    env_file: .env           # provides DATABASE_URL, ALPACA_API_KEY, ALPACA_API_SECRET (see .env.example)
+    env_file: .env
+    # OAuth is opt-in through the private overlay documented in README.md. Clearing this also
+    # prevents a legacy CODEX_AUTH_FILE value in .env from enabling a missing mount.
     environment:
-      # Codex-subscription LLM auth (P2): the container path of the mounted pi auth file. Empty =
-      # extraction off (rows rest at media_ready). Set via .env together with PI_AUTH_JSON below.
-      CODEX_AUTH_FILE: ${CODEX_AUTH_FILE:-}
+      CODEX_AUTH_FILE: ""
     volumes:
       - wsb-v2-data:/app/data
-      # Plays media archive (plays-plan §1): worker writes screenshots under data/media/plays/<post_id>/;
-      # the web mounts the SAME volume read-only and serves it via /api/media/**.
+      # The worker writes media; the web mounts this same volume read-only.
       - wsb-v2-media:/app/data/media
-      # Codex OAuth file (established by `codex-login`, self-refreshed thereafter), read-only, for
-      # [plays.llm].provider = "openai-codex". Defaults to /dev/null when PI_AUTH_JSON is unset so
-      # the mount is inert on non-codex deploys. (Var/path names are historical — retired `pi`.)
-      - ${PI_AUTH_JSON:-/dev/null}:/app/secrets/pi-auth.json:ro
     depends_on:
       db:
         condition: service_healthy
-    # Heartbeat = Arctic-Shift freshness probe. Exits non-zero when the sole live tap is stale or
-    # down → container shows `unhealthy` in `docker compose ps`. See deploy/v2/README.md
-    # ("Healthcheck and the freshness runbook") for the stale/down response playbook.
+    # This freshness probe reports the state of the live ingest source.
     healthcheck:
       test: ["CMD", "pnpm", "-C", "packages/worker", "heartbeat"]
       interval: 10m
-      # 90s covers two sequential Arctic-Shift probes (each up to ingest.request_timeout=60s on a
-      # slow-but-alive tap) plus the pnpm/tsx spawn — a 30s timeout could kill a recoverable probe.
       timeout: 90s
       retries: 2
       start_period: 3m
 
-  # ── Web ──────────────────────────────────────────────────────────────────────
-  # Nuxt 4 SSR read-only board. Connects to Postgres via the read-only role
-  # provisioned by the worker on boot (WEB_RO_USER / WEB_RO_PASSWORD). The worker
-  # must have run at least once before the web service is meaningful (the role is
-  # created by the worker's ensure-read-role boot step, not by an init script).
-  # NUXT_DATABASE_URL is set in .env; it must reference the same credentials as
-  # WEB_RO_USER / WEB_RO_PASSWORD and the same POSTGRES_DB.
-  # The board is available at http://localhost:3000 (host networking) once healthy.
+  # Nuxt SSR board. Its database role is provisioned by the worker and is read-only.
   web:
     build:
       context: ../..
       dockerfile: deploy/v2/web.Dockerfile
-      network: host          # build-time egress to npmjs.com (nested-bridge has none); harmless elsewhere
     image: wsb-web:latest
     restart: unless-stopped
-    network_mode: host       # runtime: web binds :3000 on the host; reaches Postgres at localhost:5432
-    env_file: .env           # provides NUXT_DATABASE_URL (see .env.example)
+    ports:
+      - "127.0.0.1:3000:3000"
     volumes:
-      - wsb-v2-media:/app/data/media:ro   # plays screenshots — read-only; served via /api/media/**
+      - wsb-v2-media:/app/data/media:ro
     environment:
+      NUXT_DATABASE_URL: ${NUXT_DATABASE_URL:?NUXT_DATABASE_URL must be set in .env}
       NITRO_PORT: 3000
       HOST: 0.0.0.0
       NUXT_MEDIA_DIR: /app/data/media/plays
@@ -125,10 +84,7 @@ services:
       start_period: 20s
 
 volumes:
-  # wsb-v2-pg: Postgres data — persists across restarts/recreates; only `down -v` wipes it.
+  # All named volumes survive restarts and `docker compose down`; only `down -v` removes them.
   wsb-v2-pg:
-  # wsb-v2-data: worker data dir (/app/data — .last_poll).
   wsb-v2-data:
-  # wsb-v2-media: plays media archive — worker writes, web reads (~500 MB/month at ~45 plays/day;
-  # a retention/pruning knob lands with P6 — plays-plan §8).
   wsb-v2-media:

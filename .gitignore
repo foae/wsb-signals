@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+.private/
+!.env.*.example
 
 # Local data store (forward-collected; not for git)
 data/

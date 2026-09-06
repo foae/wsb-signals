@@ -21,7 +21,7 @@ Choose the narrowest useful surface:
 The HTTP CLI uses `WSB_ANALYSIS_URL` (default `http://localhost:3000`). Example:
 
 ```bash
-WSB_ANALYSIS_URL=http://127.0.0.1:3000 \
+WSB_ANALYSIS_URL=http://localhost:3000 \
   pnpm -C packages/worker analyze -- ticker NVDA \
   --from 2026-08-01 --to 2026-08-21 --pretty
 ```

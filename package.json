@@ -1,12 +1,14 @@
 {
   "name": "wsb-signals-v2",
+  "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
-  "description": "WSB Signals v2 — full-stack TypeScript (worker + web). See design/v2-plan.md.",
+  "description": "WSB Signals v2 - full-stack TypeScript (worker + web). See design/v2-plan.md.",
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "pnpm@11.5.2",
+  "packageManager": "pnpm@12.3.4",
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "test": "pnpm -r --if-present run test",

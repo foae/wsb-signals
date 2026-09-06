@@ -1,7 +1,8 @@
 {
   "name": "@wsb/shared",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -15,7 +16,7 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

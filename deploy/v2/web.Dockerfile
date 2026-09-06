@@ -15,13 +15,13 @@
 # Build (from repo root):
 #   docker compose -f deploy/v2/compose.yml build web
 #   # or directly:
-#   docker build -f deploy/v2/web.Dockerfile --network=host -t wsb-web:latest .
+#   docker build -f deploy/v2/web.Dockerfile -t wsb-web:latest .
 
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
 FROM node:24-slim AS builder
 
-# pnpm via corepack — pinned to match root package.json "packageManager"
-RUN corepack enable && corepack prepare pnpm@11.5.2 --activate
+# Corepack reads the exact pnpm version from package.json after manifests are copied.
+RUN corepack enable
 
 WORKDIR /app
 
@@ -34,7 +34,7 @@ COPY packages/shared/package.json   packages/shared/package.json
 COPY packages/worker/package.json   packages/worker/package.json
 COPY packages/web/package.json      packages/web/package.json
 
-RUN pnpm install --frozen-lockfile --filter @wsb/web...
+RUN corepack install && pnpm install --frozen-lockfile --filter @wsb/web...
 
 # ── Layer 2: source ───────────────────────────────────────────────────────────
 # @wsb/shared is consumed as TS source (package.json "exports" → ./src/*.ts);

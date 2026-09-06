@@ -1,183 +1,143 @@
-# WSB Signals
+# WSB Signals / WSB Plays
 
-> ## 🧊 Conserved 2026-08-29 — nothing is running
->
-> The experiment is mothballed. The deployment was torn down (container, images and **all data
-> volumes** deleted); the code, docs, fixtures and open milestone issues are intact.
-> **[`CONSERVATION.md`](./CONSERVATION.md) is the cold-start manual** — deployment target, how to
-> recreate the box, which secret keys to fill and where they live, the LLM/model/harness setup, and
-> what was destroyed. Read it before anything else below.
+A self-hosted research application for exploring r/wallstreetbets attention and screenshot posts. It combines a ticker radar with a browseable board of individual trades:
 
-Two things live here, one product direction:
+- **Radar:** ingest posts/comments from Arctic-Shift, extract ticker mentions, calculate share-of-voice-based WSB Heat, and optionally overlay Alpaca market data as Market Heat.
+- **Plays:** capture Gain/Loss/YOLO posts, archive media, extract positions with a vision model, validate the extraction, and interpret it using stored market and community evidence.
+- **Web and analysis:** Nuxt server-rendered boards, filters, ticker history, read-only analysis APIs/CLI, and JSON/CSV exports.
 
-- **WSB Plays** (the product; **in build**) — capture r/wallstreetbets **Gain / Loss / YOLO**
-  screenshot posts, extract the actual positions from the broker screenshots (vision LLM),
-  interpret how the gamble played out against real market data, categorize the play
-  (dumb-luck / high-risk-high-reward / herd-following / …), track its outcome over time, and
-  publish a browseable board of plays.
-- **The trending radar** (running today; becomes the Plays **data subsystem**) — a near-live
-  leaderboard of which tickers WSB is piling into *right now* (share-of-voice → **WSB Heat
-  `H_e`**), overlaid with Alpaca market data (**Market Heat `H_m`**) and badged by
-  attention×action divergence. Its mentions history is the herd/trend evidence Plays consumes.
+This is observational research, not financial advice or a predictive trading system. Screenshot posts are self-selected and gains are overrepresented; outcomes must not be aggregated into per-ticker win rates.
 
-> **Status.** The **radar is v2** — full-stack TypeScript, built and cutover-approved
-> (2026-06-09): a standalone Node **worker** (`packages/worker`) polls Arctic-Shift every 5 min,
-> computes the SoV-primary `H_e` board, overlays Alpaca (`ret`/`rvol` → `H_m`), and publishes
-> atomically to **Postgres**; a read-only **Nuxt 4 SSR board** (`packages/web`) serves it.
-> **Plays** is design-approved (2026-08-18) and being built in slices **P0–P6**, tracked as
-> GitHub Issues under milestone **"WSB Plays v1"** — spec in
-> [`design/plays-product.md`](./design/plays-product.md), build plan in
-> [`design/plays-plan.md`](./design/plays-plan.md).
->
-> The original **v0.0.1 Python radar** (the v2 parity oracle) has been **pruned from `main`**
-> (slice P0) — recover it at tag `v0.0.1` (the frozen radar) or `oracle-final` (radar + the
-> fixture-dump harness). The committed golden fixtures in [`fixtures/`](./fixtures/README.md)
-> remain the regression net pinning the scoring math.
->
-> **This is observational/correlational research, not financial advice.** WSB *moves* the names
-> it discusses (reflexivity), gain-posts are survivorship-biased, and the sub is a
-> manipulation-prone environment. The system *measures* the attention↔market relationship — and
-> documents individual gambles — it does not predict returns. See [Honest caveats](#honest-caveats).
+## Status and limitations
 
-## WSB Plays (the product being built)
+The previous deployment was retired; **no hosted service, database or screenshot archive is included**. New deployments collect new data. The TypeScript stable release includes the implemented radar and Plays capture/extraction/interpretation/web functionality, not every planned milestone:
 
-```
- radar poll (flair-matched raw posts) ──► capture + media archive ──► LLM extract (vision)
-      ──► validate ──► evidence build (radar herd/trend + market) ──► LLM interpret/categorize
-      ──► publish to the plays board ──► daily outcome marks (Alpaca) until resolution
-```
+- Daily outcome tracking is **not implemented**; the detail page's outcome section is a placeholder.
+- Human acceptance gates for extraction, interpretation and browsing remain incomplete.
+- Reprocessing and some operational tooling remain unfinished.
+- Arctic-Shift is the sole active source. Incomplete or stale source coverage prevents scoring.
+- Market returns and relative volume are day-to-date, not window-aligned; lead-lag is disabled. Free IEX data has limited market coverage.
+- LLM extraction requires your own provider access. Committed model settings record an evaluated configuration, not guaranteed availability or current API prices.
 
-One worker process, three isolated loops (radar / plays queue / marks job), same Postgres.
-Everything is specified in [`design/plays-product.md`](./design/plays-product.md) (capture
-contract, extraction schema, taxonomy, outcome tracking, invariants P1–P9) and
-[`design/plays-plan.md`](./design/plays-plan.md) (architecture deltas, per-slice plans and gates).
+See [CONSERVATION.md](CONSERVATION.md) and [the build plan](design/plays-plan.md) for details.
 
-## The radar (running today)
+## Repository layout
 
-Per **(ticker, time-window)** cell, two comparable signal families and their interaction:
+| Path | Contents |
+| --- | --- |
+| `packages/shared` | Drizzle/PostgreSQL schema, migrations and shared contracts |
+| `packages/worker` | Ingest/scoring worker, Plays queue, media/LLM processing and analysis CLIs |
+| `packages/web` | Nuxt 4 SSR boards and read-only APIs |
+| `config.toml` | Non-secret tunables, provider/model selection and spending limits |
+| `deploy/v2` | Dockerfiles, Compose deployment and sanitized environment example |
+| `fixtures` | JSON parity and extraction fixtures; screenshot images are not distributed |
+| `design` | Product specifications, architecture, scoring math and analysis contracts |
+| `sources` | Data-provider references and access limitations |
+| `scripts/release.mjs` | Version alignment and guarded GitHub publication |
 
-- **Empirical** (what the *community* does): mention volume & share-of-voice, momentum
-  (velocity/accel/z), bet direction (calls vs puts), flair mix, conviction → **WSB Heat `H_e`**.
-- **Analytical** (what the *market* does): price return, relative volume → **Market Heat `H_m`**.
+## Prerequisites
 
-The board badges each hot ticker by quadrant — **Confirmed** (chatter + market agree), **Hype**
-(loud, no follow-through), **Stealth** (market moving, WSB hasn't noticed), **Quiet** — plus a
-rolling **lead-lag** estimate. Full model: [`design/signal-framework.md`](./design/signal-framework.md).
+For deployment: Docker Engine with Docker Compose v2, network access to the configured data providers, and disk space for PostgreSQL and captured media. The supplied stack uses PostgreSQL 18 and Node 24 images; no host Node installation is required for Docker deployment.
 
-## Running it
-
-**Node 24 LTS + [pnpm](https://pnpm.io/)** (pinned via `.nvmrc` + `packageManager`), in a pnpm
-monorepo: `packages/shared` (Drizzle schema + types), `packages/worker` (the radar + plays loops),
-`packages/web` (the board).
-
-**Run it for real → Docker Compose (3 services: db + worker + web):**
+For development/checks: **Node 24 LTS** (`.nvmrc`) and **pnpm 12.3.4** (pinned in `package.json`). Docker is also required for integration tests. Use your Node version manager, then install the pinned package manager:
 
 ```bash
-cp deploy/v2/.env.example deploy/v2/.env               # set POSTGRES_PASSWORD + ALPACA_API_KEY/SECRET
-docker compose -f deploy/v2/compose.yml up -d --build  # Postgres + worker (migrates on boot) + web on :3000
-docker compose -f deploy/v2/compose.yml logs -f worker # live cycle logs
+npm install --global pnpm@12.3.4
+pnpm install --frozen-lockfile
 ```
 
-The worker is the single Postgres writer (atomic per-cycle publish, advisory lock, heartbeat
-healthcheck) and provisions the **read-only** role the web uses. Full notes:
-[`deploy/v2/README.md`](./deploy/v2/README.md).
+Dependency updates retain a **72-hour publication-age safeguard** (`minimumReleaseAge: 4320`), so very recent stable releases are intentionally deferred. Node type declarations stay on the Node 24 line. TypeScript stays on the latest release supported by the Nuxt ESLint toolchain rather than forcing an incompatible major.
 
-**Develop locally:**
+Two upstream **optional-peer warnings** remain: Nuxt CLI's `@bomb.sh/tab` declares cac 6 while cac 7 is installed, and the HTML validator declares Vitest up to 3 while this workspace uses 5. Their parents still pin those older adapters; this project does not force out-of-range transitive upgrades. The documented build, lint, CLI and test paths are verified. Scoped esbuild overrides retain security fixes.
+
+The GitHub CLI (`gh`) and push/release permission are required only for publishing releases.
+
+## Quick start: Docker Compose
 
 ```bash
-pnpm install                          # workspace install (Node 24; native builds pre-approved)
-pnpm -r --if-present run typecheck    # tsc (shared/worker) + nuxt typecheck (web)
-pnpm -r --if-present run test         # unit + parity tests (vs fixtures/), Docker-free
-pnpm -C packages/worker test:it       # testcontainers Postgres integration tests — needs Docker
-pnpm -C packages/worker dev           # the 5-min poll loop (needs DATABASE_URL + ALPACA_*)
-pnpm -C packages/worker build-whitelist  # Alpaca ticker universe → whitelist/symbols.txt (refresh weekly)
-pnpm -C packages/worker heartbeat     # Arctic-Shift freshness probe; exits 0 OK / 1 stale / 2 down
-pnpm -C packages/web dev              # the Nuxt board against the same Postgres (read-only)
+git clone https://github.com/foae/wsb-signals.git
+cd wsb-signals
+cp deploy/v2/.env.example deploy/v2/.env
 ```
 
-Tunables (cadence, regex, `H_e`/`H_m` weights, plays knobs) live in `config.toml`; secrets only in
-env / the gitignored `.env` files.
+Edit `deploy/v2/.env` **before starting**:
 
-**Operations (single-tap safety).** Arctic-Shift is the *only* live source (PullPush frozen, Reddit
-API excluded), so the `heartbeat` CLI probes newest-item lag and **exits non-zero when the tap is
-stale (1) or down (2)** — it doubles as the worker container's healthcheck. The worker keeps
-polling through an outage (it self-heals), so on alarm the runbook is an **operator action**: don't
-trust signals while stale, and if the tap stays down, **stop the worker yourself** rather than
-publish stale signals (there is no free fallback); re-test before resuming. Threshold:
-`heartbeat.max_staleness_seconds`. Transient Arctic-Shift
-throttling (`422 "slow down"`/5xx) is absorbed by bounded retry-with-backoff in the ingest.
+1. Replace both example database passwords with independent generated passwords.
+2. Keep `POSTGRES_*` and the worker's `DATABASE_URL` consistent.
+3. Keep `WEB_RO_*` and the web's `NUXT_DATABASE_URL` consistent. Percent-encode special characters in URL passwords.
+4. Leave optional integration credentials empty unless you intend to use them.
 
-## History (v0.0.1 → v2 → Plays)
+```bash
+docker compose -f deploy/v2/compose.yml up -d --build
+docker compose -f deploy/v2/compose.yml ps
+docker compose -f deploy/v2/compose.yml logs -f worker
+```
 
-The radar was first built in Python + DuckDB + Streamlit (**v0.0.1**, Phase 0→2), then re-implemented
-in TypeScript (**v2**) with the frozen Python tree as the **parity oracle**: golden fixtures were
-dumped from it (`fixtures/`, still committed) and a live replay-vs-oracle shadow gate diffed the two
-until cutover **passed (2026-06-09)**. With the gate's job done, the Python tree and the shadow
-machinery were pruned from `main` (Plays slice P0, 2026-08-18):
+Open **http://localhost:3000** for Plays, **/board** for the radar, or **/api/analysis** for analysis discovery. An empty board is expected until usable data has been collected and finalized. The worker applies migrations and creates the web's read-only database role; initial web health can briefly fail during that setup.
 
-- tag **`v0.0.1`** — the frozen Python radar;
-- tag **`oracle-final`** — the last commit carrying the oracle tree *plus* the `oracle/`
-  fixture-dump/replay harness (use this to regenerate `fixtures/` — see
-  [`fixtures/README.md`](./fixtures/README.md));
-- [`ROADMAP.md`](./ROADMAP.md) — the full phased history.
+PostgreSQL is internal to the Compose network; the web port binds to loopback only. The web receives only its read-only database URL, not worker/provider secrets. Configure a reverse proxy and appropriate access controls yourself before exposing it remotely. This is not a multi-tenant authenticated service.
 
-## Honest caveats
+Stopping with `docker compose -f deploy/v2/compose.yml down` preserves named volumes. Adding `-v` **permanently deletes database and media history**. See [the deployment guide](deploy/v2/README.md) for persistence, optional OAuth configuration and operations.
 
-1. **Correlational, not predictive.** Reported as *association + divergence*; never a "buy" signal.
-2. **Reflexivity.** A measured "WSB leads" can be WSB *causing* the move (pump-then-revert), not
-   forecasting it.
-3. **Survivorship bias.** Winners post Gains; losers go quiet → raw gain-counts overstate success.
-   For Plays this is a hard rule: outcome/P&L stays **per-post**, never aggregated into a
-   per-ticker "win rate".
-4. **Manipulation & bots.** WSB is explicitly speculative/manipulation-prone; bot/brigade/promo
-   noise is real → de-noise (distinct authors, bot filtering).
-5. **Thin free-feed volume.** `rvol` is low-confidence on free IEX data; firm only on paid SIP.
-6. **Liveness verified — but single-source.** Arctic-Shift is ~real-time (2026-06-03 probe) ✅, but
-   PullPush is frozen @2025-05-19, so Arctic-Shift is the *only* recent-data source — a single
-   point of failure guarded by an **active freshness heartbeat**, not passive header-watching.
-7. **STEALTH is bounded on free data.** Free Alpaca screeners (most-actives + movers) are the one
-   market-wide read; full STEALTH detection is parked with the old radar roadmap (see ROADMAP).
+## Configuration and integrations
 
-## Documentation map
+Real credentials belong in ignored `.env` files or `.private/`, never tracked TOML, screenshots, logs or release notes. The public environment example lists the supported keys.
 
-**`design/`** — how the system works:
-- [`plays-product.md`](./design/plays-product.md) — **the WSB Plays product spec** (capture,
-  extraction, taxonomy, outcomes, invariants). **The active direction.**
-- [`plays-plan.md`](./design/plays-plan.md) — the Plays build plan (slices P0–P6, config, deps).
-- [`signal-framework.md`](./design/signal-framework.md) — the two-family model, normalization,
-  `H_e`/`H_m`, divergence quadrants, lead-lag (version-agnostic concept behind the radar).
-- [`v2-plan.md`](./design/v2-plan.md) — the v2 radar blueprint + as-built record.
-- [`v2-porting-spec.md`](./design/v2-porting-spec.md) — the Python→TS parity contract (gate
-  executed + passed; §12 tombstoned).
-- [`architecture.md`](./design/architecture.md) — pipeline/schema/cadence as designed for v0.0.1;
-  the §5 invariants still hold in v2.
+- **Arctic-Shift:** configured in `config.toml`; no API key is required. Starting the worker contacts the source. Its freshness probe reports stale/down conditions; do not treat old board data as current.
+- **Alpaca (optional):** `ALPACA_API_KEY` and `ALPACA_API_SECRET` enable the market overlay and whitelist builder. Without them the radar is empirical-only and ticker extraction falls back to cashtags. The worker attempts a whitelist build on startup; failure is non-fatal.
+- **LLM (optional):** the committed configuration selects OAuth. Base Compose deliberately has no auth-file mount, so capture/media can run while extraction waits at `media_ready`. Follow the optional overlay instructions in the deployment guide to supply credentials. Merely setting `OPENAI_API_KEY` does **not** change the selected provider.
+- **Platform API alternative:** explicitly select `openai` and available models in `[plays.llm]`, set `OPENAI_API_KEY`, verify current non-zero model prices and `daily_budget_usd`, then rerun the extraction evaluation with redacted image inputs. Missing credentials/prices fail closed. Subscription prices are notional and must not be reused as platform billing rates without verification.
 
-**`sources/`** — what the data is and how to get it:
-- [`wallstreetbets.md`](./sources/wallstreetbets.md) — the subreddit (culture, flairs, rules,
-  ticker conventions, biases).
-- [`reddit-data-access.md`](./sources/reddit-data-access.md) — **strategy:** which tap for what;
-  the live-vs-archive freshness problem.
-- [`arctic-shift-api.md`](./sources/arctic-shift-api.md) — exhaustive Arctic-Shift API reference.
-- [`pullpush-api.md`](./sources/pullpush-api.md) — exhaustive PullPush API reference (frozen tap).
-- [`market-data-access.md`](./sources/market-data-access.md) — **strategy:** the `MarketData`
-  funnel; Alpaca vs Massive.
-- [`alpaca.md`](./sources/alpaca.md) — Alpaca reference (endpoints, IEX/SIP, options, MCP).
-- [`massive.md`](./sources/massive.md) / [`ibkr.md`](./sources/ibkr.md) — alternative providers.
-- [`UPDATING.md`](./sources/UPDATING.md) — recipes for refreshing these source docs.
+Captured media and OAuth stores may contain sensitive information. Keep them private and apply your own retention/access policy. JSON fixtures retain public source-post provenance where needed for evaluation; they do not include brokerage screenshots.
 
-[`ROADMAP.md`](./ROADMAP.md) — phased build history and the current direction.
+## Development and verification
 
-## Glossary
+From the repository root, with the pinned toolchain installed:
 
-- **Play** — one captured Gain/Loss/YOLO post: the screenshots, the extracted positions, the
-  interpretation, and its tracked outcome.
-- **Tap** — a Reddit archive API (Arctic-Shift, PullPush). **Funnel** — the pluggable market-data
-  provider interface (Alpaca, Massive).
-- **SoV** — share of voice = a ticker's mentions ÷ all mentions in a window.
-- **`z`** — mentions vs the ticker's own hour-of-week baseline ("is this unusual?").
-- **`H_e` / `H_m`** — WSB Heat (empirical) / Market Heat (analytical), each a normalized composite.
-- **Divergence** — `H_e − H_m`; **Quadrants** — Confirmed / Hype / Stealth / Quiet.
-- **RVOL** — relative volume = volume ÷ the ticker's average (market twin of SoV/z).
-- **IEX vs SIP** — single-exchange (~2.5% volume, free) vs consolidated full-market feed (paid).
-- **Flair** — WSB's enforced post label (DD/YOLO/Gain/Loss/News/Discussion); a high-integrity
-  signal — and the Plays capture trigger.
+```bash
+pnpm typecheck
+pnpm test                         # unit + golden-fixture parity tests; no Docker
+pnpm lint
+pnpm build                       # Nuxt production SSR build
+pnpm -C packages/worker test:it   # isolated PostgreSQL containers; Docker required
+pnpm -C packages/worker heat-extract-eval
+```
+
+The worker consumes TypeScript through `tsx`; shared contracts are source exports, not separately built packages. To run a local worker against your own PostgreSQL instance, inject `DATABASE_URL` and optional provider variables into its environment and use `pnpm -C packages/worker dev`. Run `pnpm -C packages/web dev` with `NUXT_DATABASE_URL` pointing to the read-only role the worker provisions. Do not reuse the Compose-only `db` hostname outside its network. Environment files are not implicitly loaded by the worker CLI; export them in your shell or use your process manager's environment-file support.
+
+Analyze an already-running local deployment:
+
+```bash
+pnpm -C packages/worker analyze -- catalog --pretty
+pnpm -C packages/worker analyze -- ticker NVDA --from 2026-08-01 --to 2026-08-21 --pretty
+```
+
+`WSB_ANALYSIS_URL` overrides the default `http://localhost:3000`. Queries over dates with no stored data return no evidence. Direct exports require a database connection; see [design/plays-analysis.md](design/plays-analysis.md).
+
+## Versioning and releases
+
+All workspace packages share semantic versions. Each shipped change gets a version bump, an immutable annotated `vX.Y.Z` tag, and a stable GitHub release with an accurate title and notes. CI must pass on the **exact commit being tagged**.
+
+```bash
+node scripts/release.mjs prepare X.Y.Z
+pnpm install --lockfile-only --no-frozen-lockfile
+# Verify, commit, push main, and wait for its CI run.
+node scripts/release.mjs publish X.Y.Z "Release title" .private/release-notes.md
+```
+
+The publish command checks clean state, matching remote HEAD, aligned versions, successful CI and absence of an existing tag/release. It then tags, pushes, publishes and verifies. See [CLAUDE.md](CLAUDE.md) for the full contributor/release workflow, including interrupted-publication recovery. GitHub release notes serve as the changelog.
+
+Historical tags `v0.0.1` (Python radar) and `oracle-final` (Python plus fixture tools) are retained for reproducibility; they are not versions of the current TypeScript packages. Public preparation rewrites their history to remove private material and authorship credits. Old commit IDs may not resolve; old clones/caches cannot be erased by rewriting this remote. See [fixtures/README.md](fixtures/README.md) before regenerating fixtures.
+
+## Design references
+
+- [Plays product and invariants](design/plays-product.md)
+- [Plays implementation plan](design/plays-plan.md)
+- [Radar scoring framework](design/signal-framework.md)
+- [TypeScript architecture](design/v2-plan.md) and [parity contract](design/v2-porting-spec.md)
+- [Analysis API/CLI and canonical SQL](design/plays-analysis.md)
+- [Historical roadmap](ROADMAP.md) and [provider documentation](sources/UPDATING.md)
+
+## License
+
+Original project code and documentation are [MIT licensed](LICENSE). Third-party dependencies retain their own licenses. Reddit posts, broker screenshots, market data and other third-party material are not relicensed by this project; source attribution in fixtures does not grant redistribution or commercial-use rights. Follow the relevant providers' terms and obtain any permissions your use requires.
